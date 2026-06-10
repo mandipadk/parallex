@@ -1,0 +1,18 @@
+# Swift / SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+xcuserdata/
+*.xcodeproj
+
+# Build output
+dist/
+
+# PoC: keep the reference source (launcher.c), exclude built artifacts.
+# The built bundle embeds the target app's (third-party) icon and a signed
+# binary; the mechanism is documented in PLAN.md.
+poc/launcher
+poc/*.app/
