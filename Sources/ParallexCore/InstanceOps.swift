@@ -196,6 +196,13 @@ public enum InstanceCreator {
             )
         }
         let wrapperURL = outDir.appendingPathComponent("\(instanceName).app")
+        if let owner = registryOwning(wrapperURL),
+           owner.standardizedFileURL.resolvingSymlinksInPath().path
+            != Paths.instancesRoot.standardizedFileURL.resolvingSymlinksInPath().path {
+            throw ParallexError(
+                "\(wrapperURL.path) belongs to another Parallex library (\(Paths.abbreviate(owner.path))) — pick another name."
+            )
+        }
         if fm.fileExists(atPath: wrapperURL.path) && !request.force {
             throw ParallexError(
                 "\(wrapperURL.path) already exists. Rebuild with force (only Parallex wrappers are replaced), "
@@ -302,6 +309,17 @@ public enum InstanceCreator {
     ) throws -> CreateResult {
         let fm = FileManager.default
         var settings = change.settings ?? manifest.effectiveSettings
+
+        // Two libraries (PARALLEX_HOME) can hold records naming the same
+        // app; only the library the app was built for may rebuild it.
+        if let owner = registryOwning(URL(fileURLWithPath: manifest.wrapperPath)),
+           owner.standardizedFileURL.resolvingSymlinksInPath().path
+            != Paths.instancesRoot.standardizedFileURL.resolvingSymlinksInPath().path {
+            throw ParallexError(
+                "\(manifest.wrapperPath) belongs to another Parallex library (\(Paths.abbreviate(owner.path))), "
+                + "so it wasn't changed."
+            )
+        }
 
         // A clone *is* the running app: replacing it (or swapping it for a
         // wrapper) under a live process would strand that process in the
@@ -614,6 +632,21 @@ public enum InstanceCreator {
     }
 
     // MARK: Helpers
+
+    /// The instances folder a built instance app reports to (from the pid
+    /// file its launcher writes), or nil if it isn't a Parallex app or
+    /// doesn't say.
+    static func registryOwning(_ app: URL) -> URL? {
+        let plist = app.appendingPathComponent("Contents/Info.plist")
+        guard let info = NSDictionary(contentsOf: plist) as? [String: Any],
+              let config = info[ParallexConfig.rootKey] as? [String: Any],
+              let pidFile = config[ParallexConfig.Key.pidFile] as? String
+        else {
+            return nil
+        }
+        // <instances>/<slug>/instance.pid
+        return URL(fileURLWithPath: pidFile).deletingLastPathComponent().deletingLastPathComponent()
+    }
 
     static func suggestName(targetName: String, outputDirectory: URL) -> String {
         for index in 2...999 {

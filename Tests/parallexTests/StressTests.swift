@@ -139,6 +139,20 @@ final class StressTests: XCTestCase {
         assertConsistent()
     }
 
+    func testAnotherLibraryCannotRebuildThisLibrarysApp() throws {
+        let manifest = try InstanceCreator.create(request("Mine"), builderOptions: options).manifest
+        let before = try Data(contentsOf: URL(fileURLWithPath: manifest.wrapperPath).appendingPathComponent("Contents/Info.plist"))
+        // A second library holding a copy of the record (a test or QA
+        // library copied from the real one).
+        let other = tempDir.appendingPathComponent("other-library")
+        setenv("PARALLEX_HOME", other.path, 1)
+        defer { setenv("PARALLEX_HOME", tempDir.appendingPathComponent("support").path, 1) }
+        try InstanceStore.save(manifest)
+        XCTAssertThrowsError(try InstanceCreator.update(manifest, InstanceUpdate()))
+        let after = try Data(contentsOf: URL(fileURLWithPath: manifest.wrapperPath).appendingPathComponent("Contents/Info.plist"))
+        XCTAssertEqual(before, after, "the other library's app is untouched")
+    }
+
     func testCorruptManifestDoesNotHideOtherInstances() throws {
         _ = try InstanceCreator.create(request("Healthy"), builderOptions: options)
         let broken = Paths.instanceDir(slug: "broken")
