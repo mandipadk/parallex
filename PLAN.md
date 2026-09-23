@@ -211,4 +211,14 @@ Defaults: `--mode auto` (doctor logic), wrapper written to `/Applications`, data
    Instance icons are built from the icon macOS shows for the app (asset catalogs), so they
    aren't placed on a backing plate on macOS 26. Recipes can declare unavoidably shared folders
    (Claude's logs). `parallex apps`; per-instance "open when Parallex starts".
-7. **Later/optional** — badge style options; published Homebrew tap.
+7. **v0.8** — per-instance global shortcuts (open / bring forward / hide; `edit --shortcut`),
+   ⌘1–9 in the switcher; notifications for a running copy behind its app (Restart Now), a
+   missing app, a failed repair, and Parallex updates; What's New after upgrading; built-in
+   updates from GitHub Releases (daily check, Ed25519-signed archives verified against a key
+   compiled into the app, atomic swap and relaunch); the `parallex` command bundled in the app
+   and linkable from Settings; `make dist` / `make publish` (signed zip for the updater, DMG for
+   downloads). Creation takes a registry lock (safe concurrent creates); names without Latin
+   letters get a transliterated or hashed slug; names that reduce to the same slug get distinct
+   slugs. Stress tests cover churn, awkward names, concurrency, corrupt manifests, and targets
+   that move or disappear.
+8. **Later/optional** — badge style options; published Homebrew tap.

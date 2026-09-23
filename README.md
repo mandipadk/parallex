@@ -96,6 +96,20 @@ data, so isolation is something you can see rather than assume.
 
 ## Install
 
+**[Download Parallex for Mac](https://github.com/mandipadk/parallex/releases/latest/download/Parallex.dmg)**
+(macOS 14 or later, Apple silicon and Intel), open the disk image, and drag
+Parallex to Applications. Releases aren't notarized yet, so the first time you
+open it macOS asks you to confirm: open **System Settings › Privacy & Security**
+and choose **Open Anyway**.
+
+After that, Parallex keeps itself up to date. It checks GitHub Releases once a
+day (Settings › About), shows what's new, and installs an update in one click.
+It installs only archives signed with the Parallex release key, which is built
+into the app. The `parallex` command ships inside the app: **Settings › About ›
+Install** links it onto your PATH, so it updates along with the app.
+
+### From source
+
 ```sh
 make app-install        # builds and installs /Applications/Parallex.app (GUI)
 make install            # universal CLI binaries → Homebrew prefix if writable,
@@ -121,7 +135,9 @@ shows everything about it, editable in place:
   recipe options, and **Verify Isolation**, which shows what the running
   instance actually has open.
 - **Appearance** — name, color, badge, and icon, with a live preview.
-- **Launch** — open the instance whenever Parallex starts.
+- **Launch** — open the instance whenever Parallex starts, and give it a
+  global keyboard shortcut. Pressing the shortcut opens the instance, brings it
+  forward, or hides it when it's already in front.
 - **Storage** — disk usage, clearing caches, removing leftovers.
 - **Advanced** — isolation mode, extra environment and arguments, paths.
 
@@ -130,6 +146,14 @@ make them. Problems (a moved or missing original, an outdated wrapper, a copy
 older than its app) show at the top with a one-click fix. **New Instance**
 (⌘N) offers your installed apps sorted by how well they duplicate, then a live
 preview of the instance's icon as you name and color it.
+
+**Notifications** are kept to the few that need you:
+- a running own-identity copy whose app has updated (with **Restart Now**)
+- an instance whose app is gone
+- an automatic repair that failed
+- a Parallex update
+
+Each arrives once per change.
 
 **The menu bar** holds every instance one click away and shows which one is in
 front. Parallex runs from there: it has a Dock icon only while its window is
@@ -154,11 +178,14 @@ parallex doctor <app> [--json]
 `<app>` can be a path (`/Applications/Claude.app`), a name (`Claude`), or a
 bundle identifier (`com.anthropic.claudefordesktop`).
 
+Give an instance a global shortcut (the Parallex app must be running to
+register it): `parallex edit "Claude Work" --shortcut ctrl+opt+1`.
+
 Useful `create` options:
 
 | Option | |
 |--------|--|
-| `--name` | display name (default `<App> 2`, `<App> 3`, …) |
+| `--name` | display name (default `<App> 2`, `<App> 3`, …); any language works |
 | `--badge W` / `--badge-color "#FF375F"` | letter badge on the icon to tell instances apart |
 | `--mode auto\|data-dir\|home\|launch-only` | override isolation mode |
 | `--out DIR` | where the wrapper goes (default `/Applications`) |
@@ -238,5 +265,5 @@ try with `--env`. Recipes live in `Presets.recipes`.
 
 ## Status
 
-v0.7 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
+v0.8 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
 in [poc/](poc/).

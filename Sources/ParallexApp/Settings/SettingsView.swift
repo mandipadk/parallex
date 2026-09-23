@@ -1,5 +1,6 @@
 import AppKit
 import ParallexCore
+import ParallexKit
 import ServiceManagement
 import SwiftUI
 
@@ -26,6 +27,8 @@ private struct GeneralSettings: View {
     @AppStorage(PreferenceKey.switcherHotKey) private var switcherHotKey = true
     @AppStorage(PreferenceKey.autoMaintain) private var autoMaintain = true
     @AppStorage(PreferenceKey.onboardingCompleted) private var onboardingCompleted = true
+    @AppStorage(PreferenceKey.notifyProblems) private var notifyProblems = true
+    @AppStorage(PreferenceKey.notifyUpdates) private var notifyUpdates = true
     @State private var loginStatus = SMAppService.mainApp.status
     @State private var loginError: String?
     @Environment(\.openWindow) private var openWindow
@@ -65,6 +68,19 @@ private struct GeneralSettings: View {
                 Text("Maintenance")
             } footer: {
                 Text("When Parallex updates, an app moves, or an app with an own-identity copy updates, Parallex rebuilds the affected instances while they're not running. Their data is never touched.")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Section {
+                Toggle("When an instance needs attention", isOn: $notifyProblems)
+                Toggle("When a Parallex update is available", isOn: $notifyUpdates)
+            } header: {
+                Text("Notifications")
+            } footer: {
+                Text("Parallex only speaks up for a copy that's behind its app, an app that went missing, or a repair that didn't work — each once, with the fix one click away.")
                     .font(Theme.Font.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
@@ -237,31 +253,143 @@ private struct LinksSettings: View {
 // MARK: - About
 
 private struct AboutSettings: View {
+    @Environment(Updater.self) private var updater
+    @Environment(\.showWhatsNew) private var showWhatsNew
+    @Environment(\.checkForUpdates) private var checkForUpdates
+    @State private var tool = CommandLineTool.status()
+    @State private var toolError: String?
+
     var body: some View {
-        VStack(spacing: Theme.Space.l) {
-            ParallelMark(size: 72, split: 1)
-                .padding(.top, Theme.Space.xl)
-            VStack(spacing: 4) {
-                Text("Parallex").font(Theme.Font.title)
-                Text("Version \(ParallexConfigVersion.current)")
-                    .font(Theme.Font.callout)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            Text("Every app, as many times as you need.")
-                .font(Theme.Font.body)
-                .foregroundStyle(.secondary)
-            HStack(spacing: Theme.Space.s) {
-                Link(destination: URL(string: "https://github.com/mandipadk/parallex")!) {
-                    Text("Source on GitHub")
+        @Bindable var updater = updater
+        Form {
+            Section {
+                HStack(spacing: Theme.Space.l) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 56, height: 56)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Parallex").font(Theme.Font.title)
+                        Text("Version \(ParallexConfig.version)")
+                            .font(Theme.Font.callout)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Spacer()
+                    Button("What's New") { showWhatsNew() }
                 }
-                .buttonStyle(.secondary)
+                .padding(.vertical, Theme.Space.xs)
             }
-            Text("Free and open source under the MIT License.")
-                .font(Theme.Font.caption)
-                .foregroundStyle(.tertiary)
-                .padding(.bottom, Theme.Space.xl)
+
+            Section {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(updateStatus)
+                        if let lastChecked = updater.lastChecked {
+                            Text("Last checked \(lastChecked.formatted(.relative(presentation: .named)))")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Button(updater.available == nil ? "Check Now" : "Update…") { checkForUpdates() }
+                        .disabled(updater.phase == .checking)
+                }
+                Toggle("Check for updates automatically", isOn: $updater.automaticChecks)
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text("Parallex looks for a new version once a day. Updates are verified against Parallex's signing key before they're installed.")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if tool != .notBundled {
+                Section {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(toolTitle)
+                            Text(toolDetail)
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                        Spacer()
+                        if case .linked = tool {
+                            EmptyView()
+                        } else {
+                            Button(toolButton, action: installTool)
+                        }
+                    }
+                    if let toolError {
+                        Text(toolError).font(Theme.Font.callout).foregroundStyle(Theme.failure)
+                    }
+                } header: {
+                    Text("Command line")
+                } footer: {
+                    Text("Create, list and open instances from Terminal and scripts. The command stays in step with the app when it updates.")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            Section {
+                HStack {
+                    Text("Free and open source under the MIT License.")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Link("GitHub", destination: URL(string: "https://github.com/mandipadk/parallex")!)
+                }
+            }
         }
-        .frame(maxWidth: .infinity)
+        .formStyle(.grouped)
+        .onAppear { tool = CommandLineTool.status() }
+    }
+
+    private var updateStatus: String {
+        switch updater.phase {
+        case .checking: "Checking…"
+        case .available(let release), .downloading(let release, _), .installing(let release):
+            "Parallex \(release.version) is available"
+        case .failed: "The last check didn't finish"
+        default: "Parallex is up to date"
+        }
+    }
+
+    private var toolTitle: String {
+        switch tool {
+        case .linked: "The parallex command is installed"
+        case .separate: "Another copy of the parallex command is installed"
+        default: "Install the parallex command"
+        }
+    }
+
+    private var toolDetail: String {
+        switch tool {
+        case .linked(let url): url.path
+        case .separate(let url): "\(url.path) — replace it with the app's copy so they update together."
+        default: "Adds parallex to your PATH."
+        }
+    }
+
+    private var toolButton: String {
+        if case .separate = tool { return "Use App's Copy" }
+        return "Install"
+    }
+
+    private func installTool() {
+        toolError = nil
+        do {
+            let link = try CommandLineTool.install()
+            if !CommandLineTool.isOnPath(link.deletingLastPathComponent()) {
+                toolError = "Installed at \(link.path). Add \(link.deletingLastPathComponent().path) to your PATH to use it."
+            }
+        } catch {
+            toolError = "Couldn't install the command: \(error.localizedDescription)"
+        }
+        tool = CommandLineTool.status()
     }
 }

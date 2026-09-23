@@ -6,10 +6,17 @@ import SwiftUI
 struct MainWindow: View {
     @Environment(AppModel.self) private var model
     @AppStorage(PreferenceKey.onboardingCompleted) private var onboardingCompleted = false
+    #if DEBUG
+    @Environment(Updater.self) private var updater
+    #endif
 
     var body: some View {
         #if DEBUG
-        if let app = DebugRoute.inlineCreate {
+        if DebugRoute.showsWhatsNew {
+            WhatsNewView {}
+        } else if let phase = DebugRoute.updatePhase {
+            UpdateView {}.onAppear { updater.debugShow(phase) }
+        } else if let app = DebugRoute.inlineCreate {
             NewInstanceFlow(preselected: app.isEmpty ? nil : URL(fileURLWithPath: app))
         } else if DebugRoute.showsSettings {
             SettingsView()
@@ -168,13 +175,24 @@ struct SidebarRow: View {
         case .running:
             StatusPill(state: .running)
         case .stopped:
-            Text(size.map { InstanceStorage.format($0) } ?? "Not running")
+            Text(stoppedDetail)
                 .font(Theme.Font.caption)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
         case .attention, .broken:
             StatusPill(state: entry.runState)
         }
+    }
+
+    /// Its data size — or, for an instance whose data folder is still all
+    /// but empty, that it hasn't been opened yet.
+    private var stoppedDetail: String {
+        guard let size else { return "Not running" }
+        if size < 64 * 1024 {
+            return "Not opened yet"
+        }
+        let shortcut = entry.manifest.settings?.shortcut.map { " · \($0.displayString)" } ?? ""
+        return InstanceStorage.format(size) + shortcut
     }
 }
 

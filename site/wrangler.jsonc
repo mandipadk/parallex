@@ -1,0 +1,8 @@
+{
+  "name": "parallex-site",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./dist"
+  },
+  "routes": [{ "pattern": "parallex.mandip.dev", "custom_domain": true }]
+}

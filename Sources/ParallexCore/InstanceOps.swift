@@ -170,10 +170,23 @@ public enum InstanceCreator {
         let outDir = request.outputDirectory.standardizedFileURL
         try ensureWritableDirectory(outDir)
 
+        // Choosing a name and slug, then claiming them, must not interleave
+        // with another create (a second `parallex create`, or the app).
+        let lock = try InstanceStore.creationLock()
+        defer { lock.release() }
+
         let instanceName = try resolveName(request.name, targetName: target.name, outDir: outDir)
-        let slug = Slug.make(instanceName)
-        guard !slug.isEmpty else {
-            throw ParallexError("Instance name '\(instanceName)' contains no letters or digits — pick another name.")
+        var slug = Slug.forInstance(named: instanceName)
+        // Different names can reduce to the same slug ("Claude—Work",
+        // "Claude Work"); only the same name counts as "already exists".
+        if let taken = InstanceStore.load(slug: slug),
+           taken.name.localizedCaseInsensitiveCompare(instanceName) != .orderedSame {
+            let base = slug
+            var index = 2
+            while InstanceStore.load(slug: slug) != nil || fm.fileExists(atPath: Paths.instanceDir(slug: slug).path) {
+                slug = "\(base)-\(index)"
+                index += 1
+            }
         }
 
         let existing = InstanceStore.load(slug: slug)
@@ -620,7 +633,10 @@ public enum InstanceCreator {
         guard let requested else {
             return suggestName(targetName: targetName, outputDirectory: outDir)
         }
-        let trimmed = requested.trimmingCharacters(in: .whitespacesAndNewlines)
+        // One line, single-spaced: tabs and newlines pasted into a name
+        // would otherwise end up in file names and menus.
+        let trimmed = requested.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .joined(separator: " ")
         guard !trimmed.isEmpty else {
             throw ParallexError("The instance name must not be empty.")
         }

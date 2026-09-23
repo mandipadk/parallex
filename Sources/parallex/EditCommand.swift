@@ -56,6 +56,15 @@ struct Edit: ParsableCommand {
     @Flag(help: "Remove all extra arguments.")
     var clearArgs = false
 
+    @Option(help: ArgumentHelp(
+        "Global shortcut that opens the instance, e.g. ctrl+opt+1 or ⌃⌥W (needs the Parallex app running).",
+        valueName: "keys"
+    ))
+    var shortcut: String?
+
+    @Flag(help: "Remove the instance's global shortcut.")
+    var noShortcut = false
+
     @Argument(parsing: .postTerminator, help: .hidden)
     var passthroughArguments: [String] = []
 
@@ -65,6 +74,17 @@ struct Edit: ParsableCommand {
         }
         if resetIcon && icon != nil {
             throw ValidationError("--reset-icon can't be combined with --icon.")
+        }
+        if noShortcut && shortcut != nil {
+            throw ValidationError("--no-shortcut can't be combined with --shortcut.")
+        }
+        if let shortcut {
+            guard let parsed = KeyShortcut(parsing: shortcut) else {
+                throw ValidationError("Couldn't read the shortcut “\(shortcut)”. Use a form like ctrl+opt+1 or cmd+shift+k.")
+            }
+            guard parsed.isValidGlobal else {
+                throw ValidationError("A global shortcut needs ⌃ or ⌥ (or a function key), so it doesn't take over typing or app shortcuts like ⌘C.")
+            }
         }
     }
 
@@ -104,6 +124,28 @@ struct Edit: ParsableCommand {
         }
         if !passthroughArguments.isEmpty {
             settings.extraArguments = passthroughArguments
+        }
+        if noShortcut {
+            settings.shortcut = nil
+        }
+        if let shortcut, let parsed = KeyShortcut(parsing: shortcut) {
+            if let owner = InstanceStore.loadAll().first(where: {
+                $0.slug != manifest.slug && $0.effectiveSettings.shortcut?.sameKeys(as: parsed) == true
+            }) {
+                throw ValidationError("\(parsed.displayString) already opens “\(owner.name)”.")
+            }
+            settings.shortcut = parsed
+        }
+
+        // Bookkeeping-only changes (a shortcut) save without a rebuild.
+        if name == nil, icon == nil, !resetIcon, !noBadge,
+           !manifest.effectiveSettings.requiresRebuild(toReach: settings) {
+            let saved = try InstanceCreator.saveSettings(settings, for: manifest)
+            print("\(Term.green("✓")) Updated “\(saved.name)”")
+            if let shortcut = saved.settings?.shortcut {
+                print("  Shortcut  \(shortcut.displayString)")
+            }
+            return
         }
 
         let result = try InstanceCreator.update(

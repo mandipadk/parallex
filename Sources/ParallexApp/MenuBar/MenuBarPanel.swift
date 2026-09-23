@@ -8,6 +8,8 @@ struct MenuBarPanel: View {
     let showSwitcher: () -> Void
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
+    @Environment(Updater.self) private var updater
+    @Environment(\.checkForUpdates) private var checkForUpdates
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,9 +54,24 @@ struct MenuBarPanel: View {
             .padding(6)
             divider
             HStack {
-                Text("Parallex \(ParallexConfigVersion.current)")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(.tertiary)
+                if let release = updater.available {
+                    Button {
+                        closePanel()
+                        checkForUpdates()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Circle().fill(Theme.accent).frame(width: 6, height: 6)
+                            Text("Update to \(release.version)")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .font(Theme.Font.caption.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                } else {
+                    Text("Parallex \(ParallexConfigVersion.current)")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(.tertiary)
+                }
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }
                     .buttonStyle(.plain)
@@ -148,6 +165,12 @@ private struct PanelInstanceRow: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
+                    if let shortcut = entry.manifest.settings?.shortcut, !hovering {
+                        Text(shortcut.displayString)
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(.tertiary)
+                            .transition(.opacity)
+                    }
                     if entry.running {
                         Circle()
                             .fill(Theme.running)

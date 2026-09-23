@@ -67,6 +67,11 @@ final class AppModel {
     private(set) var isolation: [String: IsolationResult] = [:]
     private(set) var catalog: [CatalogApp] = []
     private(set) var catalogState: LoadState = .idle
+    /// Instances whose shortcut another app already owns.
+    private(set) var unavailableShortcuts: Set<String> = []
+    /// While a shortcut is being recorded, instance shortcuts stand down so
+    /// pressing one records it instead of firing it.
+    var recordingShortcut = false
 
     enum LoadState { case idle, loading, loaded }
 
@@ -82,7 +87,7 @@ final class AppModel {
     }
 
     /// Instances whose automatic repair failed this session (not retried).
-    @ObservationIgnored private var maintenanceFailures: Set<String> = []
+    private(set) var maintenanceFailures: Set<String> = []
     @ObservationIgnored private var maintaining = false
 
     @ObservationIgnored private var refreshTimer: Timer?
@@ -263,6 +268,42 @@ final class AppModel {
         return result
     }
 
+    /// Quit a running instance, bring it up to date, and open it again —
+    /// for a copy that's behind its app.
+    func restart(_ entry: InstanceEntry) {
+        guard let pid = entry.pid, let app = NSRunningApplication(processIdentifier: pid) else {
+            launch(entry)
+            return
+        }
+        let id = entry.id
+        Task {
+            app.terminate()
+            // Apps may ask to save first; give them a while.
+            for _ in 0..<240 where !app.isTerminated {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+            guard app.isTerminated else {
+                errorMessage = "\(entry.name) didn't quit, so it wasn't restarted."
+                return
+            }
+            // Automatic upkeep may already be rebuilding it after the quit.
+            while busy.contains(id) {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            refresh()
+            guard var current = entries.first(where: { $0.id == id }) else { return }
+            if !current.status.problems.isEmpty, current.status.problems.allSatisfy(\.isMaintainable) {
+                do {
+                    _ = try await update(current, InstanceUpdate())
+                } catch {
+                    errorMessage = "Couldn't update \(entry.name): \(error)"
+                }
+                current = entries.first(where: { $0.id == id }) ?? current
+            }
+            launch(current)
+        }
+    }
+
     // MARK: - Maintenance
 
     /// Rebuild instances that only need routine upkeep — built by an older
@@ -281,6 +322,11 @@ final class AppModel {
         maintaining = true
         Task {
             for entry in due {
+                // Something else (a restart, an edit) may have taken it on
+                // since the list was made.
+                if busy.contains(entry.id) || Running.isRunning(entry.manifest) {
+                    continue
+                }
                 let manifest = entry.manifest
                 busy.insert(entry.id)
                 do {
@@ -357,6 +403,31 @@ final class AppModel {
             try InstanceCreator.probe(appAt: url)
         }.value
     }
+
+    // MARK: - Shortcuts
+
+    func setUnavailableShortcuts(_ slugs: Set<String>) {
+        if slugs != unavailableShortcuts {
+            unavailableShortcuts = slugs
+        }
+    }
+
+    /// Why `shortcut` can't be used for the instance `slug`, if it can't.
+    func shortcutConflict(_ shortcut: KeyShortcut, for slug: String) -> String? {
+        if !shortcut.isValidGlobal {
+            return "Include ⌃ or ⌥, so it doesn't take over typing or shortcuts like ⌘C."
+        }
+        if shortcut.sameKeys(as: Self.switcherShortcut),
+           UserDefaults.standard.bool(forKey: PreferenceKey.switcherHotKey) {
+            return "\(shortcut.displayString) opens the switcher."
+        }
+        if let owner = entries.first(where: { $0.id != slug && $0.manifest.settings?.shortcut?.sameKeys(as: shortcut) == true }) {
+            return "\(shortcut.displayString) already opens “\(owner.name)”."
+        }
+        return nil
+    }
+
+    static let switcherShortcut = KeyShortcut(keyCode: 0x31, modifiers: [.control, .option], key: "Space")
 
     // MARK: - Helpers
 

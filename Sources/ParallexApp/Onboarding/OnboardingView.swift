@@ -1,4 +1,5 @@
 import ParallexCore
+import ParallexKit
 import ServiceManagement
 import SwiftUI
 
@@ -123,6 +124,8 @@ struct OnboardingView: View {
         defaults.set(choice.outlines, forKey: PreferenceKey.tagWindows)
         defaults.set(choice.switcher, forKey: PreferenceKey.switcherHotKey)
         defaults.set(true, forKey: PreferenceKey.onboardingSeen)
+        // Someone who just met the app doesn't need What's New for it.
+        defaults.set(ParallexConfig.version, forKey: PreferenceKey.lastSeenVersion)
         NotificationCenter.default.post(name: .parallexPreferencesChanged, object: nil)
 
         Task {

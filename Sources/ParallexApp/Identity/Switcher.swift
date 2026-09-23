@@ -30,6 +30,13 @@ final class SwitcherController {
         }
     }
 
+    /// The number-row keys by key code, so ⌘1–9 work on any layout (AZERTY's
+    /// number row types "&", "é", … without Shift).
+    private static let digitKeys: [Int: Int] = [
+        kVK_ANSI_1: 1, kVK_ANSI_2: 2, kVK_ANSI_3: 3, kVK_ANSI_4: 4, kVK_ANSI_5: 5,
+        kVK_ANSI_6: 6, kVK_ANSI_7: 7, kVK_ANSI_8: 8, kVK_ANSI_9: 9,
+    ]
+
     func toggle() {
         if panel?.isVisible == true {
             close()
@@ -61,6 +68,15 @@ final class SwitcherController {
         }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.panel?.isKeyWindow == true else { return event }
+            // ⌘1–⌘9 pick a row directly.
+            if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+               let digit = Self.digitKeys[Int(event.keyCode)] {
+                let list = self.state.filtered
+                if list.indices.contains(digit - 1) {
+                    self.choose(list[digit - 1])
+                }
+                return nil
+            }
             switch Int(event.keyCode) {
             case kVK_Escape:
                 self.close()
@@ -139,6 +155,8 @@ struct SwitcherItem: Identifiable {
     let color: NSColor?
     let icon: NSImage
     let kind: Kind
+    /// The instance's own global shortcut, shown as a reminder.
+    var shortcut: String?
 
     @MainActor
     func perform(_ model: AppModel) {
@@ -166,7 +184,8 @@ struct SwitcherItem: Identifiable {
                 subtitle: entry.running ? "\(entry.targetName) instance · running" : "\(entry.targetName) instance",
                 color: entry.nsColor,
                 icon: IconCache.icon(for: entry.iconPath),
-                kind: .instance(entry)
+                kind: .instance(entry),
+                shortcut: entry.manifest.settings?.shortcut?.displayString
             ))
         }
         // One row per original app: jump to it if it's running (a process
@@ -259,7 +278,7 @@ struct SwitcherView: View {
                             Button {
                                 onChoose(item)
                             } label: {
-                                row(item, selected: index == state.selection)
+                                row(item, index: index, selected: index == state.selection)
                             }
                             .buttonStyle(.plain)
                             .id(item.id)
@@ -283,6 +302,7 @@ struct SwitcherView: View {
             HStack(spacing: Theme.Space.l) {
                 hint("↩", "Switch")
                 hint("↑↓", "Move")
+                hint("⌘1–9", "Jump")
                 hint("esc", "Close")
                 Spacer()
             }
@@ -307,7 +327,7 @@ struct SwitcherView: View {
         .foregroundStyle(.secondary)
     }
 
-    private func row(_ item: SwitcherItem, selected: Bool) -> some View {
+    private func row(_ item: SwitcherItem, index: Int, selected: Bool) -> some View {
         HStack(spacing: 10) {
             Image(nsImage: item.icon)
                 .resizable()
@@ -330,6 +350,19 @@ struct SwitcherView: View {
                     .foregroundStyle(selected ? .white.opacity(0.8) : .secondary)
             }
             Spacer()
+            HStack(spacing: 8) {
+                if let shortcut = item.shortcut {
+                    Text(shortcut)
+                        .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                }
+                if index < 9 {
+                    Text("⌘\(index + 1)")
+                        .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                        .opacity(0.7)
+                }
+            }
+            .monospacedDigit()
+            .foregroundStyle(selected ? .white.opacity(0.85) : .secondary)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -338,56 +371,5 @@ struct SwitcherView: View {
                 .fill(selected ? Theme.accent : .clear)
         )
         .contentShape(.rect)
-    }
-}
-
-/// A system-wide hotkey via the Carbon event API (no Accessibility
-/// permission needed).
-@MainActor
-final class GlobalHotKey {
-    nonisolated(unsafe) private var hotKeyRef: EventHotKeyRef?
-    nonisolated(unsafe) private var handlerRef: EventHandlerRef?
-    private let action: @MainActor () -> Void
-
-    private static var actions: [UInt32: @MainActor () -> Void] = [:]
-    private static var nextID: UInt32 = 1
-    private let id: UInt32
-
-    init?(keyCode: UInt32, modifiers: UInt32, action: @escaping @MainActor () -> Void) {
-        self.action = action
-        id = Self.nextID
-        Self.nextID += 1
-
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
-            var hotKeyID = EventHotKeyID()
-            GetEventParameter(
-                event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
-                nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID
-            )
-            let pressed = hotKeyID.id
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    GlobalHotKey.actions[pressed]?()
-                }
-            }
-            return noErr
-        }, 1, &eventType, nil, &handlerRef)
-        guard status == noErr else { return nil }
-
-        let hotKeyID = EventHotKeyID(signature: OSType(0x5058_484B), id: id) // 'PXHK'
-        guard RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef) == noErr else {
-            if let handlerRef { RemoveEventHandler(handlerRef) }
-            handlerRef = nil
-            return nil
-        }
-        Self.actions[id] = action
-    }
-
-    deinit {
-        if let hotKeyRef { UnregisterEventHotKey(hotKeyRef) }
-        if let handlerRef { RemoveEventHandler(handlerRef) }
-        let id = self.id
-        MainActor.assumeIsolated { _ = GlobalHotKey.actions.removeValue(forKey: id) }
     }
 }

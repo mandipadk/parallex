@@ -1,5 +1,5 @@
 #if DEBUG
-import Foundation
+import SwiftUI
 
 /// Development only: open a specific screen at launch for visual review,
 /// e.g. `PARALLEX_UI_ROUTE=onboarding:2` or `PARALLEX_UI_ROUTE=create`.
@@ -29,5 +29,21 @@ enum DebugRoute {
 
     static var showsMenuPanel: Bool { value == "panel" }
     static var showsSettings: Bool { value == "settings" }
+    /// `PARALLEX_UI_SCROLL=center|bottom` scrolls the detail pane.
+    static var scrollAnchor: UnitPoint? {
+        switch ProcessInfo.processInfo.environment["PARALLEX_UI_SCROLL"] {
+        case "center": .center
+        case "bottom": .bottom
+        default: nil
+        }
+    }
+
+    static var showsWhatsNew: Bool { value == "whatsnew" }
+
+    /// `update:available`, `update:downloading`, `update:current`, `update:failed`.
+    static var updatePhase: String? {
+        guard let value, value.hasPrefix("update:") else { return nil }
+        return String(value.dropFirst("update:".count))
+    }
 }
 #endif

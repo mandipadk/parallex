@@ -39,7 +39,10 @@ extension View {
     @ViewBuilder
     func prominentAction() -> some View {
         if #available(macOS 26.0, *) {
-            self.buttonStyle(.glassProminent).tint(Theme.accent).controlSize(.extraLarge)
+            // A custom style rather than `.glassProminent`: as the default
+            // (Return) button, the system style is drawn as a rounded
+            // rectangle, which breaks the capsule language.
+            self.buttonStyle(GlassCapsuleButtonStyle(prominent: true))
         } else {
             self.buttonStyle(CapsuleButtonStyle(prominent: true))
         }
@@ -49,10 +52,34 @@ extension View {
     @ViewBuilder
     func quietAction() -> some View {
         if #available(macOS 26.0, *) {
-            self.buttonStyle(.glass).controlSize(.extraLarge)
+            self.buttonStyle(GlassCapsuleButtonStyle(prominent: false))
         } else {
             self.buttonStyle(CapsuleButtonStyle(prominent: false))
         }
+    }
+}
+
+/// Liquid Glass capsule buttons: accent-tinted glass for the primary action,
+/// clear glass (never tinted) for the quiet one beside it.
+@available(macOS 26.0, *)
+struct GlassCapsuleButtonStyle: ButtonStyle {
+    let prominent: Bool
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(prominent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .padding(.horizontal, 22)
+            .frame(height: 40)
+            .contentShape(.capsule)
+            .glassEffect(
+                prominent ? .regular.tint(Theme.accent.opacity(isEnabled ? 1 : 0.45)).interactive() : .regular.interactive(),
+                in: .capsule
+            )
+            .opacity(isEnabled || prominent ? 1 : 0.5)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(Theme.Motion.fade, value: configuration.isPressed)
     }
 }
 

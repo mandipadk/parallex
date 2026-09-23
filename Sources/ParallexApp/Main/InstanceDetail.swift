@@ -35,7 +35,7 @@ struct InstanceDetail: View {
                 ProblemBanners(entry: entry)
                 IsolationSection(entry: entry, draft: $draft, cloneAssessment: cloneAssessment)
                 AppearanceSection(entry: entry, draft: $draft)
-                LaunchSection(isOn: $draft.settings.openAtLaunch.orFalse)
+                LaunchSection(entry: entry, openAtStart: $draft.settings.openAtLaunch.orFalse, shortcut: $draft.settings.shortcut)
                 StorageSection(entry: entry)
                 AdvancedSection(entry: entry, draft: $draft)
                 RemoveFooter { confirmRemove = true }
@@ -48,6 +48,9 @@ struct InstanceDetail: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollContentBackground(.hidden)
+        #if DEBUG
+        .defaultScrollAnchor(DebugRoute.scrollAnchor)
+        #endif
         .navigationTitle("")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if hasRebuildChanges {
@@ -123,6 +126,7 @@ struct InstanceDetail: View {
         var settings = stored
         settings.openAtLaunch = draft.settings.openAtLaunch
         settings.badgeColorHex = draft.settings.badgeColorHex
+        settings.shortcut = draft.settings.shortcut
         guard settings != stored || entry.manifest.settings == nil else { return }
         if let saved = model.saveSettings(settings, for: entry) {
             var fresh = InstanceDraft(saved)
@@ -161,7 +165,7 @@ struct InstanceDraft: Equatable {
 
     /// Changes to fields that never need a rebuild on their own.
     var metadataSignature: [String] {
-        [settings.openAtLaunch == true ? "1" : "0", settings.badgeColorHex ?? ""]
+        [settings.openAtLaunch == true ? "1" : "0", settings.badgeColorHex ?? "", settings.shortcut?.displayString ?? ""]
     }
 
     var parsedEnvironment: [String: String]? {
@@ -304,6 +308,8 @@ private struct ProblemBanners: View {
         case .targetMissing: "\(entry.targetName) isn't installed anymore. Reinstall it, or point the instance at where it is now."
         case .targetMoved(let path): "\(entry.targetName) moved to \(Paths.abbreviate(path)). Repair records the new location."
         case .wrapperOutdated: "Built with an older Parallex. Repair picks up the latest improvements."
+        case .cloneOutdated(_, let original) where entry.running:
+            "\(entry.targetName) updated to \(original). This copy catches up when it restarts."
         case .cloneOutdated(_, let original): "\(entry.targetName) updated to \(original). Repair refreshes this copy."
         }
     }
@@ -311,6 +317,9 @@ private struct ProblemBanners: View {
     @ViewBuilder private func action(for problem: InstanceStatus.Problem) -> some View {
         if case .targetMissing = problem {
             Button("Locate…") { locate() }.buttonStyle(.secondary)
+        } else if entry.running, entry.isClone, problem.isMaintainable {
+            // A running copy can't be rebuilt underneath itself.
+            Button("Restart to Update") { model.restart(entry) }.buttonStyle(.secondary)
         } else {
             Button("Repair") { model.repair(entry) }.buttonStyle(.secondary)
         }
@@ -586,16 +595,43 @@ private struct AppearanceSection: View {
 // MARK: - Launch
 
 private struct LaunchSection: View {
-    @Binding var isOn: Bool
+    let entry: InstanceEntry
+    @Binding var openAtStart: Bool
+    @Binding var shortcut: KeyShortcut?
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         DetailSection(title: "Launch") {
             ExplainedToggle(
                 title: "Open when Parallex starts",
                 detail: "With Parallex opening at login, this instance is ready when you are.",
-                isOn: $isOn
+                isOn: $openAtStart
             )
+            HStack(alignment: .center, spacing: Theme.Space.l) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Keyboard shortcut").font(Theme.Font.body)
+                    Text(shortcutDetail)
+                        .font(Theme.Font.callout)
+                        .foregroundStyle(unavailable ? Theme.attention : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: Theme.Space.l)
+                ShortcutRecorder(shortcut: $shortcut) { candidate in
+                    model.shortcutConflict(candidate, for: entry.id)
+                }
+            }
         }
+    }
+
+    private var unavailable: Bool {
+        shortcut != nil && model.unavailableShortcuts.contains(entry.id)
+    }
+
+    private var shortcutDetail: String {
+        if unavailable {
+            return "Another app already uses this shortcut. Record a different one."
+        }
+        return "Opens \(entry.name) from anywhere, brings it forward, or hides it when it's in front."
     }
 }
 

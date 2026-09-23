@@ -39,6 +39,8 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     public var cloneApp: Bool?
     /// Open this instance whenever Parallex starts (e.g. at login).
     public var openAtLaunch: Bool?
+    /// Global keyboard shortcut that opens (or brings forward) the instance.
+    public var shortcut: KeyShortcut?
 
     public var isClone: Bool { cloneApp == true }
 
@@ -53,7 +55,8 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
         includeDefaultSharedItems: Bool = true,
         enabledOptions: [String]? = nil,
         cloneApp: Bool? = nil,
-        openAtLaunch: Bool? = nil
+        openAtLaunch: Bool? = nil,
+        shortcut: KeyShortcut? = nil
     ) {
         self.requestedMode = requestedMode.rawValue
         self.badgeText = badgeText
@@ -66,16 +69,19 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
         self.enabledOptions = enabledOptions
         self.cloneApp = cloneApp
         self.openAtLaunch = openAtLaunch
+        self.shortcut = shortcut
     }
 
     /// Whether going from `self` to `other` changes the built wrapper (or
-    /// copy). Launch preferences, and the color while there's no badge to
-    /// paint it on, are bookkeeping only.
+    /// copy). Launch preferences, the shortcut, and the color while there's
+    /// no badge to paint it on, are bookkeeping only.
     public func requiresRebuild(toReach other: InstanceSettings) -> Bool {
         var lhs = self
         var rhs = other
         lhs.openAtLaunch = nil
         rhs.openAtLaunch = nil
+        lhs.shortcut = nil
+        rhs.shortcut = nil
         if lhs.badgeText == nil && rhs.badgeText == nil {
             lhs.badgeColorHex = nil
             rhs.badgeColorHex = nil
@@ -313,6 +319,15 @@ public enum InstanceStore {
         return try? decoder.decode(InstanceManifest.self, from: data)
     }
 
+    /// An exclusive lock held while an instance is being created, shared
+    /// between threads and processes (it's an `flock` on a file in the
+    /// registry). Release it when done; it's also released if the process dies.
+    public static func creationLock() throws -> FileLock {
+        let root = Paths.instancesRoot
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return try FileLock(root.appendingPathComponent(".create.lock"))
+    }
+
     /// All known instances, sorted by name. Corrupt manifests are reported on
     /// stderr and skipped rather than failing the whole listing.
     public static func loadAll() -> [InstanceManifest] {
@@ -341,14 +356,49 @@ public enum InstanceStore {
     }
 
     /// Look an instance up by display name (case-insensitive) or slug.
+    /// An exact name wins: two names can reduce to the same slug
+    /// ("Claude Work", "Claude—Work"), and the second one gets "-2".
     public static func find(_ nameOrSlug: String) -> InstanceManifest? {
+        let all = loadAll()
+        if let byName = all.first(where: { $0.name.caseInsensitiveCompare(nameOrSlug) == .orderedSame }) {
+            return byName
+        }
         if let bySlug = load(slug: nameOrSlug) {
             return bySlug
         }
-        let slugified = Slug.make(nameOrSlug)
+        let slugified = Slug.forInstance(named: nameOrSlug)
         if !slugified.isEmpty, let manifest = load(slug: slugified) {
             return manifest
         }
-        return loadAll().first { $0.name.caseInsensitiveCompare(nameOrSlug) == .orderedSame }
+        return nil
+    }
+}
+
+/// An exclusive advisory lock on a file, blocking until it's acquired.
+public final class FileLock: @unchecked Sendable {
+    private var descriptor: Int32
+
+    init(_ url: URL) throws {
+        descriptor = open(url.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o644)
+        guard descriptor >= 0 else {
+            throw ParallexError("Couldn't open \(url.path) to lock it (\(String(cString: strerror(errno)))).")
+        }
+        while flock(descriptor, LOCK_EX) != 0 {
+            guard errno == EINTR else {
+                close(descriptor)
+                throw ParallexError("Couldn't lock \(url.path) (\(String(cString: strerror(errno)))).")
+            }
+        }
+    }
+
+    public func release() {
+        guard descriptor >= 0 else { return }
+        flock(descriptor, LOCK_UN)
+        close(descriptor)
+        descriptor = -1
+    }
+
+    deinit {
+        release()
     }
 }

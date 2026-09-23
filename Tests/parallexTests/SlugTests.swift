@@ -28,4 +28,16 @@ final class SlugTests: XCTestCase {
         XCTAssertEqual(Slug.make("!!!"), "")
         XCTAssertEqual(Slug.make("🚀🚀🚀"), "")
     }
+
+    func testInstanceSlugsWorkForAnyName() {
+        XCTAssertEqual(Slug.forInstance(named: "Claude Work"), "claude-work")
+        XCTAssertEqual(Slug.forInstance(named: "Работа"), "rabota")
+        XCTAssertEqual(Slug.forInstance(named: "Работа 2"), "rabota-2")
+        XCTAssertEqual(Slug.forInstance(named: "2024"), "2024")
+        XCTAssertFalse(Slug.forInstance(named: "日本語").isEmpty)
+        let emoji = Slug.forInstance(named: "🚀🚀")
+        XCTAssertTrue(emoji.hasPrefix("instance-"))
+        XCTAssertEqual(emoji, Slug.forInstance(named: "🚀🚀"), "stable for the same name")
+        XCTAssertNotEqual(emoji, Slug.forInstance(named: "🚀🛸"))
+    }
 }
