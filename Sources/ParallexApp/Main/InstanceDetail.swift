@@ -1,0 +1,812 @@
+import AppKit
+import ParallexCore
+import SwiftUI
+import UniformTypeIdentifiers
+
+/// Everything about one instance, editable in place. Changes that don't
+/// touch the built app (open-at-start, color without a badge) save as you
+/// make them; the rest collect in an apply bar, because applying rebuilds
+/// the instance.
+struct InstanceDetail: View {
+    let entry: InstanceEntry
+    @Environment(AppModel.self) private var model
+    @State private var draft: InstanceDraft
+    @State private var applying = false
+    @State private var applyError: String?
+    @State private var confirmRemove = false
+    @State private var cloneAssessment: AppCloner.Assessment?
+
+    init(entry: InstanceEntry) {
+        self.entry = entry
+        _draft = State(initialValue: InstanceDraft(entry.manifest))
+    }
+
+    private var baseline: InstanceDraft { InstanceDraft(entry.manifest) }
+    private var hasRebuildChanges: Bool { draft.requiresRebuild(from: baseline, manifest: entry.manifest) }
+    private var blockedByRunningCopy: Bool {
+        entry.running && (entry.isClone || draft.settings.isClone)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                DetailHeader(entry: entry)
+                    .padding(.bottom, Theme.Space.xl)
+                ProblemBanners(entry: entry)
+                IsolationSection(entry: entry, draft: $draft, cloneAssessment: cloneAssessment)
+                AppearanceSection(entry: entry, draft: $draft)
+                LaunchSection(isOn: $draft.settings.openAtLaunch.orFalse)
+                StorageSection(entry: entry)
+                AdvancedSection(entry: entry, draft: $draft)
+                RemoveFooter { confirmRemove = true }
+            }
+            .disabled(applying)
+            .padding(.horizontal, Theme.Space.xxl)
+            .padding(.top, Theme.Space.xl)
+            .padding(.bottom, Theme.Space.xxxl)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollContentBackground(.hidden)
+        .navigationTitle("")
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if hasRebuildChanges {
+                ApplyBar(
+                    applying: applying,
+                    error: applyError,
+                    blockedMessage: blockedByRunningCopy
+                        ? "Quit \(entry.name) to apply — its copy of the app is rebuilt."
+                        : draft.parsedEnvironment == nil ? "Fix the extra environment: each line needs KEY=VALUE." : nil,
+                    revert: revert,
+                    apply: apply
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(Theme.Motion.snappy, value: hasRebuildChanges)
+        .onChange(of: draft.metadataSignature) { saveMetadataIfPossible() }
+        .onChange(of: entry) { _, fresh in
+            // Registry changed underneath (repair, CLI edit): reset unless
+            // the user has pending rebuild edits.
+            if !hasRebuildChanges {
+                draft = InstanceDraft(fresh.manifest)
+            }
+        }
+        .task(id: entry.manifest.targetApp) {
+            let targetPath = entry.manifest.targetApp
+            cloneAssessment = await Task.detached {
+                (try? AppInspector.inspect(URL(fileURLWithPath: targetPath))).map(AppCloner.assess)
+            }.value
+        }
+        .confirmationDialog("Remove “\(entry.name)”?", isPresented: $confirmRemove, titleVisibility: .visible) {
+            Button("Move Instance and Its Data to Trash", role: .destructive) { model.remove(entry, keepData: false) }
+            Button("Remove, Keep Data") { model.remove(entry, keepData: true) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(entry.running
+                 ? "It's running — quit it first, or it keeps writing to data that's in the Trash."
+                 : "Everything goes to the Trash, so you can still recover it.")
+        }
+    }
+
+    private func revert() {
+        withAnimation(Theme.Motion.snappy) {
+            draft = baseline
+            applyError = nil
+        }
+    }
+
+    private func apply() {
+        guard let change = draft.update(from: baseline) else { return }
+        applying = true
+        applyError = nil
+        Task {
+            do {
+                let rebuilt = try await model.update(entry, change)
+                // The rebuilt instance is the new baseline (clears a chosen
+                // icon, reset flags, and anything the rebuild normalized).
+                draft = InstanceDraft(rebuilt)
+            } catch {
+                applyError = "\(error)"
+            }
+            applying = false
+        }
+    }
+
+    /// Save bookkeeping-only changes immediately (never while rebuild
+    /// changes are pending — those save together on Apply). Only the fields
+    /// that changed are carried onto the stored settings, and the draft is
+    /// rebuilt from what was saved so the two can't drift apart.
+    private func saveMetadataIfPossible() {
+        guard !hasRebuildChanges, !applying else { return }
+        let stored = entry.manifest.effectiveSettings
+        var settings = stored
+        settings.openAtLaunch = draft.settings.openAtLaunch
+        settings.badgeColorHex = draft.settings.badgeColorHex
+        guard settings != stored || entry.manifest.settings == nil else { return }
+        if let saved = model.saveSettings(settings, for: entry) {
+            var fresh = InstanceDraft(saved)
+            fresh.environmentText = draft.environmentText
+            fresh.argumentsText = draft.argumentsText
+            draft = fresh
+        }
+    }
+}
+
+// MARK: - Draft
+
+/// The editable state of an instance.
+struct InstanceDraft: Equatable {
+    var name: String
+    var settings: InstanceSettings
+    var newIcon: URL?
+    var resetIcon = false
+    var environmentText: String
+    var argumentsText: String
+
+    /// The color shown when none was chosen (derived from the slug).
+    let defaultColorHex: String
+
+    init(_ manifest: InstanceManifest) {
+        name = manifest.name
+        defaultColorHex = manifest.colorHex
+        let settings = manifest.effectiveSettings
+        self.settings = settings
+        environmentText = settings.extraEnvironment.sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
+        argumentsText = settings.extraArguments.joined(separator: "\n")
+    }
+
+    var colorHex: String { settings.badgeColorHex ?? defaultColorHex }
+
+    /// Changes to fields that never need a rebuild on their own.
+    var metadataSignature: [String] {
+        [settings.openAtLaunch == true ? "1" : "0", settings.badgeColorHex ?? ""]
+    }
+
+    var parsedEnvironment: [String: String]? {
+        var environment: [String: String] = [:]
+        for line in environmentText.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            guard let separator = trimmed.firstIndex(of: "="), separator != trimmed.startIndex else {
+                return nil
+            }
+            environment[String(trimmed[..<separator])] = String(trimmed[trimmed.index(after: separator)...])
+        }
+        return environment
+    }
+
+    var parsedArguments: [String] {
+        argumentsText.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// The settings this draft describes.
+    var resolvedSettings: InstanceSettings {
+        var resolved = settings
+        resolved.extraEnvironment = parsedEnvironment ?? settings.extraEnvironment
+        resolved.extraArguments = parsedArguments
+        let badge = (resolved.badgeText ?? "").trimmingCharacters(in: .whitespaces)
+        resolved.badgeText = badge.isEmpty ? nil : String(badge.prefix(2))
+        if resetIcon {
+            resolved.customIconFile = nil
+        }
+        return resolved
+    }
+
+    func requiresRebuild(from baseline: InstanceDraft, manifest: InstanceManifest) -> Bool {
+        name.trimmingCharacters(in: .whitespaces) != manifest.name
+            || newIcon != nil || resetIcon
+            // Unfinished environment text is a pending edit, not "no change".
+            || parsedEnvironment == nil
+            || baseline.resolvedSettings.requiresRebuild(toReach: resolvedSettings)
+    }
+
+    func update(from baseline: InstanceDraft) -> InstanceUpdate? {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        return InstanceUpdate(
+            name: trimmed == baseline.name ? nil : trimmed,
+            settings: resolvedSettings,
+            newCustomIcon: newIcon,
+            resetIcon: resetIcon
+        )
+    }
+}
+
+extension Binding where Value == Bool? {
+    /// Treat an optional flag as a plain toggle (nil = off).
+    var orFalse: Binding<Bool> {
+        Binding<Bool>(get: { wrappedValue == true }, set: { wrappedValue = $0 ? true : nil })
+    }
+}
+
+// MARK: - Header
+
+private struct DetailHeader: View {
+    let entry: InstanceEntry
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Theme.Space.l) {
+            InstanceGlyph(iconPath: entry.iconPath, color: entry.color, size: 64)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(entry.name)
+                    .font(Theme.Font.display)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    StatusPill(state: entry.runState)
+                    Text("·").foregroundStyle(.tertiary)
+                    Text(entry.isClone ? "Own copy of \(entry.targetName)" : "Instance of \(entry.targetName)")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: Theme.Space.l)
+            if model.busy.contains(entry.id) {
+                ProgressView().controlSize(.small)
+            }
+            Button(entry.running ? "Show" : "Open") { model.activate(entry) }
+                .buttonStyle(.primary)
+                .disabled(!entry.status.canLaunch)
+                .keyboardShortcut("o", modifiers: .command)
+            Menu {
+                Button("Open Original \(entry.targetName)") { model.launchOriginal(entry) }
+                Divider()
+                Button("Show in Finder") { model.reveal(entry.manifest.wrapperPath) }
+                Button("Show Data Folder") { model.revealData(entry) }
+                Divider()
+                Button("Repair") { model.repair(entry) }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 28, height: 28)
+                    .contentShape(.rect)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .tint(.secondary)
+            .foregroundStyle(.secondary)
+            .fixedSize()
+            .background(Color(nsColor: .quaternaryLabelColor).opacity(0.55), in: .rect(cornerRadius: Theme.Radius.control))
+            .accessibilityLabel("More actions")
+        }
+    }
+}
+
+// MARK: - Problems
+
+private struct ProblemBanners: View {
+    let entry: InstanceEntry
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        ForEach(Array(entry.status.problems.enumerated()), id: \.offset) { _, problem in
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
+                Image(systemName: problem.isBlocking ? "exclamationmark.octagon.fill" : "arrow.triangle.2.circlepath")
+                    .foregroundStyle(problem.isBlocking ? Theme.failure : Theme.attention)
+                Text(message(for: problem))
+                    .font(Theme.Font.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: Theme.Space.m)
+                action(for: problem)
+            }
+            .padding(Theme.Space.m)
+            .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.Radius.tile))
+            .padding(.bottom, Theme.Space.m)
+        }
+    }
+
+    private func message(for problem: InstanceStatus.Problem) -> String {
+        switch problem {
+        case .wrapperMissing: "The instance app is missing. Repair rebuilds it — its data is safe."
+        case .targetMissing: "\(entry.targetName) isn't installed anymore. Reinstall it, or point the instance at where it is now."
+        case .targetMoved(let path): "\(entry.targetName) moved to \(Paths.abbreviate(path)). Repair records the new location."
+        case .wrapperOutdated: "Built with an older Parallex. Repair picks up the latest improvements."
+        case .cloneOutdated(_, let original): "\(entry.targetName) updated to \(original). Repair refreshes this copy."
+        }
+    }
+
+    @ViewBuilder private func action(for problem: InstanceStatus.Problem) -> some View {
+        if case .targetMissing = problem {
+            Button("Locate…") { locate() }.buttonStyle(.secondary)
+        } else {
+            Button("Repair") { model.repair(entry) }.buttonStyle(.secondary)
+        }
+    }
+
+    private func locate() {
+        let panel = NSOpenPanel()
+        panel.title = "Where is \(entry.targetName) now?"
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        if panel.runModal() == .OK, let url = panel.url {
+            model.repair(entry, targetApp: url)
+        }
+    }
+}
+
+// MARK: - Isolation
+
+private struct IsolationSection: View {
+    let entry: InstanceEntry
+    @Binding var draft: InstanceDraft
+    let cloneAssessment: AppCloner.Assessment?
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        DetailSection(title: "Isolation", subtitle: summary) {
+            VStack(alignment: .leading, spacing: Theme.Space.l) {
+                if let cloneAssessment {
+                    ExplainedToggle(
+                        title: "Own identity",
+                        detail: cloneAssessment.possible
+                            ? "Runs as its own copy of \(entry.targetName): its own Dock icon, notifications, and permissions."
+                            : cloneAssessment.notes.first ?? "Not possible for this app.",
+                        isOn: $draft.settings.cloneApp.orFalse
+                    )
+                    .disabled(!cloneAssessment.possible)
+                }
+                ForEach(entry.manifest.recipe?.options ?? []) { option in
+                    ExplainedToggle(title: option.title, detail: option.detail, isOn: optionBinding(option))
+                }
+                VerifyRow(entry: entry)
+            }
+        }
+    }
+
+    private var summary: String {
+        let manifest = entry.manifest
+        let identity = manifest.clone != nil ? "Runs as its own app. " : ""
+        switch manifest.mode {
+        case .dataDir:
+            if manifest.recipe != nil, manifest.preset == manifest.recipe?.id {
+                return identity + "Its own sign-in and data, using \(entry.targetName)'s own settings for it."
+            }
+            return identity + "Its own sign-in and data, in a separate data folder."
+        case .home:
+            return identity + "Its own home folder for settings and command-line tools. Some app data may still be shared on recent macOS."
+        case .launchOnly:
+            return manifest.clone != nil
+                ? "Runs as its own app with its own sandbox container."
+                : "A separate launcher only — it shares \(entry.targetName)'s data."
+        }
+    }
+
+    private func optionBinding(_ option: RecipeOption) -> Binding<Bool> {
+        let available = entry.manifest.recipe?.options ?? []
+        return Binding(
+            get: { draft.settings.activeOptions(of: available).contains(option.id) },
+            set: { draft.settings.setOption(option.id, enabled: $0, available: available) }
+        )
+    }
+}
+
+private struct VerifyRow: View {
+    let entry: InstanceEntry
+    @Environment(AppModel.self) private var model
+    @State private var showDetails = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            HStack(spacing: Theme.Space.m) {
+                Button("Verify Isolation") { model.verifyIsolation(entry) }
+                    .buttonStyle(.secondary)
+                    .disabled(!entry.running || isChecking)
+                    .help(entry.running ? "Look at the files it has open right now" : "Open the instance first")
+                result
+                Spacer(minLength: 0)
+            }
+            if showDetails, case .report(let report) = model.isolation[entry.id] {
+                ReportDetails(report: report)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(Theme.Motion.snappy, value: showDetails)
+    }
+
+    private var isChecking: Bool {
+        if case .checking = model.isolation[entry.id] { return true }
+        return false
+    }
+
+    @ViewBuilder private var result: some View {
+        switch model.isolation[entry.id] {
+        case .none:
+            Text(entry.running ? "Checks the files it has open right now." : "Open it to verify.")
+                .font(Theme.Font.callout)
+                .foregroundStyle(.tertiary)
+        case .checking:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Checking open files…").font(Theme.Font.callout).foregroundStyle(.secondary)
+            }
+        case .failed(let message):
+            Text(message).font(Theme.Font.callout).foregroundStyle(.secondary).lineLimit(2)
+        case .report(let report):
+            Button {
+                showDetails.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: report.isClean ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                        .foregroundStyle(report.isClean ? Theme.running : Theme.failure)
+                        .symbolEffect(.bounce, value: report.findings.count)
+                    Text(report.isClean
+                         ? "No leaks — \(report.findings(in: .isolated).count) open files, all its own."
+                         : "Using \(entry.targetName)'s own data")
+                        .font(Theme.Font.callout.weight(.medium))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(showDetails ? 90 : 0))
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+private struct ReportDetails: View {
+    let report: IsolationReport
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            group(.leak, "Using the original's data", Theme.failure)
+            group(.sharedByIdentity, "Shared, can't be separated", .secondary)
+            group(.sharedByChoice, "Shared on purpose", .secondary)
+        }
+        .padding(Theme.Space.m)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.Radius.tile))
+    }
+
+    @ViewBuilder private func group(_ category: IsolationReport.Category, _ title: String, _ color: Color) -> some View {
+        let findings = report.findings(in: category)
+        if !findings.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(Theme.Font.caption.weight(.semibold)).foregroundStyle(color)
+                ForEach(findings, id: \.path) { finding in
+                    Text(Paths.abbreviate(finding.path))
+                        .font(Theme.Font.mono)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .help(finding.reason)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Appearance
+
+private struct AppearanceSection: View {
+    let entry: InstanceEntry
+    @Binding var draft: InstanceDraft
+
+    var body: some View {
+        DetailSection(title: "Appearance") {
+            HStack(alignment: .top, spacing: Theme.Space.xl) {
+                BadgedIconPreview(
+                    iconPath: previewIconPath,
+                    badge: (draft.settings.badgeText ?? "").trimmingCharacters(in: .whitespaces),
+                    color: Color(hex: draft.colorHex),
+                    size: 76
+                )
+                .instanceRing(Color(hex: draft.colorHex), size: 76)
+                .padding(.top, 2)
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Theme.Space.m, verticalSpacing: Theme.Space.m) {
+                    GridRow {
+                        label("Name")
+                        TextField("Name", text: $draft.name)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 260)
+                    }
+                    GridRow(alignment: .center) {
+                        label("Color")
+                        ColorSwatchPicker(selection: colorBinding, palette: IconBuilder.palette)
+                    }
+                    GridRow {
+                        label("Badge")
+                        HStack(spacing: Theme.Space.s) {
+                            TextField("None", text: badgeBinding)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 64)
+                            Text("1–2 letters on the icon")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    GridRow {
+                        label("Icon")
+                        HStack(spacing: Theme.Space.s) {
+                            Button("Choose…", action: chooseIcon).buttonStyle(.secondary)
+                            if hasCustomIcon {
+                                Button("Use App Icon") {
+                                    draft.newIcon = nil
+                                    draft.resetIcon = true
+                                }
+                                .buttonStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text)
+            .font(Theme.Font.callout)
+            .foregroundStyle(.secondary)
+            .gridColumnAlignment(.trailing)
+    }
+
+    private var colorBinding: Binding<String> {
+        Binding(get: { draft.colorHex },
+                set: { draft.settings.badgeColorHex = $0 })
+    }
+
+    private var badgeBinding: Binding<String> {
+        Binding(get: { draft.settings.badgeText ?? "" },
+                set: { value in
+                    let trimmed = String(value.prefix(2))
+                    draft.settings.badgeText = trimmed.isEmpty ? nil : trimmed
+                })
+    }
+
+    private var hasCustomIcon: Bool {
+        draft.newIcon != nil || (!draft.resetIcon && (draft.settings.customIconFile != nil || entry.manifest.settings == nil))
+    }
+
+    /// What the icon will be drawn on: a newly chosen file, the stored custom
+    /// icon, or the app's own.
+    private var previewIconPath: String {
+        if let newIcon = draft.newIcon {
+            return newIcon.path
+        }
+        if !draft.resetIcon, let file = draft.settings.customIconFile {
+            return Paths.instanceDir(slug: entry.id).appendingPathComponent(file).path
+        }
+        return draft.resetIcon || entry.manifest.settings != nil ? entry.manifest.targetApp : entry.iconPath
+    }
+
+    private func chooseIcon() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose an Icon"
+        panel.allowedContentTypes = [.icns, .png, .jpeg, .tiff, .heic]
+        if panel.runModal() == .OK, let url = panel.url {
+            draft.newIcon = url
+            draft.resetIcon = false
+        }
+    }
+}
+
+// MARK: - Launch
+
+private struct LaunchSection: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        DetailSection(title: "Launch") {
+            ExplainedToggle(
+                title: "Open when Parallex starts",
+                detail: "With Parallex opening at login, this instance is ready when you are.",
+                isOn: $isOn
+            )
+        }
+    }
+}
+
+// MARK: - Storage
+
+private struct StorageSection: View {
+    let entry: InstanceEntry
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        DetailSection(title: "Storage") {
+            if let report = model.storage[entry.id] {
+                VStack(alignment: .leading, spacing: Theme.Space.m) {
+                    HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
+                        Text(InstanceStorage.format(report.totalBytes))
+                            .font(Theme.Font.title)
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                        Text("on disk").font(Theme.Font.callout).foregroundStyle(.secondary)
+                    }
+                    StorageBar(total: report.totalBytes, caches: report.cacheBytes, unused: report.unusedBytes)
+                    HStack(spacing: Theme.Space.s) {
+                        Button("Clear Caches · \(InstanceStorage.format(report.cacheBytes))") {
+                            model.reclaim(.caches, of: entry)
+                        }
+                        .buttonStyle(.secondary)
+                        .disabled(entry.running || report.caches.isEmpty)
+                        if !report.unused.isEmpty {
+                            Button("Remove Leftovers · \(InstanceStorage.format(report.unusedBytes))") {
+                                model.reclaim(.unused, of: entry)
+                            }
+                            .buttonStyle(.secondary)
+                            .disabled(entry.running)
+                        }
+                        Button("Show Data Folder") { model.revealData(entry) }
+                            .buttonStyle(.secondary)
+                    }
+                    if entry.running && !report.caches.isEmpty {
+                        Text("Quit the instance to clear its caches.")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .animation(Theme.Motion.snappy, value: report.totalBytes)
+            } else {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Measuring…").font(Theme.Font.callout).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+/// Total usage as one bar: data, caches, and leftovers.
+private struct StorageBar: View {
+    let total: Int64
+    let caches: Int64
+    let unused: Int64
+
+    var body: some View {
+        let safeTotal = max(total, 1)
+        let data = max(total - caches - unused, 0)
+        VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { proxy in
+                HStack(spacing: 2) {
+                    segment(Color(nsColor: .secondaryLabelColor), data, safeTotal, proxy.size.width)
+                    segment(Color(nsColor: .tertiaryLabelColor), caches, safeTotal, proxy.size.width)
+                    segment(Theme.attention, unused, safeTotal, proxy.size.width)
+                }
+            }
+            .frame(height: 6)
+            .clipShape(.capsule)
+            HStack(spacing: Theme.Space.l) {
+                legend(Color(nsColor: .secondaryLabelColor), "Data", data)
+                legend(Color(nsColor: .tertiaryLabelColor), "Caches", caches)
+                if unused > 0 {
+                    legend(Theme.attention, "Leftovers", unused)
+                }
+            }
+        }
+        .frame(maxWidth: 440)
+    }
+
+    private func segment(_ color: Color, _ bytes: Int64, _ total: Int64, _ width: CGFloat) -> some View {
+        color.frame(width: bytes > 0 ? max(3, width * CGFloat(bytes) / CGFloat(total)) : 0)
+    }
+
+    private func legend(_ color: Color, _ title: String, _ bytes: Int64) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(title).font(Theme.Font.caption).foregroundStyle(.secondary)
+            Text(InstanceStorage.format(bytes)).font(Theme.Font.caption).monospacedDigit()
+        }
+    }
+}
+
+// MARK: - Advanced
+
+private struct AdvancedSection: View {
+    let entry: InstanceEntry
+    @Binding var draft: InstanceDraft
+    @State private var expanded = false
+
+    var body: some View {
+        DetailSection(title: "Advanced") {
+            DisclosureGroup(isExpanded: $expanded) {
+                VStack(alignment: .leading, spacing: Theme.Space.l) {
+                    Picker("Isolation mode", selection: $draft.settings.mode) {
+                        Text("Automatic").tag(RequestedMode.auto)
+                        Text("App data folder").tag(RequestedMode.dataDir)
+                        Text("Home folder").tag(RequestedMode.home)
+                        Text("Launch only").tag(RequestedMode.launchOnly)
+                    }
+                    .frame(maxWidth: 320)
+                    editor("Extra environment", "One KEY=VALUE per line.", text: $draft.environmentText,
+                           invalid: draft.parsedEnvironment == nil)
+                    editor("Extra launch arguments", "One per line, after Parallex's own.", text: $draft.argumentsText,
+                           invalid: false)
+                    VStack(alignment: .leading, spacing: 6) {
+                        FactRow(label: "Data", value: Paths.abbreviate(Paths.instanceDir(slug: entry.id).path), mono: true)
+                        FactRow(label: "App", value: Paths.abbreviate(entry.manifest.wrapperPath), mono: true)
+                        FactRow(label: "Bundle ID", value: entry.manifest.clone?.bundleIdentifier ?? entry.manifest.bundleIdentifier, mono: true)
+                        FactRow(label: "Created", value: entry.manifest.createdAt.formatted(date: .abbreviated, time: .omitted))
+                    }
+                }
+                .padding(.top, Theme.Space.m)
+            } label: {
+                Text("Mode, environment, arguments, and paths")
+                    .font(Theme.Font.body)
+                    .foregroundStyle(.secondary)
+                    .contentShape(.rect)
+                    .onTapGesture { withAnimation(Theme.Motion.snappy) { expanded.toggle() } }
+            }
+        }
+    }
+
+    private func editor(_ title: String, _ hint: String, text: Binding<String>, invalid: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(Theme.Font.callout.weight(.medium))
+            TextEditor(text: text)
+                .font(Theme.Font.mono)
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .frame(height: 64)
+                .background(Color(nsColor: .textBackgroundColor), in: .rect(cornerRadius: Theme.Radius.control))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.control)
+                        .strokeBorder(invalid ? Theme.failure : Theme.hairline)
+                )
+            Text(invalid ? "Each line needs KEY=VALUE." : hint)
+                .font(Theme.Font.caption)
+                .foregroundStyle(invalid ? Theme.failure : Color.secondary)
+        }
+    }
+}
+
+// MARK: - Remove
+
+private struct RemoveFooter: View {
+    let action: () -> Void
+
+    var body: some View {
+        HStack {
+            Button(role: .destructive, action: action) {
+                Text("Remove Instance…").font(Theme.Font.body.weight(.medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Theme.failure)
+            Spacer()
+        }
+        .padding(.top, Theme.Space.xl)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
+    }
+}
+
+// MARK: - Apply bar
+
+private struct ApplyBar: View {
+    let applying: Bool
+    let error: String?
+    let blockedMessage: String?
+    let revert: () -> Void
+    let apply: () -> Void
+
+    var body: some View {
+        HStack(spacing: Theme.Space.m) {
+            Image(systemName: error == nil ? "arrow.triangle.2.circlepath" : "exclamationmark.triangle.fill")
+                .foregroundStyle(error == nil ? Color.secondary : Theme.failure)
+            Text(error ?? blockedMessage ?? "Applying rebuilds the instance. It takes effect the next time it opens.")
+                .font(Theme.Font.callout)
+                .foregroundStyle(error == nil ? Color.secondary : Theme.failure)
+                .lineLimit(2)
+            Spacer(minLength: Theme.Space.m)
+            Button("Revert", action: revert)
+                .buttonStyle(.secondary)
+                .keyboardShortcut(.cancelAction)
+            Button(action: apply) {
+                if applying {
+                    ProgressView().controlSize(.small).tint(.white)
+                } else {
+                    Text("Apply")
+                }
+            }
+            .buttonStyle(.primary)
+            .keyboardShortcut("s", modifiers: .command)
+            .disabled(applying || blockedMessage != nil)
+        }
+        .padding(.horizontal, Theme.Space.xl)
+        .padding(.vertical, Theme.Space.m)
+        .background(.bar)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
+    }
+}

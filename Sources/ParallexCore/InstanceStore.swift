@@ -37,6 +37,8 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     /// Clone mode: the instance is a re-signed copy of the app with its own
     /// identity (see `AppCloner`). `nil` means off.
     public var cloneApp: Bool?
+    /// Open this instance whenever Parallex starts (e.g. at login).
+    public var openAtLaunch: Bool?
 
     public var isClone: Bool { cloneApp == true }
 
@@ -50,7 +52,8 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
         extraSharedItems: [String] = [],
         includeDefaultSharedItems: Bool = true,
         enabledOptions: [String]? = nil,
-        cloneApp: Bool? = nil
+        cloneApp: Bool? = nil,
+        openAtLaunch: Bool? = nil
     ) {
         self.requestedMode = requestedMode.rawValue
         self.badgeText = badgeText
@@ -62,6 +65,22 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
         self.includeDefaultSharedItems = includeDefaultSharedItems
         self.enabledOptions = enabledOptions
         self.cloneApp = cloneApp
+        self.openAtLaunch = openAtLaunch
+    }
+
+    /// Whether going from `self` to `other` changes the built wrapper (or
+    /// copy). Launch preferences, and the color while there's no badge to
+    /// paint it on, are bookkeeping only.
+    public func requiresRebuild(toReach other: InstanceSettings) -> Bool {
+        var lhs = self
+        var rhs = other
+        lhs.openAtLaunch = nil
+        rhs.openAtLaunch = nil
+        if lhs.badgeText == nil && rhs.badgeText == nil {
+            lhs.badgeColorHex = nil
+            rhs.badgeColorHex = nil
+        }
+        return lhs != rhs
     }
 
     public var mode: RequestedMode {

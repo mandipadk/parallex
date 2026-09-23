@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 /// (1–2 characters, bottom-right) so instances are distinguishable in the
 /// Dock. Pure ImageIO/CoreGraphics/CoreText; AppKit is only touched for the
 /// NSWorkspace fallback when the target keeps its icon in Assets.car.
-enum IconBuilder {
+public enum IconBuilder {
     struct Badge {
         var text: String
         var colorHex: String?
@@ -87,17 +87,18 @@ enum IconBuilder {
 
     private static let canvasSize = 1024
 
-    /// Hand-picked colors that keep white badge text readable. Selection is a
-    /// stable hash of the seed (Swift's hashValue is randomized per process,
-    /// so it can't be used here).
-    private static let palette = ["0A84FF", "30D158", "FF9F0A", "FF375F", "5E5CE6", "BF5AF2"]
+    /// Instance colors: distinct at a glance in the Dock, window outlines, and
+    /// lists, and dark enough for white badge text. Selection for instances
+    /// without a chosen color is a stable hash of the slug (Swift's hashValue
+    /// is randomized per process, so it can't be used here).
+    public static let palette = ["#0A84FF", "#30A46C", "#0FA3B1", "#D99A0B", "#E93D82", "#A1775A", "#6E6E73"]
 
-    static func defaultColorHex(for seed: String) -> String {
+    public static func defaultColorHex(for seed: String) -> String {
         var hash: UInt64 = 5381
         for byte in seed.utf8 {
             hash = (hash &* 33) &+ UInt64(byte)
         }
-        return "#" + palette[Int(hash % UInt64(palette.count))]
+        return palette[Int(hash % UInt64(palette.count))]
     }
 
     static func color(fromHex hex: String) -> CGColor? {

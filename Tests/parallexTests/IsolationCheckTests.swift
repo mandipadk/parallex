@@ -39,7 +39,8 @@ final class IsolationCheckTests: XCTestCase {
         let rules = IsolationCheck.Rules(manifest: manifest, home: home)
         // Files outside the home folder (bundles, system) aren't classified.
         XCTAssertNil(rules.classify("/Applications/Claude.app/Contents/Resources/app.asar"))
-        XCTAssertEqual(rules.classify("\(home)/Library/Logs/Claude/main.log")?.category, .leak)
+        // Claude opens its logs by app name before any setting applies.
+        XCTAssertEqual(rules.classify("\(home)/Library/Logs/Claude/main.log")?.category, .sharedByIdentity)
         XCTAssertEqual(rules.classify("\(home)/Library/Application Support/Claude/config.json")?.category, .leak)
         XCTAssertEqual(
             rules.classify("\(home)/Library/Caches/com.anthropic.claudefordesktop/Cache.db")?.category,

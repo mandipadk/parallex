@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "parallex",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     products: [
         .executable(name: "parallex", targets: ["parallex"]),
         .executable(name: "parallex-launcher", targets: ["parallex-launcher"]),

@@ -39,6 +39,9 @@ public struct AppRecipe: Sendable {
     let createDirectories: [String]
     let note: String
     public let options: [RecipeOption]
+    /// Folders (relative to home) the app always shares with the original,
+    /// because nothing the app reads can move them — with the reason.
+    var unavoidablyShared: [(path: String, reason: String)] = []
 
     func matches(bundleID: String) -> Bool {
         bundleIDPrefixes.contains { bundleID == $0 || bundleID.hasPrefix($0 + ".") }
@@ -100,19 +103,21 @@ public enum Presets {
             environment: ["CLAUDE_USER_DATA_DIR": "${instance}/data"],
             createDirectories: ["${instance}/data"],
             note: "Claude gets a private data directory (CLAUDE_USER_DATA_DIR), so the instance has "
-                + "its own sign-in, chats, and settings.",
+                + "its own sign-in, chats, and settings. Its log files stay in ~/Library/Logs/Claude: "
+                + "Claude opens them before it reads any setting.",
             options: [
                 RecipeOption(
                     id: "separate-claude-code",
-                    title: "Separate Claude Code settings, memory, and history",
-                    detail: "Off: Claude Code in this instance shares ~/.claude (skills, CLAUDE.md, "
-                        + "memory, session history) with your other Claude. On: it gets its own "
-                        + "(CLAUDE_CONFIG_DIR) — a clean split between accounts, but skills and "
-                        + "settings must be set up again there.",
+                    title: "Separate Claude Code settings",
+                    detail: "Its own ~/.claude — skills, CLAUDE.md, memory, and history. "
+                        + "When off, Claude Code shares them with your other Claude.",
                     defaultEnabled: false,
                     environment: ["CLAUDE_CONFIG_DIR": "${instance}/claude-code"],
                     createDirectories: ["${instance}/claude-code"]
                 ),
+            ],
+            unavoidablyShared: [
+                ("Library/Logs/Claude/", "Claude opens its log files by app name before any setting applies"),
             ]
         ),
     ]

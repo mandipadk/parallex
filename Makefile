@@ -8,7 +8,7 @@ ARCH_FLAGS := --arch arm64 --arch x86_64
 RELEASE_DIR = $(shell swift build -c release $(ARCH_FLAGS) --show-bin-path)
 APP_DIST := dist/Parallex.app
 
-.PHONY: build test release install uninstall app app-install clean
+.PHONY: build test release install uninstall app app-install icon clean
 
 build:
 	swift build
@@ -59,6 +59,10 @@ app-install: app
 	ditto "$(APP_DIST)" /Applications/Parallex.app
 	xattr -dr com.apple.quarantine /Applications/Parallex.app 2>/dev/null || true
 	@echo "Installed /Applications/Parallex.app"
+
+# Regenerate the app icon from its source (Support/make-app-icon.swift).
+icon:
+	swift Support/make-app-icon.swift Sources/ParallexApp/Resources/AppIcon.icns
 
 clean:
 	swift package clean

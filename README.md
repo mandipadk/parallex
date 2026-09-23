@@ -109,24 +109,36 @@ A Homebrew formula scaffold lives in [Formula/parallex.rb](Formula/parallex.rb)
 
 ## The app
 
-Open **Parallex** and click **New Instance**: choose an app, and Parallex shows
-what it found (framework, sandbox verdict, recommended isolation, recipe
-options) before you commit. Name the instance, optionally give its icon a badge,
-optionally move in an existing profile folder to keep its sign-in, create, done.
+**First run** walks through what an instance is, suggests an app from your Mac
+that duplicates especially well, and sets up the integrations that make
+Parallex work well — opening at login, sign-in link routing, window outlines,
+and the ⌃⌥Space switcher — each explained, each easy to change later.
 
-Each row shows running status, disk usage, and problems (missing or moved
-original app, wrapper built by an older version) with a one-click **Repair**.
-**Edit…** renames an instance or changes its badge, icon, isolation options,
-environment, or arguments — the instance keeps its data and permissions.
-**Check Isolation…** runs the leak check. Caches and leftover folders can be
-moved to the Trash from the row menu. Removal always goes through the Trash.
+**The window** lists instances grouped by the app they duplicate. Selecting one
+shows everything about it, editable in place:
 
-Settings turn the window outlines, the switcher hotkey, and opening at login on
-or off.
+- **Isolation** — a plain-language summary, the own-identity switch, the app's
+  recipe options, and **Verify Isolation**, which shows what the running
+  instance actually has open.
+- **Appearance** — name, color, badge, and icon, with a live preview.
+- **Launch** — open the instance whenever Parallex starts.
+- **Storage** — disk usage, clearing caches, removing leftovers.
+- **Advanced** — isolation mode, extra environment and arguments, paths.
+
+Changes that rebuild the instance collect in an apply bar; the rest save as you
+make them. Problems (a moved or missing original, an outdated wrapper, a copy
+older than its app) show at the top with a one-click fix. **New Instance**
+(⌘N) offers your installed apps sorted by how well they duplicate, then a live
+preview of the instance's icon as you name and color it.
+
+**The menu bar** holds every instance one click away and shows which one is in
+front. Parallex runs from there: it has a Dock icon only while its window is
+open, and starts without a window at login.
 
 ## CLI usage
 
 ```sh
+parallex apps [--all] [--json]
 parallex create <app> [options] [-- extra args for the target]
 parallex list [--json]
 parallex open <name> [--original | --reveal]
@@ -185,7 +197,8 @@ Some apps pin their data directory in code and ignore `--user-data-dir`, or keep
 state outside it, but honor their own environment variables. Parallex carries
 recipes for these and applies them automatically:
 
-- **Claude** — `CLAUDE_USER_DATA_DIR` (also moves its logs into the instance).
+- **Claude** — `CLAUDE_USER_DATA_DIR`. Claude's log files stay in
+  `~/Library/Logs/Claude` (it opens them before reading any setting).
   Option `separate-claude-code` gives the instance its own Claude Code settings,
   memory, and history (`CLAUDE_CONFIG_DIR`); off by default, so `~/.claude`
   stays shared.
@@ -225,5 +238,5 @@ try with `--env`. Recipes live in `Presets.recipes`.
 
 ## Status
 
-v0.6 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
+v0.7 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
 in [poc/](poc/).

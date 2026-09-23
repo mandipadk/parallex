@@ -204,4 +204,11 @@ Defaults: `--mode auto` (doctor logic), wrapper written to `/Applications`, data
    generated "Parallex Links" handler for instances' schemes, delivery to a specific process by
    Apple Event, most-recently-used choice or ask, schemes reclaimed after apps re-register);
    launched apps no longer inherit another instance's isolation variables.
-6. **Later/optional** — badge style options; published Homebrew tap.
+6. **v0.7** — redesigned app: first-run onboarding (app suggestions from an installed-app
+   catalog, recommended integrations), list/detail window with in-place editing and an apply bar
+   for rebuild changes, New Instance gallery with live icon preview, menu-bar panel, Settings
+   tabs, new app icon; Liquid Glass surfaces on macOS 26 with material fallbacks (macOS 14+).
+   Instance icons are built from the icon macOS shows for the app (asset catalogs), so they
+   aren't placed on a backing plate on macOS 26. Recipes can declare unavoidably shared folders
+   (Claude's logs). `parallex apps`; per-instance "open when Parallex starts".
+7. **Later/optional** — badge style options; published Homebrew tap.

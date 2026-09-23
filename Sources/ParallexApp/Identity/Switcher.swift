@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import Carbon.HIToolbox
 import SwiftUI
 import ParallexCore
@@ -9,13 +10,13 @@ import ParallexCore
 /// to jump to the right one.
 @MainActor
 final class SwitcherController {
-    private let model: InstancesModel
+    private let model: AppModel
     private var panel: SwitcherPanel?
     private var keyMonitor: Any?
     private let state = SwitcherState()
     private var hotKey: GlobalHotKey?
 
-    init(model: InstancesModel) {
+    init(model: AppModel) {
         self.model = model
     }
 
@@ -46,7 +47,7 @@ final class SwitcherController {
         let panel = self.panel ?? makePanel()
         self.panel = panel
         let screen = NSScreen.main ?? NSScreen.screens[0]
-        let size = NSSize(width: 460, height: 340)
+        let size = NSSize(width: 520, height: 380)
         panel.setFrame(NSRect(
             x: screen.visibleFrame.midX - size.width / 2,
             y: screen.visibleFrame.midY + 40,
@@ -127,9 +128,9 @@ final class SwitcherPanel: NSPanel {
 /// One row: an instance, or an original app.
 struct SwitcherItem: Identifiable {
     enum Kind {
-        case instance(InstancesModel.Entry)
+        case instance(InstanceEntry)
         case runningOriginal(pid: pid_t)
-        case launchOriginal(InstancesModel.Entry)
+        case launchOriginal(InstanceEntry)
     }
 
     let id: String
@@ -140,7 +141,7 @@ struct SwitcherItem: Identifiable {
     let kind: Kind
 
     @MainActor
-    func perform(_ model: InstancesModel) {
+    func perform(_ model: AppModel) {
         switch kind {
         case .instance(let entry):
             model.activate(entry)
@@ -152,7 +153,7 @@ struct SwitcherItem: Identifiable {
     }
 
     @MainActor
-    static func all(from model: InstancesModel) -> [SwitcherItem] {
+    static func all(from model: AppModel) -> [SwitcherItem] {
         var items: [SwitcherItem] = []
         let instancePIDs = Set(model.entries.compactMap(\.pid))
         let entries = model.entries.sorted { lhs, rhs in
@@ -163,8 +164,8 @@ struct SwitcherItem: Identifiable {
                 id: "instance-\(entry.id)",
                 title: entry.manifest.name,
                 subtitle: entry.running ? "\(entry.targetName) instance · running" : "\(entry.targetName) instance",
-                color: entry.color,
-                icon: NSWorkspace.shared.icon(forFile: entry.manifest.wrapperPath),
+                color: entry.nsColor,
+                icon: IconCache.icon(for: entry.iconPath),
                 kind: .instance(entry)
             ))
         }
@@ -174,7 +175,7 @@ struct SwitcherItem: Identifiable {
         var seenTargets = Set<String>()
         for entry in model.entries where !seenTargets.contains(entry.manifest.targetApp) {
             seenTargets.insert(entry.manifest.targetApp)
-            let icon = NSWorkspace.shared.icon(forFile: entry.manifest.targetApp)
+            let icon = IconCache.icon(for: entry.manifest.targetApp)
             let running = entry.manifest.targetBundleID.map {
                 NSRunningApplication.runningApplications(withBundleIdentifier: $0)
             } ?? NSWorkspace.shared.runningApplications.filter {
@@ -205,12 +206,13 @@ struct SwitcherItem: Identifiable {
 }
 
 @MainActor
-final class SwitcherState: ObservableObject {
-    @Published var items: [SwitcherItem] = []
-    @Published var query = "" {
+@Observable
+final class SwitcherState {
+    var items: [SwitcherItem] = []
+    var query = "" {
         didSet { selection = 0 }
     }
-    @Published var selection = 0
+    var selection = 0
 
     var filtered: [SwitcherItem] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
@@ -233,49 +235,76 @@ final class SwitcherState: ObservableObject {
 }
 
 struct SwitcherView: View {
-    @ObservedObject var state: SwitcherState
+    @Bindable var state: SwitcherState
     var onChoose: (SwitcherItem) -> Void
     @FocusState private var searchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "square.on.square")
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                ParallelMark(size: 18, split: 1)
                 TextField("Switch to…", text: $state.query)
                     .textFieldStyle(.plain)
-                    .font(.title3)
+                    .font(.system(size: 17))
                     .focused($searchFocused)
             }
-            .padding(12)
-            Divider()
+            .padding(.horizontal, Theme.Space.l)
+            .frame(height: 50)
+            Rectangle().fill(Theme.hairline).frame(height: 1)
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 2) {
                         let list = state.filtered
                         ForEach(Array(list.enumerated()), id: \.element.id) { index, item in
-                            row(item, selected: index == state.selection)
-                                .id(item.id)
-                                .onTapGesture { onChoose(item) }
+                            Button {
+                                onChoose(item)
+                            } label: {
+                                row(item, selected: index == state.selection)
+                            }
+                            .buttonStyle(.plain)
+                            .id(item.id)
                         }
                         if list.isEmpty {
                             Text("No matches")
+                                .font(Theme.Font.callout)
                                 .foregroundStyle(.secondary)
-                                .padding(.vertical, 20)
+                                .padding(.vertical, 24)
                         }
                     }
                     .padding(6)
                 }
-                .onChange(of: state.selection) { _ in
+                .onChange(of: state.selection) {
                     if let item = state.selectedItem {
                         proxy.scrollTo(item.id)
                     }
                 }
             }
+            Rectangle().fill(Theme.hairline).frame(height: 1)
+            HStack(spacing: Theme.Space.l) {
+                hint("↩", "Switch")
+                hint("↑↓", "Move")
+                hint("esc", "Close")
+                Spacer()
+            }
+            .padding(.horizontal, Theme.Space.l)
+            .frame(height: 30)
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+        .background(.regularMaterial, in: .rect(cornerRadius: Theme.Radius.panel))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.panel).strokeBorder(Theme.hairline))
         .onAppear { searchFocused = true }
+        .tint(Theme.accent)
+    }
+
+    private func hint(_ key: String, _ label: String) -> some View {
+        HStack(spacing: 5) {
+            Text(key)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .padding(.horizontal, 5)
+                .frame(height: 16)
+                .background(Theme.subtleFill, in: .rect(cornerRadius: 4))
+            Text(label).font(Theme.Font.caption)
+        }
+        .foregroundStyle(.secondary)
     }
 
     private func row(_ item: SwitcherItem, selected: Bool) -> some View {
@@ -283,26 +312,32 @@ struct SwitcherView: View {
             Image(nsImage: item.icon)
                 .resizable()
                 .frame(width: 28, height: 28)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
+                .overlay(alignment: .bottomTrailing) {
                     if let color = item.color {
-                        Circle().fill(Color(nsColor: color)).frame(width: 8, height: 8)
+                        Circle()
+                            .fill(Color(nsColor: color))
+                            .frame(width: 9, height: 9)
+                            .overlay(Circle().strokeBorder(.background, lineWidth: 1.5))
+                            .offset(x: 2, y: 2)
                     }
-                    Text(item.title).font(.body.weight(.medium))
                 }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.title)
+                    .font(Theme.Font.body.weight(.medium))
+                    .foregroundStyle(selected ? .white : .primary)
                 Text(item.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(selected ? .white.opacity(0.8) : .secondary)
             }
             Spacer()
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .background(
-            RoundedRectangle(cornerRadius: 7)
-                .fill(selected ? Color.accentColor.opacity(0.25) : Color.clear)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(selected ? Theme.accent : .clear)
         )
-        .contentShape(Rectangle())
+        .contentShape(.rect)
     }
 }
 

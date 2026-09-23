@@ -49,7 +49,7 @@ struct Check: ParsableCommand {
             + "\(isolated) open files inside the instance directory")
         let sections: [(IsolationReport.Category, String)] = [
             (.leak, Term.red("Leaks — the original's data in use")),
-            (.sharedByIdentity, Term.yellow("Shared by macOS (keyed by bundle ID; can't be separated)")),
+            (.sharedByIdentity, Term.yellow("Shared, can't be separated")),
             (.sharedByChoice, "Shared on purpose"),
         ]
         for (category, title) in sections {

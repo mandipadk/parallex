@@ -70,6 +70,8 @@ public enum IsolationCheck {
         let instanceDir: String
         let originalDataLocations: [(prefix: String, reason: String)]
         let identityLocations: [String]
+        /// Recipe-declared folders the app can't be told to move.
+        let appShared: [(prefix: String, reason: String)]
         let sharedByChoice: [(prefix: String, reason: String)]
 
         init(manifest: InstanceManifest, home: String) {
@@ -123,6 +125,7 @@ public enum IsolationCheck {
             originalDataLocations = original
             sharedByChoice = choice
 
+            appShared = (manifest.recipe?.unavoidablyShared ?? []).map { ("\(home)/\($0.path)", $0.reason) }
             identityLocations = bundleID.isEmpty ? [] : [
                 "\(library)/Caches/\(bundleID)/",
                 "\(library)/HTTPStorages/\(bundleID)/",
@@ -141,6 +144,9 @@ public enum IsolationCheck {
             }
             if let match = sharedByChoice.first(where: { matches(path, $0.prefix) }) {
                 return .init(path: path, category: .sharedByChoice, reason: match.reason)
+            }
+            if let match = appShared.first(where: { matches(path, $0.prefix) }) {
+                return .init(path: path, category: .sharedByIdentity, reason: match.reason)
             }
             if let match = originalDataLocations.first(where: { matches(path, $0.prefix) }) {
                 return .init(path: path, category: .leak, reason: match.reason)

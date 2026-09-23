@@ -63,14 +63,26 @@ final class WindowTagger {
         let ownWindowNumbers = Set(overlays.values.map { CGWindowID($0.panel.windowNumber) })
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         var seen = Set<CGWindowID>()
-        // The list runs front to back, so a correctly placed overlay sits
-        // immediately before its window; only reorder when it doesn't.
-        var previousID: CGWindowID?
+        // Front-to-back positions, plus what's needed to recognize another
+        // Parallex process's outline (e.g. a second copy of the app): same
+        // owner name prefix, a different process, and exactly the frame of
+        // the window it outlines. Parallex's own regular windows never count.
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        var position: [CGWindowID: Int] = [:]
+        var windowInfo: [(id: CGWindowID, isOurs: Bool, foreignParallex: Bool, bounds: CGRect)] = []
+        for (index, info) in list.enumerated() {
+            let id = info[kCGWindowNumber as String] as? CGWindowID ?? 0
+            position[id] = index
+            let owner = info[kCGWindowOwnerName as String] as? String ?? ""
+            let pid = info[kCGWindowOwnerPID as String] as? pid_t ?? 0
+            let bounds = (info[kCGWindowBounds as String] as? NSDictionary)
+                .flatMap { CGRect(dictionaryRepresentation: $0) } ?? .zero
+            windowInfo.append((id, ownWindowNumbers.contains(id), pid != ownPID && owner.hasPrefix("Parallex"), bounds))
+        }
 
         for info in list {
-            guard let id = info[kCGWindowNumber as String] as? CGWindowID else { continue }
-            defer { previousID = id }
-            guard !ownWindowNumbers.contains(id),
+            guard let id = info[kCGWindowNumber as String] as? CGWindowID,
+                  !ownWindowNumbers.contains(id),
                   let pid = info[kCGWindowOwnerPID as String] as? pid_t,
                   let target = targets[pid],
                   (info[kCGWindowLayer as String] as? Int) == 0,
@@ -96,7 +108,21 @@ final class WindowTagger {
                 return created
             }()
             overlay.update(frame: frame, target: target)
-            if !overlay.panel.isVisible || previousID != CGWindowID(overlay.panel.windowNumber) {
+            // Correctly placed: in front of its window with nothing but
+            // overlays in between. Reordering only when that's not true
+            // keeps two outline sources from leapfrogging each other.
+            let placed: Bool = {
+                guard overlay.panel.isVisible,
+                      let mine = position[CGWindowID(overlay.panel.windowNumber)],
+                      let theirs = position[id],
+                      mine < theirs
+                else { return false }
+                return (mine + 1..<theirs).allSatisfy { index in
+                    let between = windowInfo[index]
+                    return between.isOurs || (between.foreignParallex && between.bounds == bounds)
+                }
+            }()
+            if !placed {
                 overlay.panel.order(.above, relativeTo: Int(id))
             }
         }

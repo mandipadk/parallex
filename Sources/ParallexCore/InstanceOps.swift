@@ -375,6 +375,28 @@ public enum InstanceCreator {
         return left.isEqual(right)
     }
 
+    /// Save settings that don't change the built wrapper (see
+    /// `InstanceSettings.requiresRebuild`) without rebuilding anything.
+    public static func saveSettings(_ settings: InstanceSettings, for manifest: InstanceManifest) throws -> InstanceManifest {
+        guard !manifest.effectiveSettings.requiresRebuild(toReach: settings) else {
+            throw ParallexError("These changes need the instance to be rebuilt.")
+        }
+        var settings = settings
+        // First save of a pre-0.5 instance: keep the icon its wrapper has
+        // (a baked-in badge isn't recorded anywhere else).
+        if manifest.settings == nil, settings.customIconFile == nil, settings.badgeText == nil {
+            let current = URL(fileURLWithPath: manifest.wrapperPath).appendingPathComponent("Contents/Resources/app.icns")
+            if FileManager.default.fileExists(atPath: current.path) {
+                settings.customIconFile = try storeCustomIcon(current, slug: manifest.slug)
+            }
+        }
+        var updated = manifest
+        updated.settings = settings
+        updated.schemaVersion = 2
+        try InstanceStore.save(updated)
+        return updated
+    }
+
     /// Where the instance's target app is now: its recorded path, or wherever
     /// Launch Services finds its bundle ID.
     public static func locateTarget(of manifest: InstanceManifest) throws -> URL {
@@ -628,10 +650,10 @@ public enum InstanceCreator {
     }
 
     private static func validateBadge(_ settings: InstanceSettings) throws {
+        if let colorHex = settings.badgeColorHex, IconBuilder.color(fromHex: colorHex) == nil {
+            throw ParallexError("The color must be #RRGGBB hex, got '\(colorHex)'.")
+        }
         guard let text = settings.badgeText else {
-            if settings.badgeColorHex != nil {
-                throw ParallexError("A badge color was given without badge text.")
-            }
             return
         }
         guard text == text.trimmingCharacters(in: .whitespaces), (1...2).contains(text.count) else {
@@ -672,9 +694,11 @@ public enum InstanceCreator {
             }
             return custom.pathExtension.lowercased() == "icns" ? .icnsFile(custom) : .imageFile(custom)
         }
-        if let iconFile = target.iconFileURL {
-            return .icnsFile(iconFile)
-        }
+        // The icon macOS actually shows for the app — not the bundle's .icns,
+        // which is often a legacy full-bleed image (Electron apps keep their
+        // real icon in an asset catalog). macOS 26 puts legacy-shaped icons
+        // on a grey plate, so building from the .icns made instances look
+        // broken next to their original.
         return .appGeneric(target.url)
     }
 }
