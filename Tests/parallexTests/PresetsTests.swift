@@ -116,13 +116,47 @@ final class PresetsTests: XCTestCase {
         XCTAssertTrue(plan.notes.contains { $0.contains("CODEX_ELECTRON_USER_DATA_PATH") }, "\(plan.notes)")
     }
 
-    func testForcedDataDirOnOverriddenAppWarns() throws {
+    func testForcedDataDirOnRecipeAppStillUsesRecipe() throws {
+        // Data-dir mode means the app's recipe when it has one — a generic
+        // flag would be ignored (Codex) and silently share data.
         let app = try Fixtures.makeApp(
             named: "FakeCodex2", bundleID: "com.openai.codex.beta", in: tempDir, electron: true
         )
         let plan = try plan(for: app, requested: .dataDir)
         XCTAssertEqual(plan.mode, .dataDir)
-        XCTAssertTrue(plan.notes.contains { $0.contains("known to ignore data-dir") }, "\(plan.notes)")
+        XCTAssertEqual(plan.presetID, "com.openai.codex")
+        XCTAssertNotNil(plan.environment["CODEX_ELECTRON_USER_DATA_PATH"])
+        XCTAssertTrue(plan.arguments.isEmpty)
+    }
+
+    func testClaudeRecipeSetsUserDataDirBothWays() throws {
+        let app = try Fixtures.makeApp(
+            named: "FakeClaude", bundleID: "com.anthropic.claudefordesktop", in: tempDir, electron: true
+        )
+        let plan = try plan(for: app)
+        let dataDir = instanceDir.appendingPathComponent("data").path
+        XCTAssertEqual(plan.presetID, "com.anthropic.claudefordesktop")
+        XCTAssertEqual(plan.arguments, ["--user-data-dir=\(dataDir)"])
+        XCTAssertEqual(plan.environment["CLAUDE_USER_DATA_DIR"], dataDir)
+        // Claude Code config stays shared unless the option is turned on.
+        XCTAssertNil(plan.environment["CLAUDE_CONFIG_DIR"])
+        XCTAssertEqual(plan.availableOptions.map(\.id), ["separate-claude-code"])
+        XCTAssertEqual(plan.enabledOptions, [])
+    }
+
+    func testRecipeOptionAddsIsolation() throws {
+        let app = try Fixtures.makeApp(
+            named: "FakeClaude2", bundleID: "com.anthropic.claudefordesktop", in: tempDir, electron: true
+        )
+        let info = try AppInspector.inspect(app)
+        let plan = Presets.plan(
+            for: info, requested: .auto, instanceDir: instanceDir,
+            sharedItems: [], enabledOptions: ["separate-claude-code"]
+        )
+        let configDir = instanceDir.appendingPathComponent("claude-code").path
+        XCTAssertEqual(plan.environment["CLAUDE_CONFIG_DIR"], configDir)
+        XCTAssertTrue(plan.createDirectories.contains(configDir))
+        XCTAssertEqual(plan.enabledOptions, ["separate-claude-code"])
     }
 
     func testDotfileNoteFiresOnlyWhenDotfileExists() throws {

@@ -1,16 +1,15 @@
-# Homebrew formula for the Parallex CLI. Until the project has a public
-# GitHub repo + tagged release, install from the local checkout:
+# Homebrew formula for the Parallex CLI. Until there's a tagged release and a
+# tap, install the development head:
 #
 #   brew install --HEAD --build-from-source ./Formula/parallex.rb
 #
-# Once the repo is published, update `head`/`url` and move this into a tap
-# (e.g. github.com/<user>/homebrew-parallex) so it becomes:
+# Once published in a tap (e.g. github.com/mandipadk/homebrew-parallex):
 #
-#   brew install <user>/parallex/parallex
+#   brew install mandipadk/parallex/parallex
 class Parallex < Formula
   desc "Run multiple isolated instances of any macOS app"
-  homepage "https://github.com/REPLACE-ME/parallex"
-  head "https://github.com/REPLACE-ME/parallex.git", branch: "main"
+  homepage "https://github.com/mandipadk/parallex"
+  head "https://github.com/mandipadk/parallex.git", branch: "main"
   license "MIT"
 
   depends_on :macos

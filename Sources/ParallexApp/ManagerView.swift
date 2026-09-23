@@ -1,10 +1,13 @@
 import AppKit
 import SwiftUI
 import ParallexCore
+import UniformTypeIdentifiers
 
 struct ManagerView: View {
     @EnvironmentObject private var model: InstancesModel
     @State private var showCreateSheet = false
+    @State private var editing: InstancesModel.Entry?
+    @State private var checking: InstancesModel.Entry?
     @State private var removalCandidate: InstancesModel.Entry?
 
     var body: some View {
@@ -27,6 +30,14 @@ struct ManagerView: View {
         }
         .sheet(isPresented: $showCreateSheet) {
             CreateSheet()
+                .environmentObject(model)
+        }
+        .sheet(item: $editing) { entry in
+            EditSheet(entry: entry)
+                .environmentObject(model)
+        }
+        .sheet(item: $checking) { entry in
+            IsolationSheet(entry: entry)
                 .environmentObject(model)
         }
         .alert(
@@ -59,12 +70,15 @@ struct ManagerView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             if removalCandidate?.running == true {
-                Text("This instance is currently running; it will keep running until you quit it. Removed items go to the Trash.")
+                Text("This instance is running — quit it first, or it will keep writing to data that's in the Trash.")
             } else {
                 Text("Removed items go to the Trash, not deleted outright.")
             }
         }
-        .onAppear { model.refresh() }
+        .onAppear {
+            model.refresh()
+            model.measureStorage()
+        }
     }
 
     private var instanceList: some View {
@@ -72,6 +86,8 @@ struct ManagerView: View {
             ForEach(model.entries) { entry in
                 InstanceRow(
                     entry: entry,
+                    onEdit: { editing = entry },
+                    onCheck: { checking = entry },
                     onRemove: { removalCandidate = entry }
                 )
             }
@@ -82,7 +98,7 @@ struct ManagerView: View {
                 Image(systemName: "info.circle")
                     .foregroundStyle(.secondary)
                     .imageScale(.small)
-                Text("To open the original app while an instance is running, use “Launch Original” from the ⋯ menu — a plain click would just focus the instance.")
+                Text("A running instance shows up in the Dock as the original app. The menu bar and window tags show which one you're in; use “Launch Original” to open the original alongside.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -101,7 +117,7 @@ struct ManagerView: View {
                 .foregroundStyle(.secondary)
             Text("No instances yet")
                 .font(.title3.weight(.semibold))
-            Text("An instance is a second, fully independent copy of an app —\nits own Dock icon, its own data, its own logins.")
+            Text("An instance is a second, independent copy of an app —\nits own data, its own logins.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -120,6 +136,8 @@ struct ManagerView: View {
 
 struct InstanceRow: View {
     let entry: InstancesModel.Entry
+    var onEdit: () -> Void
+    var onCheck: () -> Void
     var onRemove: () -> Void
     @EnvironmentObject private var model: InstancesModel
 
@@ -131,44 +149,69 @@ struct InstanceRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color(nsColor: entry.color))
+                        .frame(width: 8, height: 8)
                     Text(entry.manifest.name)
                         .font(.headline)
                     if entry.running {
-                        Label("Running", systemImage: "circle.fill")
-                            .labelStyle(.titleAndIcon)
+                        Text("Running")
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(.green)
-                            .imageScale(.small)
                     }
                 }
-                Text("\(entry.targetName) · \(entry.manifest.mode.rawValue)")
+                Text(([entry.targetName, isolationSummary] + sizeLabel).joined(separator: " · "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if let problem = entry.problem {
-                    // A pending rebuild is advice; missing pieces are errors.
-                    let fatal = !entry.wrapperExists || !entry.targetExists
-                    Text(problem)
+                ForEach(Array(entry.status.problems.enumerated()), id: \.offset) { _, problem in
+                    Text(problem.summary)
                         .font(.caption)
-                        .foregroundStyle(fatal ? Color.red : Color.orange)
+                        .foregroundStyle(problem.isBlocking ? Color.red : Color.orange)
                 }
             }
 
             Spacer()
 
-            Button {
-                model.launch(entry)
-            } label: {
-                Image(systemName: "play.fill")
+            if model.busy.contains(entry.id) {
+                ProgressView()
+                    .controlSize(.small)
+            } else if entry.needsRepair {
+                Button("Repair") { model.repair(entry) }
+                    .help("Rebuild the wrapper from this instance's saved settings")
+            } else if entry.status.problems.contains(.targetMissing) {
+                Button("Locate App…") { locateTarget() }
+                    .help("Choose where the original app is now")
             }
-            .help("Launch this instance")
-            .disabled(!entry.wrapperExists)
+
+            Button {
+                model.activate(entry)
+            } label: {
+                Image(systemName: entry.running ? "arrow.up.forward.app" : "play.fill")
+            }
+            .help(entry.running ? "Bring this instance to the front" : "Launch this instance")
+            .disabled(!entry.status.canLaunch)
 
             Menu {
+                Button("Edit…") { onEdit() }
+                Button("Check Isolation…") { onCheck() }
+                    .disabled(!entry.running)
                 Button("Launch Original \(entry.targetName)") { model.launchOriginal(entry) }
                 Divider()
-                Button("Rebuild Wrapper") { model.rebuild(entry) }
+                Button("Repair Wrapper") { model.repair(entry) }
+                Button("Locate Original App…") { locateTarget() }
                 Button("Reveal Wrapper in Finder") { model.revealWrapper(entry) }
                 Button("Show Instance Data") { model.revealData(entry) }
+                if let report = model.storage[entry.id] {
+                    Divider()
+                    Button("Move Caches to Trash (\(InstanceStorage.format(report.cacheBytes)))") {
+                        model.reclaim(.caches, of: entry)
+                    }
+                    .disabled(entry.running || report.caches.isEmpty)
+                    Button("Move Unused Items to Trash (\(InstanceStorage.format(report.unusedBytes)))") {
+                        model.reclaim(.unused, of: entry)
+                    }
+                    .disabled(entry.running || report.unused.isEmpty)
+                }
                 Divider()
                 Button("Remove…", role: .destructive) { onRemove() }
             } label: {
@@ -178,6 +221,24 @@ struct InstanceRow: View {
             .frame(width: 40)
         }
         .padding(.vertical, 4)
+        .contextMenu {
+            Button("Edit…") { onEdit() }
+            Button("Launch Original \(entry.targetName)") { model.launchOriginal(entry) }
+        }
+    }
+
+    private var sizeLabel: [String] {
+        model.storage[entry.id].map { [InstanceStorage.format($0.totalBytes)] } ?? []
+    }
+
+    private var isolationSummary: String {
+        let manifest = entry.manifest
+        if let recipe = manifest.recipe, manifest.preset == recipe.id {
+            let active = manifest.effectiveSettings.activeOptions(of: recipe.options)
+            let extras = recipe.options.filter { active.contains($0.id) }.map(\.title)
+            return (["app recipe"] + extras).joined(separator: " · ")
+        }
+        return manifest.mode.rawValue
     }
 
     private var wrapperIcon: NSImage {
@@ -185,5 +246,16 @@ struct InstanceRow: View {
             return NSWorkspace.shared.icon(forFile: entry.manifest.wrapperPath)
         }
         return NSWorkspace.shared.icon(for: .applicationBundle)
+    }
+
+    private func locateTarget() {
+        let panel = NSOpenPanel()
+        panel.title = "Where is \(entry.targetName) now?"
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+        model.repair(entry, targetApp: url)
     }
 }

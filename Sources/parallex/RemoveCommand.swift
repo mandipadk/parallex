@@ -15,13 +15,7 @@ struct Remove: ParsableCommand {
     var keepData = false
 
     mutating func run() throws {
-        guard let manifest = InstanceStore.find(instance) else {
-            let names = InstanceStore.loadAll().map(\.name)
-            let hint = names.isEmpty
-                ? "No instances exist yet."
-                : "Existing instances: \(names.joined(separator: ", "))"
-            throw ParallexError("No instance named '\(instance)'. \(hint)")
-        }
+        let manifest = try lookupInstance(instance)
 
         let result = try InstanceRemover.remove(manifest, keepData: keepData)
 

@@ -17,6 +17,68 @@ public enum InstanceMode: String, Codable, Sendable {
     }
 }
 
+/// What the user chose for an instance — as opposed to the launch config
+/// derived from it. Rebuilds and edits re-derive the launch config from
+/// these, so recipe improvements reach old instances and nothing the user
+/// picked is lost.
+public struct InstanceSettings: Codable, Sendable, Equatable {
+    public var requestedMode: String
+    public var badgeText: String?
+    public var badgeColorHex: String?
+    /// File name of the custom icon, kept inside the instance directory so it
+    /// survives the original file moving.
+    public var customIconFile: String?
+    public var extraEnvironment: [String: String]
+    public var extraArguments: [String]
+    public var extraSharedItems: [String]
+    public var includeDefaultSharedItems: Bool
+    /// Recipe options turned on; `nil` means the recipe's defaults.
+    public var enabledOptions: [String]?
+
+    public init(
+        requestedMode: RequestedMode = .auto,
+        badgeText: String? = nil,
+        badgeColorHex: String? = nil,
+        customIconFile: String? = nil,
+        extraEnvironment: [String: String] = [:],
+        extraArguments: [String] = [],
+        extraSharedItems: [String] = [],
+        includeDefaultSharedItems: Bool = true,
+        enabledOptions: [String]? = nil
+    ) {
+        self.requestedMode = requestedMode.rawValue
+        self.badgeText = badgeText
+        self.badgeColorHex = badgeColorHex
+        self.customIconFile = customIconFile
+        self.extraEnvironment = extraEnvironment
+        self.extraArguments = extraArguments
+        self.extraSharedItems = extraSharedItems
+        self.includeDefaultSharedItems = includeDefaultSharedItems
+        self.enabledOptions = enabledOptions
+    }
+
+    public var mode: RequestedMode {
+        get { RequestedMode(rawValue: requestedMode) ?? .auto }
+        set { requestedMode = newValue.rawValue }
+    }
+
+    /// The option IDs in effect, given the recipe's options.
+    public func activeOptions(of available: [RecipeOption]) -> Set<String> {
+        enabledOptions.map(Set.init) ?? Set(available.filter(\.defaultEnabled).map(\.id))
+    }
+
+    /// Turn one recipe option on or off (materializing the defaults first).
+    public mutating func setOption(_ id: String, enabled: Bool, available: [RecipeOption]) {
+        var active = activeOptions(of: available)
+        if enabled {
+            active.insert(id)
+        } else {
+            active.remove(id)
+        }
+        enabledOptions = available.map(\.id).filter(active.contains)
+    }
+}
+
 /// Everything we know about a created instance. Stored as pretty JSON at
 /// `<instance dir>/instance.json`, co-located with the instance's data so
 /// removing the directory removes every trace.
@@ -35,6 +97,10 @@ public struct InstanceManifest: Codable, Sendable {
     public var homeSymlinks: [String]?
     public var createdAt: Date
     public var parallexVersion: String
+    /// The target's bundle ID (schema 2+), for finding a moved target.
+    public var targetBundleID: String?
+    /// The user's choices (schema 2+). Older manifests: see `effectiveSettings`.
+    public var settings: InstanceSettings?
 
     init(
         name: String,
@@ -49,7 +115,9 @@ public struct InstanceManifest: Codable, Sendable {
         environment: [String: String],
         homeSymlinks: [String]?,
         createdAt: Date,
-        parallexVersion: String
+        parallexVersion: String,
+        targetBundleID: String? = nil,
+        settings: InstanceSettings? = nil
     ) {
         self.name = name
         self.slug = slug
@@ -64,6 +132,96 @@ public struct InstanceManifest: Codable, Sendable {
         self.homeSymlinks = homeSymlinks
         self.createdAt = createdAt
         self.parallexVersion = parallexVersion
+        self.targetBundleID = targetBundleID
+        self.settings = settings
+        if settings != nil {
+            schemaVersion = 2
+        }
+    }
+
+    /// The instance's settings, reconstructed for schema-1 manifests (which
+    /// stored only the resolved launch config). Isolation-generated arguments
+    /// and environment point into the instance directory, which is how
+    /// user-supplied extras are told apart.
+    public var effectiveSettings: InstanceSettings {
+        if let settings {
+            return settings
+        }
+        let instancePath = Paths.instanceDir(slug: slug).path
+        let requested: RequestedMode
+        switch mode {
+        case .dataDir: requested = preset == "generic-data-dir" ? .dataDir : .auto
+        case .home: requested = .home
+        case .launchOnly: requested = .launchOnly
+        }
+        var extraEnvironment = environment
+        extraEnvironment["PARALLEX_INSTANCE"] = nil
+        extraEnvironment = extraEnvironment.filter { !$0.value.hasPrefix(instancePath) }
+        let shared = homeSymlinks ?? []
+        let defaults = Presets.defaultSharedItems
+        return InstanceSettings(
+            requestedMode: requested,
+            extraEnvironment: extraEnvironment,
+            extraArguments: Self.userArguments(in: arguments, instancePath: instancePath, preset: preset),
+            extraSharedItems: shared.filter { !defaults.contains($0) },
+            includeDefaultSharedItems: homeSymlinks == nil || defaults.allSatisfy(shared.contains)
+        )
+    }
+
+    /// The target's bundle ID: recorded since schema 2; for older recipe
+    /// instances the preset is the recipe ID, which is the bundle ID.
+    public var knownTargetBundleID: String? {
+        if let targetBundleID {
+            return targetBundleID
+        }
+        if let preset, Presets.recipes.contains(where: { $0.id == preset }) {
+            return preset
+        }
+        return nil
+    }
+
+    /// The per-app recipe this instance's app has, if any.
+    public var recipe: AppRecipe? {
+        if let preset, let byID = Presets.recipes.first(where: { $0.id == preset }) {
+            return byID
+        }
+        if let targetBundleID {
+            return Presets.recipe(for: targetBundleID)
+        }
+        // Schema 1: ask the target bundle itself.
+        let infoPlist = URL(fileURLWithPath: targetApp).appendingPathComponent("Contents/Info.plist")
+        guard let data = try? Data(contentsOf: infoPlist),
+              let plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any],
+              let bundleID = plist["CFBundleIdentifier"] as? String
+        else {
+            return nil
+        }
+        return Presets.recipe(for: bundleID)
+    }
+
+    /// Strip what isolation generated from a schema-1 argument list: values
+    /// pointing into the instance directory, a flag whose value that was
+    /// (`--profile <dir>`), and Firefox's `--no-remote`.
+    static func userArguments(in arguments: [String], instancePath: String, preset: String?) -> [String] {
+        var kept: [String] = []
+        for argument in arguments {
+            if argument.contains(instancePath) {
+                if let last = kept.last, last.hasPrefix("-"), !last.contains("=") {
+                    kept.removeLast()
+                }
+                continue
+            }
+            kept.append(argument)
+        }
+        if preset == AppFramework.firefox.rawValue, let index = kept.firstIndex(of: "--no-remote") {
+            kept.remove(at: index)
+        }
+        return kept
+    }
+
+    /// The color that identifies this instance (badge, window tags, menus).
+    public var colorHex: String {
+        effectiveSettings.badgeColorHex ?? IconBuilder.defaultColorHex(for: slug)
     }
 }
 

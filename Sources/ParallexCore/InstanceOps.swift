@@ -20,6 +20,8 @@ public struct AppProbe: Sendable {
     public let notes: [String]
     /// First free "<App> 2", "<App> 3", … name for the default output directory.
     public let suggestedName: String
+    /// Optional isolation toggles the app's recipe offers.
+    public let recipeOptions: [RecipeOption]
 }
 
 // MARK: - Create
@@ -36,6 +38,12 @@ public struct CreateRequest: Sendable {
     public var extraSharedItems: [String]
     public var includeDefaultSharedItems: Bool
     public var extraArguments: [String]
+    /// Recipe option IDs to enable; `nil` → the recipe's defaults.
+    public var enabledOptions: [String]?
+    /// An existing profile folder to move in as the instance's data (e.g. a
+    /// `--user-data-dir` made by hand or by another launcher), so the
+    /// instance starts signed in with its history.
+    public var adoptData: URL?
     public var force: Bool
 
     public init(
@@ -50,6 +58,8 @@ public struct CreateRequest: Sendable {
         extraSharedItems: [String] = [],
         includeDefaultSharedItems: Bool = true,
         extraArguments: [String] = [],
+        enabledOptions: [String]? = nil,
+        adoptData: URL? = nil,
         force: Bool = false
     ) {
         self.appReference = appReference
@@ -63,6 +73,8 @@ public struct CreateRequest: Sendable {
         self.extraSharedItems = extraSharedItems
         self.includeDefaultSharedItems = includeDefaultSharedItems
         self.extraArguments = extraArguments
+        self.enabledOptions = enabledOptions
+        self.adoptData = adoptData
         self.force = force
     }
 }
@@ -79,6 +91,33 @@ public struct CreateResult: Sendable {
     public let notes: [String]
     /// Non-fatal problems encountered while building (e.g. icon failure).
     public let warnings: [String]
+}
+
+/// A change to an existing instance. `nil` fields keep the current value.
+public struct InstanceUpdate: Sendable {
+    public var name: String?
+    public var settings: InstanceSettings?
+    /// A new icon to copy in (replaces any custom icon).
+    public var newCustomIcon: URL?
+    /// Point the instance at a different copy of its app (e.g. after moving it).
+    public var targetApp: URL?
+    /// Go back to the app's own icon. Needed for instances made before 0.5,
+    /// whose badge is baked into the wrapper icon rather than recorded.
+    public var resetIcon: Bool
+
+    public init(
+        name: String? = nil,
+        settings: InstanceSettings? = nil,
+        newCustomIcon: URL? = nil,
+        targetApp: URL? = nil,
+        resetIcon: Bool = false
+    ) {
+        self.name = name
+        self.settings = settings
+        self.newCustomIcon = newCustomIcon
+        self.targetApp = targetApp
+        self.resetIcon = resetIcon
+    }
 }
 
 public enum InstanceCreator {
@@ -103,7 +142,8 @@ public enum InstanceCreator {
             isParallexWrapper: info.isParallexWrapper,
             recommendedMode: plan.mode,
             notes: plan.notes,
-            suggestedName: suggestName(targetName: info.name, outputDirectory: outputDirectory)
+            suggestedName: suggestName(targetName: info.name, outputDirectory: outputDirectory),
+            recipeOptions: plan.availableOptions
         )
     }
 
@@ -129,7 +169,8 @@ public enum InstanceCreator {
             throw ParallexError("Instance name '\(instanceName)' contains no letters or digits — pick another name.")
         }
 
-        if InstanceStore.load(slug: slug) != nil && !request.force {
+        let existing = InstanceStore.load(slug: slug)
+        if existing != nil && !request.force {
             throw ParallexError(
                 "An instance named '\(instanceName)' already exists. Rebuild it with force, or pick another name."
             )
@@ -142,29 +183,233 @@ public enum InstanceCreator {
             )
         }
 
+        var settings = InstanceSettings(
+            requestedMode: request.mode,
+            badgeText: request.badgeText.map { $0.trimmingCharacters(in: .whitespaces) },
+            badgeColorHex: request.badgeColorHex,
+            extraEnvironment: request.environment,
+            extraArguments: request.extraArguments,
+            extraSharedItems: request.extraSharedItems,
+            includeDefaultSharedItems: request.includeDefaultSharedItems,
+            enabledOptions: request.enabledOptions
+        )
+        try validateBadge(settings)
+        if let adopt = request.adoptData {
+            try validateAdoptable(adopt, target: target, slug: slug)
+        }
+        if let icon = request.customIcon {
+            settings.customIconFile = try storeCustomIcon(icon, slug: slug)
+        }
+
+        let result = try assemble(
+            target: target,
+            name: instanceName,
+            slug: slug,
+            outputDirectory: outDir,
+            settings: settings,
+            previous: existing,
+            builderOptions: builderOptions
+        )
+        if let adopt = request.adoptData {
+            guard let destination = result.dataDirectories.first ?? result.homeDirectory else {
+                throw ParallexError(
+                    "Created “\(instanceName)”, but its isolation mode has no data folder to adopt into."
+                )
+            }
+            try adoptData(from: adopt, into: URL(fileURLWithPath: destination))
+        }
+        return result
+    }
+
+    /// An adoptable folder exists, isn't Parallex's own data, and isn't the
+    /// original app's live profile (moving that would empty the original).
+    private static func validateAdoptable(_ source: URL, target: AppInfo, slug: String) throws {
+        let fm = FileManager.default
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: source.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw ParallexError("\(source.path) isn't a folder.")
+        }
+        let path = source.standardizedFileURL.path
+        if path.hasPrefix(Paths.instancesRoot.standardizedFileURL.path + "/") {
+            throw ParallexError("\(source.path) already belongs to a Parallex instance.")
+        }
+        let support = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support")
+        let originalProfiles = Presets.originalDataFolders(
+            bundleID: target.bundleID,
+            names: [target.name, target.url.deletingPathExtension().lastPathComponent]
+        ).map { support.appendingPathComponent($0).standardizedFileURL.path }
+        if originalProfiles.contains(path) {
+            throw ParallexError(
+                "\(Paths.abbreviate(path)) is \(target.name)'s own profile — moving it would sign the original "
+                + "out. Copy it somewhere first and adopt the copy."
+            )
+        }
+        let destination = Paths.instanceDir(slug: slug).appendingPathComponent("data")
+        if let contents = try? fm.contentsOfDirectory(atPath: destination.path), !contents.isEmpty {
+            throw ParallexError("This instance already has data; adopting would overwrite it.")
+        }
+    }
+
+    private static func adoptData(from source: URL, into destination: URL) throws {
+        let fm = FileManager.default
+        if let contents = try? fm.contentsOfDirectory(atPath: destination.path) {
+            guard contents.isEmpty else {
+                throw ParallexError("\(destination.path) isn't empty; not adopting into it.")
+            }
+            try fm.removeItem(at: destination)
+        }
+        try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do {
+            try fm.moveItem(at: source, to: destination)
+        } catch {
+            throw ParallexError(
+                "The instance was created, but moving \(source.path) into it failed: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    /// Rebuild an instance's wrapper from its settings, optionally changing
+    /// them (rename, badge, icon, isolation options, …). The slug — and with
+    /// it the bundle ID and data directory — never changes, so the instance
+    /// keeps its data and macOS permissions. Also the repair path: it
+    /// regenerates a missing or outdated wrapper.
+    public static func update(
+        _ manifest: InstanceManifest,
+        _ change: InstanceUpdate = InstanceUpdate(),
+        builderOptions: BundleBuilder.Options = BundleBuilder.Options()
+    ) throws -> CreateResult {
+        let fm = FileManager.default
+        var settings = change.settings ?? manifest.effectiveSettings
+
+        let targetURL = try change.targetApp ?? locateTarget(of: manifest)
+        let target = try AppInspector.inspect(targetURL)
+        guard !target.isParallexWrapper else {
+            throw ParallexError("'\(target.name)' is itself a Parallex wrapper — choose the original app.")
+        }
+        if let expected = manifest.knownTargetBundleID, expected != target.bundleID {
+            throw ParallexError(
+                "\(target.url.path) is \(target.bundleID), but this instance was made for \(expected)."
+            )
+        }
+
+        let oldWrapper = URL(fileURLWithPath: manifest.wrapperPath)
+        let outDir = oldWrapper.deletingLastPathComponent()
+        let name = try change.name.map {
+            try resolveName($0, targetName: target.name, outDir: outDir)
+        } ?? manifest.name
+        if name != manifest.name {
+            let newWrapper = outDir.appendingPathComponent("\(name).app")
+            // A case-only rename finds the old wrapper itself on a
+            // case-insensitive volume — that's not a conflict.
+            if fm.fileExists(atPath: newWrapper.path) && !sameItem(newWrapper, oldWrapper) {
+                throw ParallexError("\(newWrapper.path) already exists — pick another name.")
+            }
+        }
+        try ensureWritableDirectory(outDir)
+
+        if change.resetIcon {
+            settings.customIconFile = nil
+        }
+        // Schema-1 instances don't record their badge or icon; keep whatever
+        // icon the current wrapper has, unless this change restyles the icon.
+        if manifest.settings == nil, !change.resetIcon, change.newCustomIcon == nil,
+           settings.customIconFile == nil, settings.badgeText == nil {
+            let current = oldWrapper.appendingPathComponent("Contents/Resources/app.icns")
+            if fm.fileExists(atPath: current.path) {
+                settings.customIconFile = try storeCustomIcon(current, slug: manifest.slug)
+            }
+        }
+        if let icon = change.newCustomIcon {
+            settings.customIconFile = try storeCustomIcon(icon, slug: manifest.slug)
+        }
+        try validateBadge(settings)
+
+        let result = try assemble(
+            target: target,
+            name: name,
+            slug: manifest.slug,
+            outputDirectory: outDir,
+            settings: settings,
+            previous: manifest,
+            builderOptions: builderOptions
+        )
+        // Renamed: the new wrapper is in place, retire the old one (unless
+        // it was a case-only rename on a case-insensitive volume, where old
+        // and new are the same file).
+        if result.wrapperURL.path != oldWrapper.path,
+           fm.fileExists(atPath: oldWrapper.path),
+           !sameItem(result.wrapperURL, oldWrapper),
+           BundleBuilder.isParallexWrapper(oldWrapper) {
+            try? fm.trashItem(at: oldWrapper, resultingItemURL: nil)
+        }
+        return result
+    }
+
+    /// Whether two paths name the same file on disk (true for case variants
+    /// on a case-insensitive volume, false on a case-sensitive one).
+    static func sameItem(_ lhs: URL, _ rhs: URL) -> Bool {
+        // Fresh URLs: resource values are cached per URL object, and the file
+        // behind a path changes when a wrapper is rebuilt.
+        let key: Set<URLResourceKey> = [.fileResourceIdentifierKey]
+        guard let left = try? URL(fileURLWithPath: lhs.path).resourceValues(forKeys: key).fileResourceIdentifier,
+              let right = try? URL(fileURLWithPath: rhs.path).resourceValues(forKeys: key).fileResourceIdentifier
+        else {
+            return lhs.standardizedFileURL.path == rhs.standardizedFileURL.path
+        }
+        return left.isEqual(right)
+    }
+
+    /// Where the instance's target app is now: its recorded path, or wherever
+    /// Launch Services finds its bundle ID.
+    static func locateTarget(of manifest: InstanceManifest) throws -> URL {
+        if FileManager.default.fileExists(atPath: manifest.targetApp) {
+            return URL(fileURLWithPath: manifest.targetApp, isDirectory: true)
+        }
+        if let bundleID = manifest.knownTargetBundleID, let found = AppResolver.locate(bundleID: bundleID) {
+            return found
+        }
+        throw ParallexError(
+            "The original app is missing at \(manifest.targetApp). Reinstall it, or choose where it is now."
+        )
+    }
+
+    /// Build the wrapper and write the manifest for fully-resolved inputs.
+    private static func assemble(
+        target: AppInfo,
+        name instanceName: String,
+        slug: String,
+        outputDirectory outDir: URL,
+        settings: InstanceSettings,
+        previous: InstanceManifest?,
+        builderOptions: BundleBuilder.Options
+    ) throws -> CreateResult {
         let instanceDir = Paths.instanceDir(slug: slug)
-        var sharedItems = request.includeDefaultSharedItems ? Presets.defaultSharedItems : []
-        sharedItems.append(contentsOf: request.extraSharedItems.filter { !sharedItems.contains($0) })
+        var sharedItems = settings.includeDefaultSharedItems ? Presets.defaultSharedItems : []
+        sharedItems.append(contentsOf: settings.extraSharedItems.filter { !sharedItems.contains($0) })
 
         let plan = Presets.plan(
             for: target,
-            requested: request.mode,
+            requested: settings.mode,
             instanceDir: instanceDir,
-            sharedItems: sharedItems
+            sharedItems: sharedItems,
+            enabledOptions: settings.enabledOptions.map(Set.init)
         )
 
         // Plan recipe first, user-provided vars win, PARALLEX_INSTANCE always set.
         var environment = plan.environment
-        environment.merge(request.environment) { _, user in user }
+        environment.merge(settings.extraEnvironment) { _, user in user }
         environment["PARALLEX_INSTANCE"] = slug
-        let arguments = plan.arguments + request.extraArguments
+        let arguments = plan.arguments + settings.extraArguments
 
+        let customIcon = settings.customIconFile.map { instanceDir.appendingPathComponent($0) }
         let spec = WrapperSpec(
             name: instanceName,
             slug: slug,
             bundleIdentifier: "com.parallex.instance.\(slug)",
             targetAppPath: target.url.path,
             targetBinaryPath: target.executableURL.path,
+            targetBundleID: target.bundleID,
             arguments: arguments,
             environment: environment,
             homeOverride: plan.homeOverride,
@@ -173,12 +418,10 @@ public enum InstanceCreator {
             applicationCategory: target.infoPlist["LSApplicationCategoryType"] as? String,
             outputDirectory: outDir,
             launcherBinary: try LauncherLocator.locate(),
-            iconSource: try resolveIconSource(custom: request.customIcon, target: target),
-            badge: try makeBadge(
-                text: request.badgeText,
-                colorHex: request.badgeColorHex,
-                slug: slug
-            ),
+            iconSource: try resolveIconSource(custom: customIcon, target: target),
+            badge: settings.badgeText.map {
+                IconBuilder.Badge(text: $0, colorHex: settings.badgeColorHex, colorSeed: slug)
+            },
             pidFile: Paths.pidFile(slug: slug).path
         )
 
@@ -196,8 +439,10 @@ public enum InstanceCreator {
             arguments: arguments,
             environment: environment,
             homeSymlinks: plan.homeOverride != nil ? plan.homeSymlinks : nil,
-            createdAt: Date(),
-            parallexVersion: ParallexConfig.version
+            createdAt: previous?.createdAt ?? Date(),
+            parallexVersion: ParallexConfig.version,
+            targetBundleID: target.bundleID,
+            settings: settings
         )
         try InstanceStore.save(manifest)
 
@@ -261,21 +506,42 @@ public enum InstanceCreator {
         }
     }
 
-    private static func makeBadge(text: String?, colorHex: String?, slug: String) throws -> IconBuilder.Badge? {
-        guard let text else {
-            if colorHex != nil {
+    private static func validateBadge(_ settings: InstanceSettings) throws {
+        guard let text = settings.badgeText else {
+            if settings.badgeColorHex != nil {
                 throw ParallexError("A badge color was given without badge text.")
             }
-            return nil
+            return
         }
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        guard (1...2).contains(trimmed.count) else {
+        guard text == text.trimmingCharacters(in: .whitespaces), (1...2).contains(text.count) else {
             throw ParallexError("The badge must be 1 or 2 characters, got '\(text)'.")
         }
-        if let colorHex, IconBuilder.color(fromHex: colorHex) == nil {
+        if let colorHex = settings.badgeColorHex, IconBuilder.color(fromHex: colorHex) == nil {
             throw ParallexError("The badge color must be #RRGGBB hex, got '\(colorHex)'.")
         }
-        return IconBuilder.Badge(text: trimmed, colorHex: colorHex, colorSeed: slug)
+    }
+
+    /// Copy a custom icon into the instance directory; returns its file name.
+    private static func storeCustomIcon(_ source: URL, slug: String) throws -> String {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: source.path) else {
+            throw ParallexError("Icon file not found: \(source.path)")
+        }
+        let instanceDir = Paths.instanceDir(slug: slug)
+        try fm.createDirectory(at: instanceDir, withIntermediateDirectories: true)
+        let ext = source.pathExtension.isEmpty ? "png" : source.pathExtension.lowercased()
+        let fileName = "custom-icon.\(ext)"
+        let destination = instanceDir.appendingPathComponent(fileName)
+        if source.standardizedFileURL.path == destination.standardizedFileURL.path {
+            return fileName
+        }
+        // Drop any earlier custom icon (possibly another extension).
+        for old in (try? fm.contentsOfDirectory(atPath: instanceDir.path)) ?? []
+        where old.hasPrefix("custom-icon.") {
+            try? fm.removeItem(at: instanceDir.appendingPathComponent(old))
+        }
+        try fm.copyItem(at: source, to: destination)
+        return fileName
     }
 
     private static func resolveIconSource(custom: URL?, target: AppInfo) throws -> IconBuilder.IconSource {

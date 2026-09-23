@@ -20,6 +20,8 @@ struct CreateSheet: View {
     @State private var badgeColor = Color(red: 0.37, green: 0.36, blue: 0.90)
     @State private var mode: RequestedMode = .auto
     @State private var launchAfterCreate = true
+    @State private var activeOptions: Set<String> = []
+    @State private var adoptFolder: URL?
 
     @State private var working = false
     @State private var errorMessage: String?
@@ -118,6 +120,42 @@ struct CreateSheet: View {
                 }
             }
 
+            ForEach(probe?.recipeOptions ?? []) { option in
+                Toggle(isOn: Binding(
+                    get: { activeOptions.contains(option.id) },
+                    set: { enabled in
+                        if enabled {
+                            activeOptions.insert(option.id)
+                        } else {
+                            activeOptions.remove(option.id)
+                        }
+                    }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(option.title)
+                        Text(option.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Start from existing data")
+                    Text(adoptFolder.map { Paths.abbreviate($0.path) }
+                         ?? "Optional: move in a profile folder (e.g. an old --user-data-dir) to keep its sign-in.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                if adoptFolder != nil {
+                    Button("Clear") { adoptFolder = nil }
+                }
+                Button("Choose…") { chooseAdoptFolder() }
+            }
+
             Toggle("Launch after creating", isOn: $launchAfterCreate)
         }
     }
@@ -186,6 +224,19 @@ struct CreateSheet: View {
         select(url)
     }
 
+    private func chooseAdoptFolder() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a Profile Folder to Move In"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+        adoptFolder = url
+    }
+
     private func select(_ url: URL) {
         appURL = url
         probe = nil
@@ -200,6 +251,7 @@ struct CreateSheet: View {
                     probe = result
                     name = result.suggestedName
                     mode = .auto
+                    activeOptions = Set(result.recipeOptions.filter(\.defaultEnabled).map(\.id))
                 }
             } catch {
                 appURL = nil
@@ -215,18 +267,25 @@ struct CreateSheet: View {
         var request = CreateRequest(appReference: appURL.path)
         request.name = name.trimmingCharacters(in: .whitespaces)
         request.mode = mode
+        request.adoptData = adoptFolder
+        if let options = probe?.recipeOptions, !options.isEmpty {
+            request.enabledOptions = options.map(\.id).filter(activeOptions.contains)
+        }
         let badgeText = badge.trimmingCharacters(in: .whitespaces)
         if !badgeText.isEmpty {
             request.badgeText = badgeText
             if useCustomBadgeColor {
-                request.badgeColorHex = hexString(from: badgeColor)
+                request.badgeColorHex = NSColor(badgeColor).hexString
             }
         }
         Task {
             do {
                 let result = try await model.create(request)
                 if launchAfterCreate {
-                    model.launchWrapper(at: result.manifest.wrapperPath)
+                    model.launch(InstancesModel.Entry(
+                        manifest: result.manifest,
+                        status: InstanceStatus.check(result.manifest)
+                    ))
                 }
                 dismiss()
             } catch {
@@ -234,13 +293,5 @@ struct CreateSheet: View {
                 working = false
             }
         }
-    }
-
-    private func hexString(from color: Color) -> String {
-        let nsColor = NSColor(color).usingColorSpace(.sRGB) ?? .systemIndigo
-        let red = Int(round(nsColor.redComponent * 255))
-        let green = Int(round(nsColor.greenComponent * 255))
-        let blue = Int(round(nsColor.blueComponent * 255))
-        return String(format: "#%02X%02X%02X", red, green, blue)
     }
 }

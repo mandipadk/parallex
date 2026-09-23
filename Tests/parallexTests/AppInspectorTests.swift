@@ -83,4 +83,23 @@ final class AppInspectorTests: XCTestCase {
         XCTAssertFalse(info.isSandboxed)
         XCTAssertNil(info.signingIdentifier)
     }
+
+    func testFindsCandidateEnvironmentSwitchesInAsar() throws {
+        let app = try Fixtures.makeApp(named: "Switchy", bundleID: "com.fake.switchy", in: tempDir, electron: true)
+        let code = """
+        var a=process.env.SWITCHY_USER_DATA_DIR||x;var b=process.env.HOME;
+        var c=process.env.SWITCHY_CONFIG_DIR;var d=process.env.SWITCHY_PROFILE_UPLOAD_URL;
+        var e=process.env.NODE_ENV;var f=process.env.SWITCHY_HOME
+        """
+        try Data(code.utf8).write(to: app.appendingPathComponent("Contents/Resources/app.asar"))
+        XCTAssertEqual(
+            AppInspector.candidateEnvironmentSwitches(appURL: app),
+            ["SWITCHY_CONFIG_DIR", "SWITCHY_HOME", "SWITCHY_USER_DATA_DIR"]
+        )
+    }
+
+    func testNoAsarMeansNoCandidates() throws {
+        let app = try Fixtures.makeApp(named: "Plain", bundleID: "com.fake.plain", in: tempDir)
+        XCTAssertEqual(AppInspector.candidateEnvironmentSwitches(appURL: app), [])
+    }
 }

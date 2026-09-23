@@ -27,15 +27,13 @@ public enum Paths {
         instanceDir(slug: slug).appendingPathComponent("instance.pid")
     }
 
-    /// Render a path with the user's home abbreviated to `~` for display.
-    public static func abbreviate(_ path: String) -> String {
+    /// Render a path — or an argument embedding paths, like
+    /// `--user-data-dir=<home>/…` — with the home directory shown as `~`.
+    public static func abbreviate(_ text: String) -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if path == home {
+        if text == home {
             return "~"
         }
-        if path.hasPrefix(home + "/") {
-            return "~" + path.dropFirst(home.count)
-        }
-        return path
+        return text.replacingOccurrences(of: home + "/", with: "~/")
     }
 }

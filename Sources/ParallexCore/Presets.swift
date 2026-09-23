@@ -23,6 +23,37 @@ public struct IsolationPlan: Sendable {
     /// flags but honor env vars, e.g. Codex's CODEX_ELECTRON_USER_DATA_PATH).
     public var environment: [String: String]
     public var notes: [String]
+    /// Toggles the app's recipe offers (e.g. separate Claude Code config).
+    public var availableOptions: [RecipeOption] = []
+    /// The option IDs this plan applied.
+    public var enabledOptions: [String] = []
+}
+
+/// A per-app isolation recipe: what data-dir isolation means for one app.
+public struct AppRecipe: Sendable {
+    /// Stable identifier, stored as the instance's preset.
+    public let id: String
+    let bundleIDPrefixes: [String]
+    let arguments: [String]
+    let environment: [String: String]
+    let createDirectories: [String]
+    let note: String
+    public let options: [RecipeOption]
+
+    func matches(bundleID: String) -> Bool {
+        bundleIDPrefixes.contains { bundleID == $0 || bundleID.hasPrefix($0 + ".") }
+    }
+}
+
+/// An optional extra piece of isolation a recipe offers, for state users may
+/// reasonably want either shared or separate.
+public struct RecipeOption: Sendable, Identifiable, Hashable {
+    public let id: String
+    public let title: String
+    public let detail: String
+    public let defaultEnabled: Bool
+    let environment: [String: String]
+    let createDirectories: [String]
 }
 
 public enum Presets {
@@ -33,28 +64,20 @@ public enum Presets {
         ".gitconfig", ".ssh",
     ]
 
-    /// Apps where framework detection picks the wrong recipe. Some Electron
-    /// apps pin their data directory in code (app.setPath('userData', …)), so
-    /// --user-data-dir does nothing — but they often honor their own
-    /// environment variables instead. `${instance}` in values expands to the
-    /// instance directory. Keyed by bundle ID prefix.
-    struct AppOverride {
-        let bundleIDPrefix: String
-        let mode: InstanceMode
-        /// Environment recipe implementing the isolation.
-        let environment: [String: String]
-        let createDirectories: [String]
-        let note: String
-    }
-
-    static let appOverrides: [AppOverride] = [
+    /// Per-app isolation recipes, for apps where framework flags alone are
+    /// wrong or incomplete. Some Electron apps pin their data directory in
+    /// code (app.setPath('userData', …)), so --user-data-dir does nothing —
+    /// but they often honor their own environment variables instead.
+    /// `${instance}` in values expands to the instance directory.
+    static let recipes: [AppRecipe] = [
         // Codex calls app.setPath('userData', …) — its userData (and the
         // single-instance lock inside it) is pinned in code, and its session
         // lives in ~/.codex. Both have env overrides in Codex's own code:
         // CODEX_ELECTRON_USER_DATA_PATH and CODEX_HOME.
-        AppOverride(
-            bundleIDPrefix: "com.openai.codex",
-            mode: .dataDir,
+        AppRecipe(
+            id: "com.openai.codex",
+            bundleIDPrefixes: ["com.openai.codex"],
+            arguments: [],
             environment: [
                 "CODEX_ELECTRON_USER_DATA_PATH": "${instance}/data",
                 "CODEX_HOME": "${instance}/codex-home",
@@ -63,12 +86,72 @@ public enum Presets {
             note: "Codex ignores --user-data-dir but honors its own environment overrides, so the "
                 + "instance gets a private data directory (CODEX_ELECTRON_USER_DATA_PATH) and a "
                 + "private ~/.codex (CODEX_HOME). It will ask you to sign in on first launch — "
-                + "that's the isolation working — and it can run alongside the original."
+                + "that's the isolation working — and it can run alongside the original.",
+            options: []
+        ),
+        // Claude reads CLAUDE_USER_DATA_DIR itself (it wins over code paths
+        // that re-point userData); the flag is kept for older versions. Its
+        // built-in Claude Code keeps settings, memory, and history in
+        // ~/.claude unless CLAUDE_CONFIG_DIR says otherwise.
+        AppRecipe(
+            id: "com.anthropic.claudefordesktop",
+            bundleIDPrefixes: ["com.anthropic.claudefordesktop"],
+            arguments: ["--user-data-dir=${instance}/data"],
+            environment: ["CLAUDE_USER_DATA_DIR": "${instance}/data"],
+            createDirectories: ["${instance}/data"],
+            note: "Claude gets a private data directory (CLAUDE_USER_DATA_DIR), so the instance has "
+                + "its own sign-in, chats, and settings.",
+            options: [
+                RecipeOption(
+                    id: "separate-claude-code",
+                    title: "Separate Claude Code settings, memory, and history",
+                    detail: "Off: Claude Code in this instance shares ~/.claude (skills, CLAUDE.md, "
+                        + "memory, session history) with your other Claude. On: it gets its own "
+                        + "(CLAUDE_CONFIG_DIR) — a clean split between accounts, but skills and "
+                        + "settings must be set up again there.",
+                    defaultEnabled: false,
+                    environment: ["CLAUDE_CONFIG_DIR": "${instance}/claude-code"],
+                    createDirectories: ["${instance}/claude-code"]
+                ),
+            ]
         ),
     ]
 
-    static func override(for bundleID: String) -> AppOverride? {
-        appOverrides.first { bundleID == $0.bundleIDPrefix || bundleID.hasPrefix($0.bundleIDPrefix + ".") }
+    /// Folders under ~/Library/Application Support where apps keep their
+    /// default (the original's) profile, for apps where that isn't simply
+    /// the app's name. Used to spot leaks and to refuse adopting a live
+    /// profile.
+    static let knownDataFolders: [String: [String]] = [
+        "com.google.Chrome": ["Google/Chrome"],
+        "com.google.Chrome.beta": ["Google/Chrome Beta"],
+        "com.google.Chrome.dev": ["Google/Chrome Dev"],
+        "com.google.Chrome.canary": ["Google/Chrome Canary"],
+        "com.brave.Browser": ["BraveSoftware/Brave-Browser"],
+        "com.microsoft.edgemac": ["Microsoft Edge"],
+        "com.vivaldi.Vivaldi": ["Vivaldi"],
+        "org.chromium.Chromium": ["Chromium"],
+        "company.thebrowser.Browser": ["Arc"],
+        "com.microsoft.VSCode": ["Code"],
+        "com.microsoft.VSCodeInsiders": ["Code - Insiders"],
+        "com.todesktop.230313mzl4w4u92": ["Cursor"],
+        "com.openai.codex": ["Codex", "ChatGPT"],
+        "com.anthropic.claudefordesktop": ["Claude"],
+        "com.hnc.Discord": ["discord"],
+        "md.obsidian": ["obsidian"],
+    ]
+
+    /// Folder names (relative to ~/Library/Application Support) that hold
+    /// the original app's own profile.
+    public static func originalDataFolders(bundleID: String, names: [String]) -> [String] {
+        var folders = knownDataFolders[bundleID] ?? []
+        for name in names + [bundleID] where !name.isEmpty && !folders.contains(name) {
+            folders.append(name)
+        }
+        return folders
+    }
+
+    public static func recipe(for bundleID: String) -> AppRecipe? {
+        recipes.first { $0.matches(bundleID: bundleID) }
     }
 
     /// Best-effort warning for data-dir mode: if `~/.<app>` exists, the app
@@ -84,20 +167,48 @@ public enum Presets {
     }
 
     private static let tccNote =
-        "macOS permissions (notifications, camera, screen recording, …) are tracked per bundle ID — "
-        + "the instance will prompt again on first use."
+        "While it runs, macOS sees the instance as the original app (same bundle ID and signature): "
+        + "the Dock tile, app switcher, and notifications show the original's name and icon, and privacy "
+        + "permissions may be shared with it. Parallex's menu bar shows which instance is in front."
 
+    /// - Parameter enabledOptions: recipe option IDs to turn on; `nil`
+    ///   means each option's default.
     public static func plan(
         for app: AppInfo,
         requested: RequestedMode,
         instanceDir: URL,
-        sharedItems: [String]
+        sharedItems: [String],
+        enabledOptions: Set<String>? = nil
     ) -> IsolationPlan {
         var notes: [String] = []
         let resolved: InstanceMode
+        let recipe = recipe(for: app.bundleID)
 
         func expand(_ value: String) -> String {
             value.replacingOccurrences(of: "${instance}", with: instanceDir.path)
+        }
+
+        /// The app's own recipe, which data-dir mode means for this app.
+        func recipePlan(_ recipe: AppRecipe, extraNotes: [String]) -> IsolationPlan {
+            let active = recipe.options.filter { enabledOptions?.contains($0.id) ?? $0.defaultEnabled }
+            var environment = recipe.environment
+            var directories = recipe.createDirectories
+            for option in active {
+                environment.merge(option.environment) { _, new in new }
+                directories += option.createDirectories.filter { !directories.contains($0) }
+            }
+            return IsolationPlan(
+                mode: .dataDir,
+                presetID: recipe.id,
+                arguments: recipe.arguments.map(expand),
+                createDirectories: directories.map(expand),
+                homeOverride: nil,
+                homeSymlinks: [],
+                environment: environment.mapValues(expand),
+                notes: extraNotes + [recipe.note, tccNote],
+                availableOptions: recipe.options,
+                enabledOptions: active.map(\.id)
+            )
         }
 
         switch requested {
@@ -109,18 +220,8 @@ public enum Presets {
                     + "~/Library/Containers/\(app.bundleID) no matter what, so Parallex can only give it a "
                     + "separate identity, not separate data."
                 )
-            } else if let override = override(for: app.bundleID) {
-                // Per-app recipe: isolation via the app's own env overrides.
-                return IsolationPlan(
-                    mode: override.mode,
-                    presetID: override.bundleIDPrefix,
-                    arguments: [],
-                    createDirectories: override.createDirectories.map(expand),
-                    homeOverride: nil,
-                    homeSymlinks: [],
-                    environment: override.environment.mapValues(expand),
-                    notes: [override.note, tccNote]
-                )
+            } else if let recipe {
+                return recipePlan(recipe, extraNotes: [])
             } else if app.framework.hasAppAwarePreset {
                 resolved = .dataDir
             } else {
@@ -130,11 +231,10 @@ public enum Presets {
             if app.isSandboxed {
                 notes.append("\(app.name) is sandboxed — data-dir flags usually have no effect on sandboxed apps.")
             }
-            if override(for: app.bundleID) != nil {
-                notes.append(
-                    "Heads up: \(app.name) is known to ignore data-dir flags — use auto mode so "
-                    + "Parallex can apply its per-app recipe instead."
-                )
+            if let recipe {
+                // Data-dir mode *is* the recipe for apps that have one; a
+                // generic flag would be ignored or incomplete.
+                return recipePlan(recipe, extraNotes: notes)
             }
             if !app.framework.hasAppAwarePreset {
                 notes.append(
@@ -178,10 +278,9 @@ public enum Presets {
                 arguments = ["--user-data-dir=\(dataDir)"]
                 directories = [dataDir]
             }
-            // Overridden apps already explain themselves; for the rest, point
-            // out home dotfiles the data-dir flags can't isolate.
-            if override(for: app.bundleID) == nil,
-               let dotNote = dotfileNote(
+            // Point out home dotfiles the data-dir flags can't isolate (apps
+            // with a recipe returned above and explain themselves).
+            if let dotNote = dotfileNote(
                    appName: app.name,
                    home: FileManager.default.homeDirectoryForCurrentUser
                ) {

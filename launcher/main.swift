@@ -5,10 +5,14 @@
 // Info.plist (the `Parallex` dictionary), prepares the isolated environment,
 // and then replaces itself with the target binary via execv().
 //
-// execv — not spawn-and-exit — is the load-bearing detail: the process keeps
-// the PID that Launch Services registered for the wrapper bundle, which is
-// what gives the running instance the wrapper's Dock icon, name, and identity.
+// execv — not spawn-and-exit — keeps the PID, so the pid file written just
+// before exec names the running instance for its whole lifetime. Note that
+// the exec'd app checks in with Launch Services under its *own* identity
+// (bundle ID, name, Dock tile): macOS derives identity from the executable,
+// and hardened-runtime apps ignore the environment overrides that could
+// change that. Parallex tracks instances by PID instead.
 
+import AppKit
 import Foundation
 import ParallexKit
 import os
@@ -57,6 +61,68 @@ func scaffoldHome(at instanceHome: String, realHome: String, symlinks: [String])
     }
 }
 
+/// Where the target's main executable lives right now. Wrappers record the
+/// executable path at create time, but apps get moved and executables get
+/// renamed by updates — so prefer what the target bundle says today, then the
+/// recorded path, then wherever Launch Services now finds the bundle ID.
+func resolveTargetBinary(config: [String: Any]) -> String? {
+    let fm = FileManager.default
+    func executable(inBundle path: String) -> String? {
+        let bundle = URL(fileURLWithPath: path, isDirectory: true)
+        guard let data = try? Data(contentsOf: bundle.appendingPathComponent("Contents/Info.plist")),
+              let plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any],
+              let name = plist["CFBundleExecutable"] as? String
+        else {
+            return nil
+        }
+        let candidate = bundle.appendingPathComponent("Contents/MacOS").appendingPathComponent(name).path
+        return fm.isExecutableFile(atPath: candidate) ? candidate : nil
+    }
+
+    if let targetApp = config[ParallexConfig.Key.targetApp] as? String,
+       let found = executable(inBundle: targetApp) {
+        return found
+    }
+    if let recorded = config[ParallexConfig.Key.targetBinary] as? String,
+       fm.isExecutableFile(atPath: recorded) {
+        return recorded
+    }
+    if let bundleID = config[ParallexConfig.Key.targetBundleID] as? String {
+        for url in NSWorkspace.shared.urlsForApplications(withBundleIdentifier: bundleID) {
+            // Never resolve to another Parallex wrapper of the same app.
+            if let bundle = Bundle(url: url), bundle.object(forInfoDictionaryKey: ParallexConfig.rootKey) != nil {
+                continue
+            }
+            if let found = executable(inBundle: url.path) {
+                return found
+            }
+        }
+    }
+    return nil
+}
+
+/// If this instance is already running, return its PID. Launch Services
+/// can't tell us (a running instance carries the target's identity, not the
+/// wrapper's), so a Dock or Spotlight click on a running wrapper lands here
+/// again. Starting a second copy would lose the app's single-instance race,
+/// overwrite the pid file, and leave a phantom Dock icon.
+func runningInstancePID(pidFile: String, expectedExecutable: String) -> pid_t? {
+    guard let text = try? String(contentsOfFile: pidFile, encoding: .utf8),
+          let record = PidFileRecord(parsing: text),
+          record.pid != getpid()
+    else {
+        return nil
+    }
+    guard kill(record.pid, 0) == 0 || errno == EPERM else {
+        return nil
+    }
+    var buffer = [UInt8](repeating: 0, count: Int(MAXPATHLEN) * 4)
+    let length = proc_pidpath(record.pid, &buffer, UInt32(buffer.count))
+    guard length > 0 else { return nil }
+    let path = String(decoding: buffer[..<Int(length)], as: UTF8.self)
+    return path == (record.executablePath ?? expectedExecutable) ? record.pid : nil
+}
+
 /// Replace this process with the target binary, keeping our PID.
 func execTarget(_ path: String, arguments: [String]) -> Never {
     var argv: [UnsafeMutablePointer<CChar>?] = [strdup(path)]
@@ -74,23 +140,45 @@ guard let config = Bundle.main.object(forInfoDictionaryKey: ParallexConfig.rootK
     The bundle is damaged — re-create the instance with `parallex create`.
     """)
 }
-guard let targetBinary = config[ParallexConfig.Key.targetBinary] as? String else {
-    fail("The '\(ParallexConfig.rootKey)' configuration is missing '\(ParallexConfig.Key.targetBinary)'. Re-create the instance with `parallex create`.")
+guard config[ParallexConfig.Key.targetBinary] is String || config[ParallexConfig.Key.targetApp] is String else {
+    fail("The '\(ParallexConfig.rootKey)' configuration names no target app. Re-create the instance with `parallex create`.")
 }
-guard FileManager.default.isExecutableFile(atPath: targetBinary) else {
+guard let targetBinary = resolveTargetBinary(config: config) else {
+    let expected = config[ParallexConfig.Key.targetApp] as? String
+        ?? config[ParallexConfig.Key.targetBinary] as? String ?? "?"
     fail("""
-    The target binary no longer exists:
+    The original app can't be found:
 
-    \(targetBinary)
+    \(expected)
 
-    The original app may have been moved, renamed, or uninstalled. \
-    Re-create this instance with `parallex create`.
+    It may have been moved, renamed, or uninstalled. Reinstall it, or \
+    repair this instance in Parallex.
     """)
 }
+let pidFile = config[ParallexConfig.Key.pidFile] as? String
 
-// 1. Pre-create any directories the instance needs (e.g. the user-data dir).
+// 0. Already running? Bring it forward instead of starting a second copy.
+if let pidFile, let running = runningInstancePID(pidFile: pidFile, expectedExecutable: targetBinary) {
+    log.info("instance already running as pid \(running, privacy: .public); activating it")
+    NSRunningApplication(processIdentifier: running)?.activate(options: [.activateAllWindows])
+    exit(0)
+}
+
+// 1. Pre-create the directories the instance needs (e.g. the user-data dir).
+//    A missing data directory silently costs isolation — many apps fall back
+//    to their default location — so failure here is fatal.
 for directory in config[ParallexConfig.Key.createDirectories] as? [String] ?? [] {
-    try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+    do {
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+    } catch {
+        fail("""
+        Could not create the instance's data directory, so it would not be isolated:
+
+        \(directory)
+
+        \(error.localizedDescription)
+        """)
+    }
 }
 
 // 2. Optional HOME override — the generic isolation tier for non-Electron apps.
@@ -110,14 +198,15 @@ for (key, value) in config[ParallexConfig.Key.environment] as? [String: String] 
     setenv(key, value, 1)
 }
 
-// 4. Record our PID. execv keeps it, so this is the instance's PID for the
-//    whole run — `parallex list` and the app use it for liveness checks.
-if let pidFile = config[ParallexConfig.Key.pidFile] as? String {
+// 4. Record our PID and the executable we're about to become. execv keeps
+//    the PID, so this identifies the instance's process for its whole run.
+if let pidFile {
     let url = URL(fileURLWithPath: pidFile)
     try? FileManager.default.createDirectory(
         at: url.deletingLastPathComponent(), withIntermediateDirectories: true
     )
-    try? Data("\(getpid())".utf8).write(to: url, options: .atomic)
+    let record = PidFileRecord(pid: getpid(), executablePath: targetBinary)
+    try? Data(record.serialized.utf8).write(to: url, options: .atomic)
 }
 
 // 5. Become the target.

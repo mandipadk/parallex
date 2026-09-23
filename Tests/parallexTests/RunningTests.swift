@@ -1,5 +1,6 @@
 import XCTest
 @testable import ParallexCore
+import ParallexKit
 
 /// Instance liveness comes from the launcher's pidfile (execv keeps the PID),
 /// validated against the process's executable path — bundle-ID lookups fail
@@ -53,6 +54,25 @@ final class RunningTests: XCTestCase {
         process.waitUntilExit()
         try writePidFile(slug: "dead", pid: process.processIdentifier)
         XCTAssertFalse(Running.isRunning(instanceSlug: "dead", targetBinary: "/usr/bin/true"))
+    }
+
+    func testRecordedExecutableWinsOverManifestBinary() throws {
+        // 0.5+ launchers record the executable they exec'd; if the target app
+        // moved since the manifest was written, that's the one to match.
+        let url = Paths.pidFile(slug: "moved")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(PidFileRecord(pid: getpid(), executablePath: ownBinary).serialized.utf8).write(to: url)
+        XCTAssertTrue(Running.isRunning(instanceSlug: "moved", targetBinary: "/Applications/Old.app/Contents/MacOS/Old"))
+    }
+
+    func testPidFileRecordParsing() {
+        XCTAssertEqual(PidFileRecord(parsing: "42"), PidFileRecord(pid: 42, executablePath: nil))
+        XCTAssertEqual(
+            PidFileRecord(parsing: "42\n/Applications/My App.app/Contents/MacOS/My App\n"),
+            PidFileRecord(pid: 42, executablePath: "/Applications/My App.app/Contents/MacOS/My App")
+        )
+        XCTAssertNil(PidFileRecord(parsing: "-3"))
+        XCTAssertNil(PidFileRecord(parsing: ""))
     }
 
     func testMissingOrGarbagePidFile() throws {

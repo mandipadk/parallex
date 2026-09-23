@@ -103,9 +103,13 @@ final class LauncherIntegrationTests: XCTestCase {
         process.waitUntilExit()
 
         XCTAssertEqual(process.terminationStatus, 0)
-        // execv kept the PID, so the file must contain the launcher's own PID.
+        // execv kept the PID, so the file must contain the launcher's own PID,
+        // plus the executable it became.
         let recorded = try String(contentsOf: pidFile, encoding: .utf8)
-        XCTAssertEqual(recorded, "\(process.processIdentifier)")
+        XCTAssertEqual(
+            PidFileRecord(parsing: recorded),
+            PidFileRecord(pid: process.processIdentifier, executablePath: "/usr/bin/true")
+        )
     }
 
     func testCreatesConfiguredDirectories() throws {
@@ -164,8 +168,73 @@ final class LauncherIntegrationTests: XCTestCase {
         ])
         let result = try runWrapper(app)
         XCTAssertEqual(result.exitCode, 1)
-        XCTAssertTrue(result.stderr.contains("no longer exists"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("can't be found"), result.stderr)
         XCTAssertTrue(result.stderr.contains("/nonexistent/binary"), result.stderr)
+    }
+
+    func testFollowsRenamedExecutableInTargetBundle() throws {
+        // The recorded binary is gone, but the target bundle now names a
+        // different executable (as after an update that renamed it).
+        let target = try Fixtures.makeApp(named: "Renamed", bundleID: "com.example.renamed", in: tempDir)
+        let executable = target.appendingPathComponent("Contents/MacOS/Renamed")
+        try Data("#!/bin/sh\nprintf renamed-ok\n".utf8).write(to: executable)
+        let app = try makeWrapper(config: [
+            ParallexConfig.Key.targetApp: target.path,
+            ParallexConfig.Key.targetBinary: target.appendingPathComponent("Contents/MacOS/OldName").path,
+        ])
+        let result = try runWrapper(app)
+        XCTAssertEqual(result.exitCode, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "renamed-ok")
+    }
+
+    func testAlreadyRunningInstanceIsNotStartedTwice() throws {
+        // The pid file names a live process running the recorded executable
+        // (this test runner), so the launcher must hand off instead of exec.
+        let pidFile = tempDir.appendingPathComponent("instance.pid")
+        var buffer = [CChar](repeating: 0, count: 4096)
+        _ = proc_pidpath(getpid(), &buffer, UInt32(buffer.count))
+        let record = PidFileRecord(pid: getpid(), executablePath: String(cString: buffer))
+        try Data(record.serialized.utf8).write(to: pidFile)
+
+        let app = try makeWrapper(config: [
+            ParallexConfig.Key.targetBinary: "/bin/echo",
+            ParallexConfig.Key.arguments: ["should-not-run"],
+            ParallexConfig.Key.pidFile: pidFile.path,
+        ])
+        let result = try runWrapper(app)
+        XCTAssertEqual(result.exitCode, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        // ...and the running instance's pid file is left alone.
+        XCTAssertEqual(PidFileRecord(parsing: try String(contentsOf: pidFile, encoding: .utf8)), record)
+    }
+
+    func testStalePidFileDoesNotBlockLaunch() throws {
+        let pidFile = tempDir.appendingPathComponent("instance.pid")
+        try Data(PidFileRecord(pid: getpid(), executablePath: "/bin/not-this-process").serialized.utf8)
+            .write(to: pidFile)
+        let app = try makeWrapper(config: [
+            ParallexConfig.Key.targetBinary: "/bin/echo",
+            ParallexConfig.Key.arguments: ["launched"],
+            ParallexConfig.Key.pidFile: pidFile.path,
+        ])
+        let result = try runWrapper(app)
+        XCTAssertEqual(result.exitCode, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "launched\n")
+    }
+
+    func testUncreatableDataDirectoryIsFatal() throws {
+        // A regular file where a parent directory should be.
+        let blocker = tempDir.appendingPathComponent("blocker")
+        try Data().write(to: blocker)
+        let app = try makeWrapper(config: [
+            ParallexConfig.Key.targetBinary: "/bin/echo",
+            ParallexConfig.Key.arguments: ["should-not-run"],
+            ParallexConfig.Key.createDirectories: [blocker.appendingPathComponent("data").path],
+        ])
+        let result = try runWrapper(app)
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertTrue(result.stderr.contains("would not be isolated"), result.stderr)
     }
 
     func testMissingConfigFailsWithClearMessage() throws {

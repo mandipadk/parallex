@@ -50,6 +50,24 @@ struct Create: ParsableCommand {
     @Flag(help: "Don't share the default items (Desktop, Documents, Downloads, …) into the instance home.")
     var noSharedDefaults = false
 
+    @Option(
+        name: .customLong("option"),
+        help: ArgumentHelp("Turn on an optional isolation setting from the app's recipe (see `doctor`).", valueName: "id")
+    )
+    var enableOptions: [String] = []
+
+    @Option(
+        name: .customLong("no-option"),
+        help: ArgumentHelp("Turn off a recipe option that's on by default.", valueName: "id")
+    )
+    var disableOptions: [String] = []
+
+    @Option(help: ArgumentHelp(
+        "Move an existing profile folder in as the instance's data (e.g. an old --user-data-dir), so it starts signed in.",
+        valueName: "folder"
+    ))
+    var adoptData: String?
+
     @Flag(help: "Rebuild an existing instance with the same name (its data is kept).")
     var force = false
 
@@ -60,6 +78,16 @@ struct Create: ParsableCommand {
     var passthroughArguments: [String] = []
 
     mutating func run() throws {
+        var enabledOptions: [String]?
+        if !enableOptions.isEmpty || !disableOptions.isEmpty {
+            let target = try AppInspector.inspect(try AppResolver.resolve(app))
+            let available = Presets.recipe(for: target.bundleID)?.options ?? []
+            try checkOptionIDs(enableOptions + disableOptions, available: available)
+            var settings = InstanceSettings()
+            for id in enableOptions { settings.setOption(id, enabled: true, available: available) }
+            for id in disableOptions { settings.setOption(id, enabled: false, available: available) }
+            enabledOptions = settings.enabledOptions
+        }
         let request = CreateRequest(
             appReference: app,
             name: name,
@@ -68,51 +96,21 @@ struct Create: ParsableCommand {
             badgeText: badge,
             badgeColorHex: badgeColor,
             customIcon: icon.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) },
-            environment: try parseEnvironment(),
+            environment: try parseEnvironment(environmentEntries),
             extraSharedItems: share,
             includeDefaultSharedItems: !noSharedDefaults,
             extraArguments: passthroughArguments,
+            enabledOptions: enabledOptions,
+            adoptData: adoptData.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) },
             force: force
         )
 
         let result = try InstanceCreator.create(request)
-        printSummary(result)
+        printResultSummary(result, verb: "Created")
+        print("Launch it from Spotlight or the Dock, or run:  parallex open \"\(result.manifest.name)\"")
 
         if open {
             _ = try? Shell.run("/usr/bin/open", [result.wrapperURL.path])
         }
-    }
-
-    private func parseEnvironment() throws -> [String: String] {
-        var environment: [String: String] = [:]
-        for entry in environmentEntries {
-            guard let separator = entry.firstIndex(of: "="), separator != entry.startIndex else {
-                throw ParallexError("--env expects KEY=VALUE, got '\(entry)'.")
-            }
-            environment[String(entry[..<separator])] = String(entry[entry.index(after: separator)...])
-        }
-        return environment
-    }
-
-    private func printSummary(_ result: CreateResult) {
-        let manifest = result.manifest
-        print("\(Term.green("✓")) Created \(Term.bold("“\(manifest.name)”"))")
-        print("  Wrapper  \(manifest.wrapperPath)")
-        print("  Target   \(manifest.targetApp)  \(Term.dim("(\(result.frameworkDisplayName))"))")
-        print("  Mode     \(manifest.mode.rawValue) — \(manifest.mode.summary)")
-        for directory in result.dataDirectories {
-            print("  Data     \(Paths.abbreviate(directory))")
-        }
-        if let home = result.homeDirectory {
-            print("  Home     \(Paths.abbreviate(home))")
-        }
-        print("")
-        for warning in result.warnings {
-            Term.warn(warning)
-        }
-        for note in result.notes {
-            Term.warn(note)
-        }
-        print("Launch it from Spotlight or the Dock, or run:  open \"\(manifest.wrapperPath)\"")
     }
 }

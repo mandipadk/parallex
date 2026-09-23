@@ -15,6 +15,7 @@ struct WrapperSpec {
     var bundleIdentifier: String
     var targetAppPath: String
     var targetBinaryPath: String
+    var targetBundleID: String? = nil
     var arguments: [String]
     var environment: [String: String]
     var homeOverride: String?
@@ -150,6 +151,9 @@ public struct BundleBuilder {
             ParallexConfig.Key.targetApp: spec.targetAppPath,
             ParallexConfig.Key.slug: spec.slug,
         ]
+        if let targetBundleID = spec.targetBundleID {
+            config[ParallexConfig.Key.targetBundleID] = targetBundleID
+        }
         if !spec.arguments.isEmpty {
             config[ParallexConfig.Key.arguments] = spec.arguments
         }

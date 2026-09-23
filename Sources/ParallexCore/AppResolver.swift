@@ -27,19 +27,24 @@ public enum AppResolver {
         }
 
         // Last resort: treat dotted, non-path input as a bundle identifier.
-        if input.contains("."), !input.contains("/"), !input.hasSuffix(".app") {
-            nonisolated(unsafe) var found: URL?
-            onMainThread {
-                found = NSWorkspace.shared.urlForApplication(withBundleIdentifier: input)
-            }
-            if let found {
-                return found
-            }
+        if input.contains("."), !input.contains("/"), !input.hasSuffix(".app"),
+           let found = locate(bundleID: input) {
+            return found
         }
 
         throw ParallexError("""
         Could not find an app for '\(input)'. Pass a path like /Applications/Claude.app, \
         an app name like 'Claude', or a bundle identifier.
         """)
+    }
+
+    /// Find an installed app by bundle ID, skipping Parallex wrappers (which
+    /// don't share the target's ID, but be safe against hand-made copies).
+    public static func locate(bundleID: String) -> URL? {
+        nonisolated(unsafe) var candidates: [URL] = []
+        onMainThread {
+            candidates = NSWorkspace.shared.urlsForApplications(withBundleIdentifier: bundleID)
+        }
+        return candidates.first { !BundleBuilder.isParallexWrapper($0) }
     }
 }

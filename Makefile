@@ -2,7 +2,10 @@
 # present, otherwise /usr/local — which is root-owned on modern macOS and
 # needs `sudo make install`. Override with `make install PREFIX=~/.local`.
 PREFIX ?= $(shell [ -w /opt/homebrew/bin ] && echo /opt/homebrew || echo /usr/local)
-RELEASE_DIR := .build/apple/Products/Release
+ARCH_FLAGS := --arch arm64 --arch x86_64
+# Ask SwiftPM where universal products land — the location differs between
+# toolchain versions, and a hardcoded path silently packages stale binaries.
+RELEASE_DIR = $(shell swift build -c release $(ARCH_FLAGS) --show-bin-path)
 APP_DIST := dist/Parallex.app
 
 .PHONY: build test release install uninstall app app-install clean
@@ -17,7 +20,7 @@ test:
 # one Parallex copies into every wrapper, so release wrappers run on both
 # architectures.
 release:
-	swift build -c release --arch arm64 --arch x86_64
+	swift build -c release $(ARCH_FLAGS)
 
 install: release
 	@if [ ! -w "$(PREFIX)/bin" ] && { [ -e "$(PREFIX)/bin" ] || [ ! -w "$(PREFIX)" ]; }; then \

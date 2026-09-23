@@ -20,9 +20,11 @@ struct Parallex: ParsableCommand {
           parallex doctor Slack
           parallex list
           parallex open "Claude Work"
+          parallex edit "Claude Work" --badge W --option separate-claude-code
+          parallex repair --all
           parallex remove "Claude Work"
         """,
         version: ParallexConfig.version,
-        subcommands: [Create.self, List.self, Open.self, Remove.self, Doctor.self]
+        subcommands: [Create.self, List.self, Open.self, Edit.self, Repair.self, Check.self, Storage.self, Remove.self, Doctor.self]
     )
 }

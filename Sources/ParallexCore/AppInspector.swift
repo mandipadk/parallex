@@ -184,4 +184,65 @@ public enum AppInspector {
         }
         return nil
     }
+
+    // MARK: - Isolation switch discovery
+
+    /// Environment variables an Electron app's own code reads that look like
+    /// data-location switches (`process.env.FOO_USER_DATA_DIR`, `…_HOME`, …).
+    /// Apps that ignore `--user-data-dir` often honor one of these — this is
+    /// how per-app recipes are found. Heuristic: it lists candidates, it
+    /// doesn't prove they work.
+    public static func candidateEnvironmentSwitches(appURL: URL) -> [String] {
+        let resources = appURL.appendingPathComponent("Contents/Resources")
+        let archive = resources.appendingPathComponent("app.asar")
+        guard let data = try? Data(contentsOf: archive, options: .alwaysMapped) else {
+            return []
+        }
+        let needle = Array("process.env.".utf8)
+        let keywords = ["USER_DATA", "DATA_DIR", "DATA_PATH", "CONFIG_DIR", "CONFIG_HOME", "_HOME", "PROFILE", "APPDATA"]
+        // Generic variables every app reads; not app-specific switches.
+        let generic: Set<String> = [
+            "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "APPDATA",
+            "LOCALAPPDATA", "USERPROFILE", "JAVA_HOME", "GOPATH", "CARGO_HOME", "NVM_HOME", "PYENV_ROOT",
+            "npm_config_userconfig", "BUN_INSTALL", "CODESPACES", "ANDROID_HOME",
+        ]
+        var found = Set<String>()
+        data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) in
+            let bytes = buffer.bindMemory(to: UInt8.self)
+            let count = bytes.count
+            var index = 0
+            while index + needle.count < count {
+                // Cheap first-byte filter before the full comparison.
+                if bytes[index] == needle[0], bytes[index + 1] == needle[1] {
+                    var matched = true
+                    for offset in 2..<needle.count where bytes[index + offset] != needle[offset] {
+                        matched = false
+                        break
+                    }
+                    if matched {
+                        var end = index + needle.count
+                        while end < count {
+                            let byte = bytes[end]
+                            let isName = (byte >= 0x41 && byte <= 0x5A) || (byte >= 0x30 && byte <= 0x39) || byte == 0x5F
+                            guard isName else { break }
+                            end += 1
+                        }
+                        if end - (index + needle.count) >= 4 {
+                            let name = String(decoding: UnsafeRawBufferPointer(rebasing: buffer[(index + needle.count)..<end]), as: UTF8.self)
+                            // Endpoints and secrets aren't locations.
+                            let nonLocation = ["URL", "HOST", "PORT", "TOKEN", "KEY", "SECRET", "ID"]
+                                .contains { name.hasSuffix($0) }
+                            if !generic.contains(name), !nonLocation, keywords.contains(where: name.contains) {
+                                found.insert(name)
+                            }
+                        }
+                        index = end
+                        continue
+                    }
+                }
+                index += 1
+            }
+        }
+        return found.sorted()
+    }
 }

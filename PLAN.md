@@ -11,9 +11,8 @@ Parall does **not** clone or modify the target app, and does not use code inject
 - Each "shortcut" is a **tiny standalone `.app` bundle** whose executable directly launches the
   target app's binary (standard process launching — the configured environment and arguments are
   inherited by the target process).
-- The wrapper bundle has its **own bundle identifier**, so macOS gives it its own Dock icon, name,
-  and app identity. Launch Services never sees the target's bundle ID, which also sidesteps
-  "app is already running" single-instance behavior at the LS layer.
+- The wrapper bundle has its **own bundle identifier**, so it launches as its own app. (On current
+  macOS the identity doesn't survive the exec for most apps — see §3, "Identity after exec".)
 - Data isolation is tiered:
   - **App-aware mode** for known frameworks (Chromium, Electron, Firefox, ToDesktop, Eclipse):
     pass the framework's profile/data-dir flag (e.g. `--user-data-dir`).
@@ -37,10 +36,8 @@ Parall does **not** clone or modify the target app, and does not use code inject
 existing one, created its own data directory, and all helper processes (GPU, network, renderer)
 inherited the isolated `--user-data-dir`. The mechanism is confirmed end-to-end.
 
-Notes specific to this machine: `Claude.app` is Electron and **not sandboxed** (no
-`com.apple.security.app-sandbox` entitlement), so both app-aware and HOME-override modes work.
-The existing `Claude Secondary.app` / `Claude Work.app` AppleScript applets are superseded by
-this approach (they have no real bundle identity of their own and only isolate the user-data dir).
+`Claude.app` is Electron and **not sandboxed** (no `com.apple.security.app-sandbox`
+entitlement), so both app-aware and HOME-override modes work.
 
 ## 3. Architecture
 
@@ -77,10 +74,37 @@ configuration from its own bundle's `Info.plist` under a custom dict:
 </dict>
 ```
 
-Launcher logic (~50 lines of Swift using `Bundle.main`): read config → set env vars → optionally
-set `HOME` (creating the directory + symlink scaffolding on first run) → `execv` the target.
-`execv` (not spawn-and-exit) keeps the same PID that Launch Services registered for the wrapper,
-which is what gives the instance the wrapper's Dock icon and identity.
+Launcher logic (Swift using `Bundle.main`): read config → resolve the target (recorded bundle
+path, re-reading its `CFBundleExecutable`; falling back to a Launch Services lookup by bundle ID
+if the app moved) → if the pid file names a live instance, activate it and exit → create data
+directories (failure is fatal: a missing data dir silently costs isolation) → set env vars →
+optionally set `HOME` (with symlink scaffolding) → write `<pid>\n<executable>` to the pid file →
+`execv` the target. `execv` keeps the PID, so the pid file identifies the instance's process for
+its whole lifetime.
+
+### Identity after exec
+
+Measured on macOS 26: after `execv`, the target checks in with Launch Services under **its own**
+bundle ID, name, and path — identity is derived from the executable. `CFProcessPath` (which makes
+CoreFoundation treat another bundle as the main bundle) does keep the wrapper's identity, but only
+for targets without the hardened runtime; hardened targets ignore it, and virtually every
+distributed app is hardened. Copying or relocating the executable breaks code signing or, for
+Electron, triggers a relaunch from the original bundle. So a running instance shares the
+original's Dock tile, ⌘-Tab entry, notifications, and bundle-ID-keyed storage (URL cache, native
+cookie store).
+
+Parallex therefore identifies instances by PID (pid file + executable check) and provides the
+identity cues itself: colored window outlines with a name tag (window list bounds and owner PIDs
+need no permission; overlays are ordered directly above each window), the front instance's name in
+the menu bar, and a ⌃⌥Space switcher listing instances and running originals.
+
+### Instance records
+
+`instance.json` (schema 2) stores the user's choices (`settings`: requested mode, badge, custom
+icon, extra env/args/shared items, recipe options) separately from the resolved launch config.
+Edits and repairs re-derive the launch config from the settings, so recipe improvements reach
+existing instances and nothing the user chose is lost. Schema-1 records are migrated on read;
+their existing wrapper icon is preserved on the first rebuild.
 
 ### Wrapper bundle layout (what `parallex create` emits)
 
@@ -131,16 +155,18 @@ Defaults: `--mode auto` (doctor logic), wrapper written to `/Applications`, data
 
 ## 6. Known caveats (inherited from the technique — Parall has these too)
 
-- **Phantom Dock icons** if a wrapper is re-opened via Spotlight/Raycast while already running.
-- **Dock icon can be overwritten at runtime** by apps that draw their own Dock tile.
+- **Shared identity while running** (see §3, "Identity after exec"): Dock tile, ⌘-Tab, and
+  notifications show the original; bundle-ID-keyed storage is shared.
+- **Re-opening a running instance** from Spotlight/Raycast/Dock briefly bounces the wrapper's icon
+  while the launcher hands off to the running instance.
 - **Notifications** may focus the wrong instance when several run at once; notification
   registration is per bundle-ID of the *target* in some apps.
 - **OAuth flows** (Cursor/Codex-style localhost callbacks) can fail if another instance of the
   same app is running — quit others before authorizing.
 - **Self-updating apps** update the shared original bundle — all instances pick the update up on
   restart (a feature), but the updater may need App Management permission.
-- **TCC permissions** (camera, mic, screen recording) are granted per bundle ID — each wrapper
-  prompts fresh on first use.
+- **TCC permissions** (camera, mic, screen recording) follow the running app's identity, so an
+  instance may share them with the original.
 - **Sandboxed apps**: launch-only; no data isolation without clone mode.
 
 ## 7. Milestones
@@ -156,5 +182,15 @@ Defaults: `--mode auto` (doctor logic), wrapper written to `/Applications`, data
    from "later": **Parallex.app**, a SwiftUI GUI (manager window + menu-bar quick launcher) over
    the same core. Core logic extracted into a `ParallexCore` library shared by CLI and GUI;
    `make app-install` assembles and installs /Applications/Parallex.app. 49 tests.
-4. **Later/optional** — clone mode for sandboxed apps (explicitly deferred: breaks on app
-   updates and Apple-signed receipts); badge style options; published Homebrew tap.
+4. **v0.5** — instance records v2 (settings stored separately; `edit` and `repair` rebuild
+   faithfully, including renames that keep data and bundle ID); per-app recipes with options
+   (Claude: `CLAUDE_USER_DATA_DIR`, optional separate Claude Code config; Codex); launcher that
+   activates an already-running instance, follows a moved or renamed target, and fails loudly
+   when it can't create data directories; `check` (open-file isolation verification), `storage`
+   (usage, cache and leftover cleanup), `--adopt-data`; data-location switch discovery in
+   `doctor`; app: status and repair per row, edit sheet, isolation check, window outlines, menu
+   bar front-instance indicator, ⌃⌥Space switcher, open at login.
+5. **Later/optional** — routing sign-in callbacks (`app://` links) to the instance that started
+   the sign-in; clone mode for sandboxed and native apps (copy with a new bundle ID, re-signed;
+   only viable for apps without restricted entitlements, and must be refreshed after updates);
+   badge style options; published Homebrew tap.

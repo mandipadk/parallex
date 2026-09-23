@@ -20,33 +20,19 @@ struct Open: ParsableCommand {
     var original = false
 
     mutating func run() throws {
-        guard let manifest = InstanceStore.find(instance) else {
-            let names = InstanceStore.loadAll().map(\.name)
-            let hint = names.isEmpty
-                ? "No instances exist yet."
-                : "Existing instances: \(names.joined(separator: ", "))"
-            throw ParallexError("No instance named '\(instance)'. \(hint)")
-        }
+        let manifest = try lookupInstance(instance)
         if original {
-            guard FileManager.default.fileExists(atPath: manifest.targetApp) else {
-                throw ParallexError("The original app is missing at \(manifest.targetApp).")
-            }
-            // -n forces a new application instance past Launch Services' dedup.
-            try Shell.run("/usr/bin/open", ["-n", manifest.targetApp])
+            try InstanceLauncher.launchOriginal(of: manifest)
             print("\(Term.green("✓")) Launched the original \(URL(fileURLWithPath: manifest.targetApp).lastPathComponent)")
-            return
-        }
-        guard FileManager.default.fileExists(atPath: manifest.wrapperPath) else {
-            throw ParallexError(
-                "The wrapper for '\(manifest.name)' is missing at \(manifest.wrapperPath). "
-                + "Re-create it with: parallex create \"\(manifest.targetApp)\" --name \"\(manifest.name)\" --force"
-            )
-        }
-        if reveal {
+        } else if reveal {
+            guard FileManager.default.fileExists(atPath: manifest.wrapperPath) else {
+                throw ParallexError("The wrapper is missing — run: parallex repair \"\(manifest.name)\"")
+            }
             try Shell.run("/usr/bin/open", ["-R", manifest.wrapperPath])
         } else {
-            try Shell.run("/usr/bin/open", [manifest.wrapperPath])
-            print("\(Term.green("✓")) Launched “\(manifest.name)”")
+            let wasRunning = InstanceStatus.check(manifest).running
+            try InstanceLauncher.launch(manifest)
+            print("\(Term.green("✓")) \(wasRunning ? "Activated" : "Launched") “\(manifest.name)”")
         }
     }
 }

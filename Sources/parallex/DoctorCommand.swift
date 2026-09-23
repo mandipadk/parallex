@@ -26,7 +26,16 @@ struct Doctor: ParsableCommand {
         var recommendedMode: String
         var arguments: [String]
         var environment: [String: String]
+        var recipeOptions: [Option]
+        var candidateEnvironmentSwitches: [String]
         var notes: [String]
+
+        struct Option: Codable {
+            var id: String
+            var title: String
+            var detail: String
+            var defaultEnabled: Bool
+        }
     }
 
     mutating func run() throws {
@@ -47,6 +56,11 @@ struct Doctor: ParsableCommand {
             notes.insert("This app is itself a Parallex wrapper — run doctor on the original app instead.", at: 0)
         }
 
+        // Only worth scanning for apps without a recipe (and Electron ones).
+        let switches = plan.availableOptions.isEmpty && Presets.recipe(for: info.bundleID) == nil
+            && [.electron, .vscodeFamily].contains(info.framework)
+            ? AppInspector.candidateEnvironmentSwitches(appURL: info.url) : []
+
         let report = Report(
             app: info.url.path,
             name: info.name,
@@ -60,6 +74,10 @@ struct Doctor: ParsableCommand {
             recommendedMode: plan.mode.rawValue,
             arguments: plan.arguments,
             environment: plan.environment,
+            recipeOptions: plan.availableOptions.map {
+                Report.Option(id: $0.id, title: $0.title, detail: $0.detail, defaultEnabled: $0.defaultEnabled)
+            },
+            candidateEnvironmentSwitches: switches,
             notes: notes
         )
 
@@ -93,6 +111,20 @@ struct Doctor: ParsableCommand {
         }
         if let home = plan.homeOverride {
             print("  Instance home: \(Paths.abbreviate(home))")
+        }
+        if !plan.availableOptions.isEmpty {
+            print("  Options (turn on with --option <id>):")
+            for option in plan.availableOptions {
+                let state = option.defaultEnabled ? "on by default" : "off by default"
+                print("    \(Term.bold(option.id))  \(option.title) \(Term.dim("(\(state))"))")
+            }
+        }
+        if !switches.isEmpty {
+            print("  Possible data-location switches in the app's code (untested):")
+            for name in switches {
+                print("    \(name)")
+            }
+            print(Term.dim("  If an instance still shares data with the original, try them with --env NAME=<dir>."))
         }
         print("")
         for note in notes {

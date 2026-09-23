@@ -13,18 +13,22 @@ struct List: ParsableCommand {
     struct Entry: Codable {
         var manifest: InstanceManifest
         var running: Bool
+        var pid: Int32?
         var wrapperExists: Bool
         var targetExists: Bool
+        var problems: [String]
     }
 
     mutating func run() throws {
-        let fm = FileManager.default
         let entries = InstanceStore.loadAll().map { manifest in
-            Entry(
+            let status = InstanceStatus.check(manifest)
+            return Entry(
                 manifest: manifest,
-                running: Running.isRunning(instanceSlug: manifest.slug, targetBinary: manifest.targetBinary),
-                wrapperExists: fm.fileExists(atPath: manifest.wrapperPath),
-                targetExists: fm.fileExists(atPath: manifest.targetApp)
+                running: status.running,
+                pid: status.pid,
+                wrapperExists: !status.problems.contains(.wrapperMissing),
+                targetExists: !status.problems.contains(.targetMissing),
+                problems: status.problems.map(\.summary)
             )
         }
 
@@ -55,15 +59,17 @@ struct List: ParsableCommand {
 
     private func status(for entry: Entry) -> String {
         if !entry.wrapperExists {
-            return Term.red("wrapper missing")
+            return Term.red("wrapper missing — parallex repair")
         }
         if !entry.targetExists {
-            return Term.red("target missing")
+            return Term.red("original app missing")
         }
+        var parts: [String] = []
         if entry.running {
-            return Term.green("● running")
+            parts.append(Term.green("● running"))
         }
-        return Term.dim("—")
+        parts += entry.problems.map { Term.yellow($0) }
+        return parts.isEmpty ? Term.dim("—") : parts.joined(separator: "  ")
     }
 
     private func printTable(header: [String], rows: [[String]]) {

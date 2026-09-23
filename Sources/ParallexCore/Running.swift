@@ -1,5 +1,6 @@
 import AppKit
 import Darwin
+import ParallexKit
 
 /// Live-process checks for instances.
 ///
@@ -17,16 +18,18 @@ public enum Running {
     public static func processID(instanceSlug: String, targetBinary: String) -> pid_t? {
         let pidFile = Paths.pidFile(slug: instanceSlug)
         guard let text = try? String(contentsOf: pidFile, encoding: .utf8),
-              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)),
-              pid > 0
+              let record = PidFileRecord(parsing: text)
         else {
             return nil
         }
+        let pid = record.pid
         // kill(pid, 0): delivery check only. ESRCH → gone; EPERM → exists.
         guard kill(pid, 0) == 0 || errno == EPERM else {
             return nil
         }
-        guard executablePath(of: pid) == targetBinary else {
+        // Launchers since 0.5 record the executable they exec'd (which can
+        // differ from the manifest's if the target app moved).
+        guard executablePath(of: pid) == (record.executablePath ?? targetBinary) else {
             return nil
         }
         return pid
@@ -48,7 +51,7 @@ public enum Running {
         return running
     }
 
-    private static func executablePath(of pid: pid_t) -> String? {
+    static func executablePath(of pid: pid_t) -> String? {
         var buffer = [UInt8](repeating: 0, count: Int(MAXPATHLEN) * 4)
         let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
         guard length > 0 else { return nil }
