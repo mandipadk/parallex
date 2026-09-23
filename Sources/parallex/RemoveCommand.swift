@@ -34,6 +34,10 @@ struct Remove: ParsableCommand {
         if result.dataTrashed {
             print("\(Term.green("✓")) Moved instance data to Trash: \(Paths.abbreviate(Paths.instanceDir(slug: manifest.slug).path))")
         }
+        if let container = result.leftoverContainer {
+            print("The copy's sandbox container is still at \(Paths.abbreviate(container)) — macOS only lets you")
+            print("delete it yourself (drag it to the Trash in Finder).")
+        }
         if let kept = result.dataKeptAt {
             print("Kept data at \(Paths.abbreviate(kept))")
         }

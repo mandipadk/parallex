@@ -28,7 +28,7 @@ struct Open: ParsableCommand {
             guard FileManager.default.fileExists(atPath: manifest.wrapperPath) else {
                 throw ParallexError("The wrapper is missing — run: parallex repair \"\(manifest.name)\"")
             }
-            try Shell.run("/usr/bin/open", ["-R", manifest.wrapperPath])
+            try Shell.run("/usr/bin/open", ["-R", manifest.wrapperPath], environment: InstanceLauncher.cleanEnvironment())
         } else {
             let wasRunning = InstanceStatus.check(manifest).running
             try InstanceLauncher.launch(manifest)

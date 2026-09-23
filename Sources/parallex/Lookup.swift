@@ -41,7 +41,7 @@ func printResultSummary(_ result: CreateResult, verb: String) {
     print("\(Term.green("✓")) \(verb) \(Term.bold("“\(manifest.name)”"))")
     print("  Wrapper  \(manifest.wrapperPath)")
     print("  Target   \(manifest.targetApp)  \(Term.dim("(\(result.frameworkDisplayName))"))")
-    print("  Mode     \(manifest.mode.rawValue) — \(manifest.mode.summary)")
+    print("  Mode     \(manifest.isolationSummary)")
     for directory in result.dataDirectories {
         print("  Data     \(Paths.abbreviate(directory))")
     }

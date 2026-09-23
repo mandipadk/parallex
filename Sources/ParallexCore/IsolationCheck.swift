@@ -48,7 +48,7 @@ public struct IsolationReport: Sendable {
 
 public enum IsolationCheck {
     public static func run(_ manifest: InstanceManifest) throws -> IsolationReport {
-        guard let pid = Running.processID(instanceSlug: manifest.slug, targetBinary: manifest.targetBinary) else {
+        guard let pid = Running.processID(of: manifest) else {
             throw ParallexError("“\(manifest.name)” isn't running — start it, use it for a moment, then check again.")
         }
         let instanceDir = Paths.instanceDir(slug: manifest.slug).path

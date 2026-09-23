@@ -4,7 +4,7 @@
 /// The CLI writes these when assembling a wrapper; the launcher reads them from
 /// `Bundle.main` at launch. Nothing else should hardcode these strings.
 public enum ParallexConfig {
-    public static let version = "0.5.0"
+    public static let version = "0.6.0"
 
     /// Top-level Info.plist key holding the launcher configuration dictionary.
     public static let rootKey = "Parallex"
@@ -72,5 +72,28 @@ public struct PidFileRecord: Equatable, Sendable {
 
     public var serialized: String {
         executablePath.map { "\(pid)\n\($0)\n" } ?? "\(pid)\n"
+    }
+}
+
+/// Processes started from inside an instance (a terminal in an instance's
+/// editor, an app opened from its shell) inherit its environment — including
+/// the variables that point the app at the instance's data. Launching another
+/// app with those would silently open *this* instance's data, so they're
+/// dropped before launching anything else.
+public enum InheritedIsolation {
+    /// Whether an inherited variable belongs to some instance's isolation.
+    public static func matches(key: String, value: String, instancesRoot: String?) -> Bool {
+        if key == "PARALLEX_INSTANCE" {
+            return true
+        }
+        // Only whole-value paths into an instance; a list like PATH that
+        // merely includes one is left alone (dropping it would break more).
+        guard value.hasPrefix("/"), !value.contains(":") else {
+            return false
+        }
+        if let instancesRoot, value.hasPrefix(instancesRoot + "/") {
+            return true
+        }
+        return value.contains("/Parallex/instances/")
     }
 }

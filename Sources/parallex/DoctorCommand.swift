@@ -28,6 +28,8 @@ struct Doctor: ParsableCommand {
         var environment: [String: String]
         var recipeOptions: [Option]
         var candidateEnvironmentSwitches: [String]
+        var clonePossible: Bool
+        var cloneNotes: [String]
         var notes: [String]
 
         struct Option: Codable {
@@ -61,6 +63,7 @@ struct Doctor: ParsableCommand {
             && [.electron, .vscodeFamily].contains(info.framework)
             ? AppInspector.candidateEnvironmentSwitches(appURL: info.url) : []
 
+        let cloneAssessment = AppCloner.assess(info)
         let report = Report(
             app: info.url.path,
             name: info.name,
@@ -78,6 +81,8 @@ struct Doctor: ParsableCommand {
                 Report.Option(id: $0.id, title: $0.title, detail: $0.detail, defaultEnabled: $0.defaultEnabled)
             },
             candidateEnvironmentSwitches: switches,
+            clonePossible: cloneAssessment.possible,
+            cloneNotes: cloneAssessment.notes,
             notes: notes
         )
 
@@ -125,6 +130,10 @@ struct Doctor: ParsableCommand {
                 print("    \(name)")
             }
             print(Term.dim("  If an instance still shares data with the original, try them with --env NAME=<dir>."))
+        }
+        print("  Own identity (--clone): \(cloneAssessment.possible ? "possible" : Term.yellow("not possible"))")
+        for note in cloneAssessment.notes.dropFirst(cloneAssessment.possible ? 2 : 0) {
+            print("    · \(note)")
         }
         print("")
         for note in notes {

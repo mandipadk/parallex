@@ -34,6 +34,11 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     public var includeDefaultSharedItems: Bool
     /// Recipe options turned on; `nil` means the recipe's defaults.
     public var enabledOptions: [String]?
+    /// Clone mode: the instance is a re-signed copy of the app with its own
+    /// identity (see `AppCloner`). `nil` means off.
+    public var cloneApp: Bool?
+
+    public var isClone: Bool { cloneApp == true }
 
     public init(
         requestedMode: RequestedMode = .auto,
@@ -44,7 +49,8 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
         extraArguments: [String] = [],
         extraSharedItems: [String] = [],
         includeDefaultSharedItems: Bool = true,
-        enabledOptions: [String]? = nil
+        enabledOptions: [String]? = nil,
+        cloneApp: Bool? = nil
     ) {
         self.requestedMode = requestedMode.rawValue
         self.badgeText = badgeText
@@ -55,6 +61,7 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
         self.extraSharedItems = extraSharedItems
         self.includeDefaultSharedItems = includeDefaultSharedItems
         self.enabledOptions = enabledOptions
+        self.cloneApp = cloneApp
     }
 
     public var mode: RequestedMode {
@@ -101,6 +108,17 @@ public struct InstanceManifest: Codable, Sendable {
     public var targetBundleID: String?
     /// The user's choices (schema 2+). Older manifests: see `effectiveSettings`.
     public var settings: InstanceSettings?
+    /// Set when the instance is a clone of its target app.
+    public var clone: CloneRecord?
+
+    public struct CloneRecord: Codable, Sendable, Equatable {
+        /// The copy's own bundle identifier.
+        public var bundleIdentifier: String
+        /// The original's version when the copy was made, to spot updates.
+        public var sourceVersion: String
+        /// Whether the copy starts through the Parallex launcher.
+        public var usesLauncher: Bool
+    }
 
     init(
         name: String,
@@ -117,7 +135,8 @@ public struct InstanceManifest: Codable, Sendable {
         createdAt: Date,
         parallexVersion: String,
         targetBundleID: String? = nil,
-        settings: InstanceSettings? = nil
+        settings: InstanceSettings? = nil,
+        clone: CloneRecord? = nil
     ) {
         self.name = name
         self.slug = slug
@@ -134,6 +153,7 @@ public struct InstanceManifest: Codable, Sendable {
         self.parallexVersion = parallexVersion
         self.targetBundleID = targetBundleID
         self.settings = settings
+        self.clone = clone
         if settings != nil {
             schemaVersion = 2
         }
@@ -178,6 +198,19 @@ public struct InstanceManifest: Codable, Sendable {
             return preset
         }
         return nil
+    }
+
+    /// One line describing how the instance is isolated.
+    public var isolationSummary: String {
+        guard let clone else { return "\(mode.rawValue) — \(mode.summary)" }
+        switch mode {
+        case .launchOnly where clone.usesLauncher == false:
+            return "own identity — a copy of the app with its own bundle ID and sandbox container"
+        case .launchOnly:
+            return "own identity — a copy of the app with its own bundle ID (data not separated)"
+        default:
+            return "own identity + \(mode.rawValue) — a copy of the app with its own bundle ID, \(mode.summary)"
+        }
     }
 
     /// The per-app recipe this instance's app has, if any.

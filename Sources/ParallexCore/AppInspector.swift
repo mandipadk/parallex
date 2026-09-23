@@ -70,9 +70,15 @@ public enum AppInspector {
             throw ParallexError("Main executable not found at \(executableURL.path) — the app bundle looks broken.")
         }
 
-        let name = (plist["CFBundleDisplayName"] as? String)
+        // Some apps pad their name with invisible bidi marks (U+200E …);
+        // they'd end up in instance names and file names.
+        let rawName = (plist["CFBundleDisplayName"] as? String)
             ?? (plist["CFBundleName"] as? String)
             ?? url.deletingPathExtension().lastPathComponent
+        let name = String(String.UnicodeScalarView(rawName.unicodeScalars.filter {
+            !(0x200E...0x200F).contains($0.value) && !(0x202A...0x202E).contains($0.value)
+                && !(0x2066...0x2069).contains($0.value)
+        })).trimmingCharacters(in: .whitespaces)
 
         let signing = signingInfo(of: url)
         // Entitlement values arrive as NSNumber regardless of plist vs DER form.

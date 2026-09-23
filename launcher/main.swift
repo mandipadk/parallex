@@ -120,7 +120,9 @@ func runningInstancePID(pidFile: String, expectedExecutable: String) -> pid_t? {
     let length = proc_pidpath(record.pid, &buffer, UInt32(buffer.count))
     guard length > 0 else { return nil }
     let path = String(decoding: buffer[..<Int(length)], as: UTF8.self)
-    return path == (record.executablePath ?? expectedExecutable) ? record.pid : nil
+    // The kernel reports the resolved path (/private/tmp/… for /tmp/…).
+    let expected = URL(fileURLWithPath: record.executablePath ?? expectedExecutable).resolvingSymlinksInPath().path
+    return URL(fileURLWithPath: path).resolvingSymlinksInPath().path == expected ? record.pid : nil
 }
 
 /// Replace this process with the target binary, keeping our PID.
@@ -155,6 +157,11 @@ guard let targetBinary = resolveTargetBinary(config: config) else {
     repair this instance in Parallex.
     """)
 }
+// A clone's main executable is this launcher; exec'ing ourselves would loop.
+if let own = Bundle.main.executableURL?.resolvingSymlinksInPath().path,
+   URL(fileURLWithPath: targetBinary).resolvingSymlinksInPath().path == own {
+    fail("This instance's configuration points at its own launcher. Repair it in Parallex.")
+}
 let pidFile = config[ParallexConfig.Key.pidFile] as? String
 
 // 0. Already running? Bring it forward instead of starting a second copy.
@@ -162,6 +169,24 @@ if let pidFile, let running = runningInstancePID(pidFile: pidFile, expectedExecu
     log.info("instance already running as pid \(running, privacy: .public); activating it")
     NSRunningApplication(processIdentifier: running)?.activate(options: [.activateAllWindows])
     exit(0)
+}
+
+// Drop isolation variables inherited from another instance (this launcher
+// may have been started from inside one); this instance sets its own below.
+do {
+    let instancesRoot = pidFile.map {
+        URL(fileURLWithPath: $0).deletingLastPathComponent().deletingLastPathComponent().path
+    }
+    for (key, value) in ProcessInfo.processInfo.environment
+    where InheritedIsolation.matches(key: key, value: value, instancesRoot: instancesRoot) {
+        if key == "HOME" {
+            if let entry = getpwuid(getuid()), let home = entry.pointee.pw_dir {
+                setenv("HOME", home, 1)
+            }
+        } else {
+            unsetenv(key)
+        }
+    }
 }
 
 // 1. Pre-create the directories the instance needs (e.g. the user-data dir).

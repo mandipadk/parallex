@@ -93,8 +93,17 @@ Electron, triggers a relaunch from the original bundle. So a running instance sh
 original's Dock tile, ⌘-Tab entry, notifications, and bundle-ID-keyed storage (URL cache, native
 cookie store).
 
-Parallex therefore identifies instances by PID (pid file + executable check) and provides the
-identity cues itself: colored window outlines with a name tag (window list bounds and owner PIDs
+**Clone mode** gets a real identity by changing the executable instead: the instance is an APFS
+clone of the whole app with its own bundle ID, re-signed ad hoc inside out (nested code keeps its
+entitlements minus provisioning-only ones; hardened runtime dropped), with the Parallex launcher as
+`CFBundleExecutable` and the app's binary beside it. Launch Services then registers the running
+process under the copy's identity. `CFBundleName` stays (Electron locates `<Name> Helper.app` by
+it); the display name changes. Sandboxed apps keep their own executable (the launcher can't do its
+work inside the sandbox) and get their own container. Copies are marked stale when the original's
+version changes.
+
+Without clone mode, Parallex identifies instances by PID (pid file + executable check) and provides
+the identity cues itself: colored window outlines with a name tag (window list bounds and owner PIDs
 need no permission; overlays are ordered directly above each window), the front instance's name in
 the menu bar, and a ⌃⌥Space switcher listing instances and running originals.
 
@@ -190,7 +199,9 @@ Defaults: `--mode auto` (doctor logic), wrapper written to `/Applications`, data
    (usage, cache and leftover cleanup), `--adopt-data`; data-location switch discovery in
    `doctor`; app: status and repair per row, edit sheet, isolation check, window outlines, menu
    bar front-instance indicator, ⌃⌥Space switcher, open at login.
-5. **Later/optional** — routing sign-in callbacks (`app://` links) to the instance that started
-   the sign-in; clone mode for sandboxed and native apps (copy with a new bundle ID, re-signed;
-   only viable for apps without restricted entitlements, and must be refreshed after updates);
-   badge style options; published Homebrew tap.
+5. **v0.6** — clone mode (`--clone`: own identity via a re-signed APFS copy; own container for
+   sandboxed apps; stale-copy detection and refresh); sign-in link routing (`parallex links`:
+   generated "Parallex Links" handler for instances' schemes, delivery to a specific process by
+   Apple Event, most-recently-used choice or ask, schemes reclaimed after apps re-register);
+   launched apps no longer inherit another instance's isolation variables.
+6. **Later/optional** — badge style options; published Homebrew tap.

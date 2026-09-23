@@ -68,6 +68,13 @@ struct Create: ParsableCommand {
     ))
     var adoptData: String?
 
+    @Flag(help: """
+    Give the instance its own identity by making a re-signed copy of the app (an APFS clone, \
+    almost no extra space): its own Dock icon, notifications, permissions, and — for App Store \
+    apps — its own container. See `doctor` for what to expect.
+    """)
+    var clone = false
+
     @Flag(help: "Rebuild an existing instance with the same name (its data is kept).")
     var force = false
 
@@ -102,6 +109,7 @@ struct Create: ParsableCommand {
             extraArguments: passthroughArguments,
             enabledOptions: enabledOptions,
             adoptData: adoptData.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) },
+            cloneApp: clone,
             force: force
         )
 
@@ -110,7 +118,7 @@ struct Create: ParsableCommand {
         print("Launch it from Spotlight or the Dock, or run:  parallex open \"\(result.manifest.name)\"")
 
         if open {
-            _ = try? Shell.run("/usr/bin/open", [result.wrapperURL.path])
+            _ = try? Shell.run("/usr/bin/open", [result.wrapperURL.path], environment: InstanceLauncher.cleanEnvironment())
         }
     }
 }

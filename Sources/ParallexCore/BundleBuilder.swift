@@ -146,11 +146,26 @@ public struct BundleBuilder {
     }
 
     private func makeInfoPlist(spec: WrapperSpec, hasIcon: Bool) -> [String: Any] {
+        let config = Self.launcherConfig(spec)
+        var info = Self.baseInfo(spec: spec, config: config)
+        if hasIcon {
+            info["CFBundleIconFile"] = "app"
+        }
+        return info
+    }
+
+    /// The `Parallex` dictionary the launcher reads.
+    static func launcherConfig(_ spec: WrapperSpec) -> [String: Any] {
         var config: [String: Any] = [
             ParallexConfig.Key.targetBinary: spec.targetBinaryPath,
-            ParallexConfig.Key.targetApp: spec.targetAppPath,
             ParallexConfig.Key.slug: spec.slug,
         ]
+        // A clone's launcher execs the binary inside its own bundle; the
+        // bundle's CFBundleExecutable is the launcher itself, so it must not
+        // re-resolve the executable from the bundle.
+        if !spec.targetAppPath.isEmpty {
+            config[ParallexConfig.Key.targetApp] = spec.targetAppPath
+        }
         if let targetBundleID = spec.targetBundleID {
             config[ParallexConfig.Key.targetBundleID] = targetBundleID
         }
@@ -172,7 +187,10 @@ public struct BundleBuilder {
         if let pidFile = spec.pidFile {
             config[ParallexConfig.Key.pidFile] = pidFile
         }
+        return config
+    }
 
+    private static func baseInfo(spec: WrapperSpec, config: [String: Any]) -> [String: Any] {
         var info: [String: Any] = [
             "CFBundleDevelopmentRegion": "en",
             "CFBundleIdentifier": spec.bundleIdentifier,
@@ -187,16 +205,13 @@ public struct BundleBuilder {
             "NSHighResolutionCapable": true,
             ParallexConfig.rootKey: config,
         ]
-        if hasIcon {
-            info["CFBundleIconFile"] = "app"
-        }
         if let category = spec.applicationCategory {
             info["LSApplicationCategoryType"] = category
         }
         return info
     }
 
-    private static var lsregisterPath: String? {
+    static var lsregisterPath: String? {
         let candidates = [
             "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
             "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister",

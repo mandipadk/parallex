@@ -50,6 +50,26 @@ original app. Parallex compensates:
 Launching a wrapper whose instance is already running brings that instance to
 the front instead of starting a second copy.
 
+### Own identity (clone mode)
+
+For a real identity of its own, create the instance with `--clone` (or turn on
+**Own identity** in the app). Parallex then makes the instance a copy of the
+app — an APFS clone, so it costs almost no disk space — with its own bundle ID,
+re-signed ad hoc, and with the Parallex launcher as its main executable. The
+copy runs as itself: its own Dock icon and name, ⌘-Tab entry, notifications,
+and privacy permissions. Every way of opening it (Dock, notifications, login)
+still goes through the launcher, so its isolation always applies.
+
+- **App Store / sandboxed apps** get their own sandbox container this way — the
+  one way to give them separate data. Apps that keep data in shared app-group
+  containers (e.g. WhatsApp) may still see the original's data there;
+  `parallex doctor <app>` says what to expect.
+- The copy doesn't update itself. When the original updates, the instance
+  shows "repair to refresh the copy"; repairing re-copies it (quit it first).
+- Features tied to the developer's signature (iCloud, push, keychain sharing)
+  don't work in the copy, and it may ask for access to keychain items the
+  original created. Apple's own apps can't be copied.
+
 Data isolation is tiered, auto-detected per app (`parallex doctor` shows the
 verdict):
 
@@ -59,6 +79,16 @@ verdict):
 | data-dir | Electron, Chromium browsers, VS Code family, Firefox | framework flags (`--user-data-dir=…`, `--no-remote --profile …`, …) |
 | home | other non-sandboxed apps | `HOME` points at a per-instance folder; Desktop/Documents/Downloads/… are symlinked back. Covers dotfiles and command-line state; see caveats for `~/Library` |
 | launch-only | sandboxed (App Store) apps | a separate launcher only — macOS pins sandboxed app data to its container |
+
+### Sign-in links
+
+Apps finish sign-in by opening a link in their own scheme (`claude://…`,
+`cursor://…`). With several copies of an app running, macOS hands that link to
+an arbitrary one. `parallex links enable` (or **Settings › Sign-in links**)
+makes a small background app, *Parallex Links*, the handler for your
+instances' schemes; it passes each link to the copy you used most recently, or
+asks. Apps reclaim their scheme when they start, so keep Parallex.app running
+(Settings › Open Parallex at login) — it takes the schemes back.
 
 `parallex check <name>` verifies a running instance: it lists the files the
 instance's processes have open and flags any that belong to the original app's
@@ -104,6 +134,7 @@ parallex edit <name> [options] [-- replacement extra args]
 parallex repair <name> | --all [--app <path>]
 parallex check <name> [--verbose] [--json]
 parallex storage [<name>] [--clean-caches] [--remove-unused]
+parallex links [status | enable [--ask] | disable]
 parallex remove <name> [--keep-data]
 parallex doctor <app> [--json]
 ```
@@ -125,6 +156,7 @@ Useful `create` options:
 | `--icon FILE` | custom icon instead of the target's |
 | `--option ID` / `--no-option ID` | turn a recipe option on or off (see `doctor`) |
 | `--adopt-data DIR` | move an existing profile folder in as the instance's data |
+| `--clone` | own identity: make the instance a re-signed copy of the app (see above) |
 | `--force` | rebuild an existing instance (keeps its data) |
 | `--open` | launch right after creating |
 
@@ -137,6 +169,8 @@ parallex create Cursor --name "Cursor OSS" --badge O
 parallex doctor Slack                    # what would Parallex do with Slack?
 parallex edit "Claude Work" --option separate-claude-code
 parallex check "Claude Work"             # any leaks into the original's data?
+parallex create WhatsApp --name "WhatsApp Work" --clone
+parallex links enable                    # sign-in links go to the right copy
 parallex repair --all                    # rebuild outdated or broken wrappers
 parallex remove "Chrome Dev"             # wrapper + data → Trash
 ```
@@ -163,7 +197,8 @@ try with `--env`. Recipes live in `Presets.recipes`.
 
 ## Caveats (inherited from the technique — Parall has these too)
 
-- **Sandboxed (App Store) apps** get a separate identity but not separate data.
+- **Sandboxed (App Store) apps** get separate data only in clone mode (their
+  own container), and only for data outside shared app-group containers.
 - **A running instance carries the original's identity** (see How it works):
   the Dock shows it under the original's icon, notifications come from the
   original's name, and data macOS keys by bundle ID (URL caches, native cookie
@@ -181,13 +216,14 @@ try with `--env`. Recipes live in `Presets.recipes`.
   briefly bounces the wrapper's icon while the launcher hands off to the
   running instance.
 - **Notifications** may focus the wrong instance when several run at once.
-- **Sign-in callbacks** (`app://` links, localhost OAuth) can land in the wrong
-  instance when several of the same app run — quit the others before signing in.
+- **Sign-in callbacks**: `app://` links are routed with `parallex links`;
+  localhost OAuth callbacks go to whichever copy listens on the port — quit the
+  others before signing in if they clash.
 - **Self-updating apps** update the shared original bundle; all instances pick
   it up on restart. An in-app "restart to update" may relaunch the app as the
   original rather than the instance — reopen the instance from Parallex.
 
 ## Status
 
-v0.5 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
+v0.6 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
 in [poc/](poc/).

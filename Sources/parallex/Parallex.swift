@@ -5,7 +5,7 @@ import ParallexKit
 extension RequestedMode: ExpressibleByArgument {}
 
 @main
-struct Parallex: ParsableCommand {
+struct Parallex: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "parallex",
         abstract: "Run multiple isolated instances of any macOS app.",
@@ -25,6 +25,6 @@ struct Parallex: ParsableCommand {
           parallex remove "Claude Work"
         """,
         version: ParallexConfig.version,
-        subcommands: [Create.self, List.self, Open.self, Edit.self, Repair.self, Check.self, Storage.self, Remove.self, Doctor.self]
+        subcommands: [Create.self, List.self, Open.self, Edit.self, Repair.self, Check.self, Storage.self, Links.self, Remove.self, Doctor.self]
     )
 }

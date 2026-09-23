@@ -178,7 +178,8 @@ public enum Presets {
         requested: RequestedMode,
         instanceDir: URL,
         sharedItems: [String],
-        enabledOptions: Set<String>? = nil
+        enabledOptions: Set<String>? = nil,
+        clone: Bool = false
     ) -> IsolationPlan {
         var notes: [String] = []
         let resolved: InstanceMode
@@ -205,7 +206,7 @@ public enum Presets {
                 homeOverride: nil,
                 homeSymlinks: [],
                 environment: environment.mapValues(expand),
-                notes: extraNotes + [recipe.note, tccNote],
+                notes: extraNotes + [recipe.note] + (clone ? [] : [tccNote]),
                 availableOptions: recipe.options,
                 enabledOptions: active.map(\.id)
             )
@@ -215,11 +216,13 @@ public enum Presets {
         case .auto:
             if app.isSandboxed {
                 resolved = .launchOnly
-                notes.append(
-                    "\(app.name) is sandboxed (App Store-style): macOS pins its data to "
-                    + "~/Library/Containers/\(app.bundleID) no matter what, so Parallex can only give it a "
-                    + "separate identity, not separate data."
-                )
+                if !clone {
+                    notes.append(
+                        "\(app.name) is sandboxed (App Store-style): macOS pins its data to "
+                        + "~/Library/Containers/\(app.bundleID) no matter what. Turn on “own identity” (clone "
+                        + "mode) to give the instance its own container."
+                    )
+                }
             } else if let recipe {
                 return recipePlan(recipe, extraNotes: [])
             } else if app.framework.hasAppAwarePreset {
@@ -286,7 +289,9 @@ public enum Presets {
                ) {
                 notes.append(dotNote)
             }
-            notes.append(tccNote)
+            if !clone {
+                notes.append(tccNote)
+            }
             return IsolationPlan(
                 mode: .dataDir,
                 presetID: app.framework.hasAppAwarePreset ? app.framework.rawValue : "generic-data-dir",
@@ -311,7 +316,9 @@ public enum Presets {
                 + "HOME variable, so home isolation reliably covers command-line state and dotfiles, "
                 + "but a native app may still write some of its data to your real ~/Library."
             )
-            notes.append(tccNote)
+            if !clone {
+                notes.append(tccNote)
+            }
             return IsolationPlan(
                 mode: .home,
                 presetID: nil,
@@ -324,11 +331,17 @@ public enum Presets {
             )
 
         case .launchOnly:
-            notes.append(
-                "Launch-only: the instance shares the app's normal data. Apps that enforce a "
-                + "single instance over their data directory may refuse to start a second copy."
-            )
-            notes.append(tccNote)
+            if clone && app.isSandboxed {
+                notes.append("The copy's sandbox container is its own, so its data is separate from the original's.")
+            } else {
+                notes.append(
+                    "Launch-only: the instance shares the app's normal data. Apps that enforce a "
+                    + "single instance over their data directory may refuse to start a second copy."
+                )
+            }
+            if !clone {
+                notes.append(tccNote)
+            }
             return IsolationPlan(
                 mode: .launchOnly,
                 presetID: nil,

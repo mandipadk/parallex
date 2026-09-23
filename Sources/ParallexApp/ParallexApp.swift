@@ -190,6 +190,7 @@ struct SettingsView: View {
                     Text(loginError).font(.caption).foregroundStyle(.red)
                 }
             }
+            LinksSettings()
         }
         .formStyle(.grouped)
         .frame(width: 460)

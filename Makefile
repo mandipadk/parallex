@@ -33,10 +33,11 @@ install: release
 	install -d "$(PREFIX)/bin"
 	install "$(RELEASE_DIR)/parallex" "$(PREFIX)/bin/parallex"
 	install "$(RELEASE_DIR)/parallex-launcher" "$(PREFIX)/bin/parallex-launcher"
+	install "$(RELEASE_DIR)/parallex-router" "$(PREFIX)/bin/parallex-router"
 	@echo "Installed $(PREFIX)/bin/parallex"
 
 uninstall:
-	rm -f "$(PREFIX)/bin/parallex" "$(PREFIX)/bin/parallex-launcher"
+	rm -f "$(PREFIX)/bin/parallex" "$(PREFIX)/bin/parallex-launcher" "$(PREFIX)/bin/parallex-router"
 
 # Assemble the GUI app bundle: GUI binary + embedded wrapper launcher + icon.
 # The nested launcher is signed first so the outer app seal covers it.
@@ -46,8 +47,10 @@ app: release
 	cp Support/App-Info.plist "$(APP_DIST)/Contents/Info.plist"
 	cp "$(RELEASE_DIR)/ParallexApp" "$(APP_DIST)/Contents/MacOS/Parallex"
 	cp "$(RELEASE_DIR)/parallex-launcher" "$(APP_DIST)/Contents/Resources/parallex-launcher"
+	cp "$(RELEASE_DIR)/parallex-router" "$(APP_DIST)/Contents/Resources/parallex-router"
 	cp Sources/ParallexApp/Resources/AppIcon.icns "$(APP_DIST)/Contents/Resources/AppIcon.icns"
 	codesign --force --sign - "$(APP_DIST)/Contents/Resources/parallex-launcher"
+	codesign --force --sign - "$(APP_DIST)/Contents/Resources/parallex-router"
 	codesign --force --sign - "$(APP_DIST)"
 	@echo "Built $(APP_DIST)"
 

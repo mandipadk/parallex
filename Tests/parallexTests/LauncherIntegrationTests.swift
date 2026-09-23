@@ -172,6 +172,24 @@ final class LauncherIntegrationTests: XCTestCase {
         XCTAssertTrue(result.stderr.contains("/nonexistent/binary"), result.stderr)
     }
 
+    func testDropsIsolationInheritedFromAnotherInstance() throws {
+        // Started from a shell inside another instance: its variables must
+        // not reach this app.
+        let app = try makeWrapper(config: [
+            ParallexConfig.Key.targetBinary: "/bin/sh",
+            ParallexConfig.Key.arguments: ["-c", "printf '%s|%s|%s' \"$PARALLEX_INSTANCE\" \"$CODEX_HOME\" \"$KEEP\""],
+            ParallexConfig.Key.environment: ["PARALLEX_INSTANCE": "mine"],
+        ])
+        let result = try runWrapper(app, environment: [
+            "PARALLEX_INSTANCE": "other",
+            "CODEX_HOME": "/private/tmp/fakehome/Library/Application Support/Parallex/instances/other/codex-home",
+            "KEEP": "yes",
+            "PATH": "/usr/bin:/bin:/private/tmp/fakehome/Library/Application Support/Parallex/instances/other/codex-home/bin",
+        ])
+        XCTAssertEqual(result.exitCode, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "mine||yes")
+    }
+
     func testFollowsRenamedExecutableInTargetBundle() throws {
         // The recorded binary is gone, but the target bundle now names a
         // different executable (as after an update that renamed it).

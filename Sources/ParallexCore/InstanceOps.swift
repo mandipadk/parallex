@@ -22,6 +22,8 @@ public struct AppProbe: Sendable {
     public let suggestedName: String
     /// Optional isolation toggles the app's recipe offers.
     public let recipeOptions: [RecipeOption]
+    /// Whether clone mode (own identity) is possible, and what to expect.
+    public let cloneAssessment: AppCloner.Assessment
 }
 
 // MARK: - Create
@@ -44,6 +46,8 @@ public struct CreateRequest: Sendable {
     /// `--user-data-dir` made by hand or by another launcher), so the
     /// instance starts signed in with its history.
     public var adoptData: URL?
+    /// Make the instance a re-signed copy of the app with its own identity.
+    public var cloneApp: Bool
     public var force: Bool
 
     public init(
@@ -60,6 +64,7 @@ public struct CreateRequest: Sendable {
         extraArguments: [String] = [],
         enabledOptions: [String]? = nil,
         adoptData: URL? = nil,
+        cloneApp: Bool = false,
         force: Bool = false
     ) {
         self.appReference = appReference
@@ -75,6 +80,7 @@ public struct CreateRequest: Sendable {
         self.extraArguments = extraArguments
         self.enabledOptions = enabledOptions
         self.adoptData = adoptData
+        self.cloneApp = cloneApp
         self.force = force
     }
 }
@@ -143,7 +149,8 @@ public enum InstanceCreator {
             recommendedMode: plan.mode,
             notes: plan.notes,
             suggestedName: suggestName(targetName: info.name, outputDirectory: outputDirectory),
-            recipeOptions: plan.availableOptions
+            recipeOptions: plan.availableOptions,
+            cloneAssessment: AppCloner.assess(info)
         )
     }
 
@@ -191,7 +198,8 @@ public enum InstanceCreator {
             extraArguments: request.extraArguments,
             extraSharedItems: request.extraSharedItems,
             includeDefaultSharedItems: request.includeDefaultSharedItems,
-            enabledOptions: request.enabledOptions
+            enabledOptions: request.enabledOptions,
+            cloneApp: request.cloneApp ? true : nil
         )
         try validateBadge(settings)
         if let adopt = request.adoptData {
@@ -282,6 +290,13 @@ public enum InstanceCreator {
         let fm = FileManager.default
         var settings = change.settings ?? manifest.effectiveSettings
 
+        // A clone *is* the running app: replacing it (or swapping it for a
+        // wrapper) under a live process would strand that process in the
+        // Trash where Parallex can no longer see it.
+        if (manifest.clone != nil || settings.isClone), Running.isRunning(manifest) {
+            throw ParallexError("Quit “\(manifest.name)” first — its copy of the app is replaced by this change.")
+        }
+
         let targetURL = try change.targetApp ?? locateTarget(of: manifest)
         let target = try AppInspector.inspect(targetURL)
         guard !target.isParallexWrapper else {
@@ -362,7 +377,7 @@ public enum InstanceCreator {
 
     /// Where the instance's target app is now: its recorded path, or wherever
     /// Launch Services finds its bundle ID.
-    static func locateTarget(of manifest: InstanceManifest) throws -> URL {
+    public static func locateTarget(of manifest: InstanceManifest) throws -> URL {
         if FileManager.default.fileExists(atPath: manifest.targetApp) {
             return URL(fileURLWithPath: manifest.targetApp, isDirectory: true)
         }
@@ -393,7 +408,8 @@ public enum InstanceCreator {
             requested: settings.mode,
             instanceDir: instanceDir,
             sharedItems: sharedItems,
-            enabledOptions: settings.enabledOptions.map(Set.init)
+            enabledOptions: settings.enabledOptions.map(Set.init),
+            clone: settings.isClone
         )
 
         // Plan recipe first, user-provided vars win, PARALLEX_INSTANCE always set.
@@ -403,7 +419,7 @@ public enum InstanceCreator {
         let arguments = plan.arguments + settings.extraArguments
 
         let customIcon = settings.customIconFile.map { instanceDir.appendingPathComponent($0) }
-        let spec = WrapperSpec(
+        var spec = WrapperSpec(
             name: instanceName,
             slug: slug,
             bundleIdentifier: "com.parallex.instance.\(slug)",
@@ -425,14 +441,34 @@ public enum InstanceCreator {
             pidFile: Paths.pidFile(slug: slug).path
         )
 
-        let output = try BundleBuilder(options: builderOptions).build(spec)
+        var notes = plan.notes
+        let output: BundleBuilder.BuildOutput
+        var cloneRecord: InstanceManifest.CloneRecord?
+        if settings.isClone {
+            let built = try buildClone(
+                spec: spec, target: target, previous: previous, builderOptions: builderOptions
+            )
+            output = built.output
+            cloneRecord = built.record
+            spec.targetBinaryPath = built.executable
+            notes += AppCloner.assess(target).notes
+            if !built.record.usesLauncher,
+               !settings.extraEnvironment.isEmpty || !settings.extraArguments.isEmpty || settings.mode != .auto {
+                notes.append(
+                    "Extra environment, arguments, and isolation modes don't apply to a sandboxed app's copy — "
+                    + "it starts directly, and its container is what keeps it separate."
+                )
+            }
+        } else {
+            output = try BundleBuilder(options: builderOptions).build(spec)
+        }
 
         let manifest = InstanceManifest(
             name: instanceName,
             slug: slug,
             bundleIdentifier: spec.bundleIdentifier,
             targetApp: target.url.path,
-            targetBinary: target.executableURL.path,
+            targetBinary: spec.targetBinaryPath,
             wrapperPath: output.url.path,
             mode: plan.mode,
             preset: plan.presetID,
@@ -442,7 +478,8 @@ public enum InstanceCreator {
             createdAt: previous?.createdAt ?? Date(),
             parallexVersion: ParallexConfig.version,
             targetBundleID: target.bundleID,
-            settings: settings
+            settings: settings,
+            clone: cloneRecord
         )
         try InstanceStore.save(manifest)
 
@@ -452,9 +489,93 @@ public enum InstanceCreator {
             frameworkDisplayName: target.framework.displayName,
             dataDirectories: plan.createDirectories,
             homeDirectory: plan.homeOverride,
-            notes: plan.notes,
+            notes: notes,
             warnings: output.warnings
         )
+    }
+
+    /// Clone mode: build a re-signed copy of the target (with the launcher
+    /// as its main executable unless it's sandboxed) where the wrapper would
+    /// go. Returns the executable the running instance will be.
+    private static func buildClone(
+        spec: WrapperSpec,
+        target: AppInfo,
+        previous: InstanceManifest?,
+        builderOptions: BundleBuilder.Options
+    ) throws -> (output: BundleBuilder.BuildOutput, record: InstanceManifest.CloneRecord, executable: String) {
+        let fm = FileManager.default
+        let assessment = AppCloner.assess(target)
+        guard assessment.possible else {
+            throw ParallexError(assessment.notes.joined(separator: " "))
+        }
+        if let previous, Running.isRunning(previous) {
+            throw ParallexError("Quit “\(previous.name)” first — its copy of the app is replaced when it's rebuilt.")
+        }
+        let destination = spec.outputDirectory.appendingPathComponent("\(spec.name).app", isDirectory: true)
+        if fm.fileExists(atPath: destination.path), !BundleBuilder.isParallexWrapper(destination) {
+            throw ParallexError(
+                "\(destination.path) exists and is not a Parallex instance — refusing to replace it. Pick a different name."
+            )
+        }
+
+        // Sandboxed apps keep their own executable (the launcher couldn't do
+        // its work inside their sandbox); their container isolates them.
+        let useLauncher = !target.isSandboxed
+        let executable = destination.appendingPathComponent("Contents/MacOS")
+            .appendingPathComponent(target.executableURL.lastPathComponent).path
+        var cloneSpec = spec
+        cloneSpec.targetAppPath = ""
+        cloneSpec.targetBundleID = nil
+        cloneSpec.targetBinaryPath = executable
+        let config: [String: Any] = useLauncher
+            ? BundleBuilder.launcherConfig(cloneSpec)
+            : [ParallexConfig.Key.slug: spec.slug]
+
+        // Only replace the app's icon when the user styled it.
+        var warnings: [String] = []
+        var icon: URL?
+        if spec.badge != nil || isCustom(spec.iconSource), let source = spec.iconSource {
+            let file = fm.temporaryDirectory.appendingPathComponent("parallex-icon-\(UUID().uuidString).icns")
+            do {
+                try IconBuilder.writeIcon(from: source, badge: spec.badge, to: file)
+                icon = file
+            } catch {
+                warnings.append("Could not build the instance icon (\(error)); the copy keeps the app's icon.")
+            }
+        }
+        defer {
+            if let icon {
+                _ = try? fm.removeItem(at: icon)
+            }
+        }
+
+        let url = try AppCloner.build(AppCloner.CloneSpec(
+            source: target,
+            destination: destination,
+            bundleIdentifier: spec.bundleIdentifier,
+            displayName: spec.name,
+            useLauncher: useLauncher,
+            launcherBinary: spec.launcherBinary,
+            launcherConfig: config,
+            iconICNS: icon
+        ), sign: builderOptions.sign)
+        if builderOptions.registerWithLaunchServices, let lsregister = BundleBuilder.lsregisterPath {
+            Shell.runAllowingFailure(lsregister, ["-f", url.path])
+        }
+        let record = InstanceManifest.CloneRecord(
+            bundleIdentifier: spec.bundleIdentifier,
+            sourceVersion: AppCloner.version(of: target.url),
+            usesLauncher: useLauncher
+        )
+        return (BundleBuilder.BuildOutput(url: url, warnings: warnings), record, executable)
+    }
+
+    private static func isCustom(_ source: IconBuilder.IconSource?) -> Bool {
+        if case .imageFile = source { return true }
+        if case .icnsFile(let url) = source {
+            return url.lastPathComponent.hasPrefix("custom-icon.")
+        }
+        return false
     }
 
     // MARK: Helpers
@@ -570,6 +691,9 @@ public struct RemoveResult: Sendable {
     /// Set when data was deliberately kept (keepData), with its location.
     public let dataKeptAt: String?
     public let wasRunning: Bool
+    /// A clone's sandbox container, which macOS doesn't let other apps
+    /// delete; the user can remove it in Finder.
+    public let leftoverContainer: String?
 }
 
 public enum InstanceRemover {
@@ -577,7 +701,7 @@ public enum InstanceRemover {
     /// and bundles Parallex didn't create are never touched.
     public static func remove(_ manifest: InstanceManifest, keepData: Bool) throws -> RemoveResult {
         let fm = FileManager.default
-        let wasRunning = Running.isRunning(instanceSlug: manifest.slug, targetBinary: manifest.targetBinary)
+        let wasRunning = Running.isRunning(manifest)
 
         var wrapperTrashed = false
         var wrapperWasMissing = false
@@ -614,7 +738,12 @@ public enum InstanceRemover {
             wrapperSkippedForeign: wrapperSkippedForeign,
             dataTrashed: dataTrashed,
             dataKeptAt: dataKeptAt,
-            wasRunning: wasRunning
+            wasRunning: wasRunning,
+            leftoverContainer: manifest.clone.flatMap { clone in
+                let container = fm.homeDirectoryForCurrentUser
+                    .appendingPathComponent("Library/Containers/\(clone.bundleIdentifier)").path
+                return fm.fileExists(atPath: container) ? container : nil
+            }
         )
     }
 }

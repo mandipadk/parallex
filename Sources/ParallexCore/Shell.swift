@@ -22,10 +22,13 @@ public enum Shell {
     /// Run a tool (absolute path) and return its stdout. Throws on a non-zero
     /// exit, with stderr included in the error.
     @discardableResult
-    public static func run(_ tool: String, _ arguments: [String]) throws -> String {
+    public static func run(_ tool: String, _ arguments: [String], environment: [String: String]? = nil) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = arguments
+        if let environment {
+            process.environment = environment
+        }
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout

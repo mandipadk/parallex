@@ -22,6 +22,7 @@ struct CreateSheet: View {
     @State private var launchAfterCreate = true
     @State private var activeOptions: Set<String> = []
     @State private var adoptFolder: URL?
+    @State private var cloneApp = false
 
     @State private var working = false
     @State private var errorMessage: String?
@@ -118,6 +119,10 @@ struct CreateSheet: View {
                 ForEach(RequestedMode.allCases, id: \.self) { candidate in
                     Text(label(for: candidate)).tag(candidate)
                 }
+            }
+
+            if let probe {
+                CloneToggle(isOn: $cloneApp, assessment: probe.cloneAssessment)
             }
 
             ForEach(probe?.recipeOptions ?? []) { option in
@@ -252,6 +257,7 @@ struct CreateSheet: View {
                     name = result.suggestedName
                     mode = .auto
                     activeOptions = Set(result.recipeOptions.filter(\.defaultEnabled).map(\.id))
+                    cloneApp = false
                 }
             } catch {
                 appURL = nil
@@ -268,6 +274,7 @@ struct CreateSheet: View {
         request.name = name.trimmingCharacters(in: .whitespaces)
         request.mode = mode
         request.adoptData = adoptFolder
+        request.cloneApp = cloneApp
         if let options = probe?.recipeOptions, !options.isEmpty {
             request.enabledOptions = options.map(\.id).filter(activeOptions.contains)
         }

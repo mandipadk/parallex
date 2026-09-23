@@ -50,6 +50,9 @@ struct Edit: ParsableCommand {
     @Option(name: .customLong("unset-env"), help: ArgumentHelp("Remove an extra environment variable.", valueName: "key"))
     var unsetEnvironment: [String] = []
 
+    @Flag(inversion: .prefixedNo, help: "Turn clone mode (own identity) on or off.")
+    var clone: Bool?
+
     @Flag(help: "Remove all extra arguments.")
     var clearArgs = false
 
@@ -84,6 +87,9 @@ struct Edit: ParsableCommand {
         }
         if let mode {
             settings.mode = mode
+        }
+        if let clone {
+            settings.cloneApp = clone ? true : nil
         }
         let available = manifest.recipe?.options ?? []
         try checkOptionIDs(enableOptions + disableOptions, available: available)

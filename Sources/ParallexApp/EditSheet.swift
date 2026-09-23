@@ -20,6 +20,8 @@ struct EditSheet: View {
     @State private var argumentsText = ""
     @State private var newIcon: URL?
     @State private var resetIcon = false
+    @State private var cloneApp = false
+    @State private var cloneAssessment: AppCloner.Assessment?
 
     @State private var working = false
     @State private var errorMessage: String?
@@ -66,6 +68,9 @@ struct EditSheet: View {
                 }
 
                 Section("Isolation") {
+                    if let cloneAssessment {
+                        CloneToggle(isOn: $cloneApp, assessment: cloneAssessment)
+                    }
                     Picker("Mode", selection: $mode) {
                         ForEach(RequestedMode.allCases, id: \.self) { candidate in
                             Text(label(for: candidate)).tag(candidate)
@@ -177,6 +182,11 @@ struct EditSheet: View {
             badgeColor = Color(nsColor: entry.color)
         }
         mode = settings.mode
+        cloneApp = settings.isClone
+        if let target = try? InstanceCreator.locateTarget(of: entry.manifest),
+           let info = try? AppInspector.inspect(target) {
+            cloneAssessment = AppCloner.assess(info)
+        }
         activeOptions = settings.activeOptions(of: recipeOptions)
         environmentText = settings.extraEnvironment
             .sorted { $0.key < $1.key }
@@ -203,6 +213,7 @@ struct EditSheet: View {
         updated.badgeColorHex = (useCustomBadgeColor && !badgeText.isEmpty)
             ? NSColor(badgeColor).hexString : nil
         updated.mode = mode
+        updated.cloneApp = cloneApp ? true : nil
         if !recipeOptions.isEmpty {
             updated.enabledOptions = recipeOptions.map(\.id).filter(activeOptions.contains)
         }

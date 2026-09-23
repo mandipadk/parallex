@@ -79,7 +79,7 @@ public enum InstanceStorage {
     @discardableResult
     public static func trash(_ items: [URL], of manifest: InstanceManifest) throws -> Int {
         let current = InstanceStore.load(slug: manifest.slug) ?? manifest
-        if Running.isRunning(instanceSlug: current.slug, targetBinary: current.targetBinary) {
+        if Running.isRunning(current) {
             throw ParallexError("Quit “\(current.name)” first — it's using these files.")
         }
         let fresh = report(for: current)

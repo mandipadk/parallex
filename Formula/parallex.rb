@@ -19,6 +19,7 @@ class Parallex < Formula
     system "swift", "build", "-c", "release", "--disable-sandbox"
     bin.install ".build/release/parallex"
     bin.install ".build/release/parallex-launcher"
+    bin.install ".build/release/parallex-router"
   end
 
   test do

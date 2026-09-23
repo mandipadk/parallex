@@ -16,11 +16,13 @@ public struct InstanceStatus: Sendable {
         /// The wrapper was built by an older Parallex; a repair picks up
         /// launcher and recipe improvements. Everything still works.
         case wrapperOutdated(builtWith: String)
+        /// Clone mode: the original app updated since the copy was made.
+        case cloneOutdated(copyOf: String, original: String)
 
         public var isBlocking: Bool {
             switch self {
             case .wrapperMissing, .targetMissing: true
-            case .targetMoved, .wrapperOutdated: false
+            case .targetMoved, .wrapperOutdated, .cloneOutdated: false
             }
         }
 
@@ -30,6 +32,8 @@ public struct InstanceStatus: Sendable {
             case .targetMissing: "original app missing"
             case .targetMoved(let path): "original app moved to \(Paths.abbreviate(path))"
             case .wrapperOutdated(let version): "built with Parallex \(version) — repair to update"
+            case .cloneOutdated(let copy, let original):
+                "copy is of \(copy); the app is now \(original) — repair to refresh the copy"
             }
         }
     }
@@ -50,6 +54,12 @@ public struct InstanceStatus: Sendable {
                   compareVersions(version, ParallexConfig.version) == .orderedAscending {
             problems.append(.wrapperOutdated(builtWith: version))
         }
+        if let clone = manifest.clone, fm.fileExists(atPath: manifest.targetApp) {
+            let current = AppCloner.version(of: URL(fileURLWithPath: manifest.targetApp))
+            if current != clone.sourceVersion {
+                problems.append(.cloneOutdated(copyOf: clone.sourceVersion, original: current))
+            }
+        }
         if !fm.fileExists(atPath: manifest.targetApp) {
             if let bundleID = manifest.knownTargetBundleID, let moved = AppResolver.locate(bundleID: bundleID) {
                 problems.append(.targetMoved(to: moved.path))
@@ -58,7 +68,7 @@ public struct InstanceStatus: Sendable {
             }
         }
         return InstanceStatus(
-            pid: Running.processID(instanceSlug: manifest.slug, targetBinary: manifest.targetBinary),
+            pid: Running.processID(of: manifest),
             problems: problems
         )
     }
@@ -92,7 +102,7 @@ public enum InstanceLauncher {
     /// Launch an instance, or bring it to the front if it's already running
     /// (a second launch would lose the app's single-instance race).
     public static func launch(_ manifest: InstanceManifest) throws {
-        if let pid = Running.processID(instanceSlug: manifest.slug, targetBinary: manifest.targetBinary) {
+        if let pid = Running.processID(of: manifest) {
             activate(pid: pid)
             return
         }
@@ -102,7 +112,22 @@ public enum InstanceLauncher {
                 + "Repair it with: parallex repair \"\(manifest.name)\""
             )
         }
-        try Shell.run("/usr/bin/open", [manifest.wrapperPath])
+        try Shell.run("/usr/bin/open", [manifest.wrapperPath], environment: cleanEnvironment())
+    }
+
+    /// This process's environment minus any instance's isolation variables
+    /// (`open` passes the caller's environment to the app it launches).
+    public static func cleanEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        let root = Paths.instancesRoot.path
+        for (key, value) in environment where InheritedIsolation.matches(key: key, value: value, instancesRoot: root) {
+            if key == "HOME" {
+                environment[key] = FileManager.default.homeDirectoryForCurrentUser.path
+            } else {
+                environment[key] = nil
+            }
+        }
+        return environment
     }
 
     /// Launch the *original* app while instances run. A running instance
@@ -111,7 +136,7 @@ public enum InstanceLauncher {
     /// activate the instance. `open -n` forces a genuinely new process.
     public static func launchOriginal(of manifest: InstanceManifest) throws {
         let target = try InstanceCreator.locateTarget(of: manifest)
-        try Shell.run("/usr/bin/open", ["-n", target.path])
+        try Shell.run("/usr/bin/open", ["-n", target.path], environment: cleanEnvironment())
     }
 
     public static func activate(pid: pid_t) {

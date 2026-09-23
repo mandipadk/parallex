@@ -56,10 +56,32 @@ final class InstancesModel: ObservableObject {
                 Task { @MainActor in self?.refresh() }
             })
         }
+        // Apps re-register as their link scheme's handler when they start;
+        // take routed schemes back shortly after any launch.
+        workspaceObservers.append(center.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main
+        ) { _ in
+            // Apps re-register at different points during startup.
+            Task {
+                for delay in [3, 10, 30] as [UInt64] {
+                    try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+                    await LinkRouting.reassert()
+                }
+            }
+        })
+        Task { await LinkRouting.reassert() }
         workspaceObservers.append(center.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.updateFrontmost() }
+        ) { [weak self] notification in
+            let pid = (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?
+                .processIdentifier
+            Task { @MainActor in
+                self?.updateFrontmost()
+                // Sign-in link routing sends links to the copy used last.
+                if let pid, LinkRouting.loadConfiguration().enabled {
+                    LinkRouting.recordActivation(pid: pid)
+                }
+            }
         })
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }

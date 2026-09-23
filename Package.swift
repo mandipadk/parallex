@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .executable(name: "parallex", targets: ["parallex"]),
         .executable(name: "parallex-launcher", targets: ["parallex-launcher"]),
+        .executable(name: "parallex-router", targets: ["parallex-router"]),
         // Binary is named ParallexApp to avoid a case-insensitive collision
         // with the `parallex` CLI in the build directory; the Makefile renames
         // it to `Parallex` when assembling Parallex.app.
@@ -34,6 +35,13 @@ let package = Package(
             name: "parallex-launcher",
             dependencies: ["ParallexKit"],
             path: "launcher"
+        ),
+
+        // "Parallex Links": receives sign-in links and passes each to the
+        // right running copy of an app (see LinkRouting).
+        .executableTarget(
+            name: "parallex-router",
+            dependencies: ["ParallexCore"]
         ),
 
         // The CLI over ParallexCore.
