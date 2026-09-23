@@ -81,6 +81,10 @@ final class AppModel {
         case failed(String)
     }
 
+    /// Instances whose automatic repair failed this session (not retried).
+    @ObservationIgnored private var maintenanceFailures: Set<String> = []
+    @ObservationIgnored private var maintaining = false
+
     @ObservationIgnored private var refreshTimer: Timer?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
@@ -131,6 +135,12 @@ final class AppModel {
                 Task { @MainActor in self?.refresh() }
             })
         }
+        // An instance quitting is the moment its upkeep can run.
+        observers.append(center.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.maintainInstances() }
+        })
         observers.append(center.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] notification in
@@ -251,6 +261,41 @@ final class AppModel {
         selection = result.manifest.slug
         measureStorage()
         return result
+    }
+
+    // MARK: - Maintenance
+
+    /// Rebuild instances that only need routine upkeep — built by an older
+    /// Parallex, pointing at a moved app, or a copy older than its app —
+    /// while they aren't running. Runs at launch and whenever an app quits.
+    func maintainInstances() {
+        guard UserDefaults.standard.object(forKey: PreferenceKey.autoMaintain) as? Bool ?? true,
+              !maintaining
+        else { return }
+        let due = entries.filter { entry in
+            !entry.running && !entry.status.problems.isEmpty
+                && entry.status.problems.allSatisfy(\.isMaintainable)
+                && !maintenanceFailures.contains(entry.id) && !busy.contains(entry.id)
+        }
+        guard !due.isEmpty else { return }
+        maintaining = true
+        Task {
+            for entry in due {
+                let manifest = entry.manifest
+                busy.insert(entry.id)
+                do {
+                    _ = try await Task.detached(priority: .utility) {
+                        try InstanceCreator.update(manifest)
+                    }.value
+                    IconCache.invalidate(manifest.wrapperPath)
+                } catch {
+                    maintenanceFailures.insert(entry.id)
+                }
+                busy.remove(entry.id)
+            }
+            maintaining = false
+            refresh()
+        }
     }
 
     // MARK: - Verification

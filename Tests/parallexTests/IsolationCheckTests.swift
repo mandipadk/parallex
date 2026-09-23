@@ -80,6 +80,16 @@ final class IsolationCheckTests: XCTestCase {
         XCTAssertFalse(IsolationCheck.arguments(of: getpid()).isEmpty)
     }
 
+    func testOnlyRoutineProblemsAreMaintainedAutomatically() {
+        XCTAssertTrue(InstanceStatus.Problem.wrapperOutdated(builtWith: "0.6.0").isMaintainable)
+        XCTAssertTrue(InstanceStatus.Problem.targetMoved(to: "/Applications/X.app").isMaintainable)
+        XCTAssertTrue(InstanceStatus.Problem.cloneOutdated(copyOf: "1", original: "2").isMaintainable)
+        // These need the user: a missing wrapper can be a deliberate removal,
+        // a missing app needs locating.
+        XCTAssertFalse(InstanceStatus.Problem.wrapperMissing.isMaintainable)
+        XCTAssertFalse(InstanceStatus.Problem.targetMissing.isMaintainable)
+    }
+
     func testVersionComparison() {
         XCTAssertEqual(InstanceStatus.compareVersions("0.4.0", "0.5.0"), .orderedAscending)
         XCTAssertEqual(InstanceStatus.compareVersions("0.10.0", "0.9.9"), .orderedDescending)

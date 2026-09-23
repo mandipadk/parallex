@@ -19,6 +19,14 @@ public struct InstanceStatus: Sendable {
         /// Clone mode: the original app updated since the copy was made.
         case cloneOutdated(copyOf: String, original: String)
 
+        /// Problems a rebuild fixes without asking anything of the user.
+        public var isMaintainable: Bool {
+            switch self {
+            case .wrapperOutdated, .targetMoved, .cloneOutdated: true
+            case .wrapperMissing, .targetMissing: false
+            }
+        }
+
         public var isBlocking: Bool {
             switch self {
             case .wrapperMissing, .targetMissing: true

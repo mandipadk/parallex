@@ -24,6 +24,7 @@ private struct GeneralSettings: View {
     @AppStorage(PreferenceKey.tagWindows) private var tagWindows = true
     @AppStorage(PreferenceKey.tagShowsName) private var tagShowsName = true
     @AppStorage(PreferenceKey.switcherHotKey) private var switcherHotKey = true
+    @AppStorage(PreferenceKey.autoMaintain) private var autoMaintain = true
     @AppStorage(PreferenceKey.onboardingCompleted) private var onboardingCompleted = true
     @State private var loginStatus = SMAppService.mainApp.status
     @State private var loginError: String?
@@ -52,6 +53,18 @@ private struct GeneralSettings: View {
                 Text("Startup")
             } footer: {
                 Text("Parallex runs from the menu bar. At login it opens without a window, keeps sign-in links and outlines working, and opens instances set to open with it.")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Section {
+                Toggle("Keep instances up to date", isOn: $autoMaintain)
+            } header: {
+                Text("Maintenance")
+            } footer: {
+                Text("When Parallex updates, an app moves, or an app with an own-identity copy updates, Parallex rebuilds the affected instances while they're not running. Their data is never touched.")
                     .font(Theme.Font.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)

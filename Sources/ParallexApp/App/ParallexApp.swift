@@ -8,6 +8,8 @@ enum PreferenceKey {
     /// from the current settings instead of the recommended defaults.
     static let onboardingSeen = "onboardingSeen"
     static let tagWindows = "tagInstanceWindows"
+    /// Rebuild instances automatically when they only need routine upkeep.
+    static let autoMaintain = "autoMaintainInstances"
     static let tagShowsName = "tagShowsName"
     static let switcherHotKey = "switcherHotKeyEnabled"
 }
@@ -97,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSApp.setActivationPolicy(.accessory)
             }
         }
+        model.maintainInstances()
         model.openAutostartInstances()
         Task { await LinkRouting.reassert() }
     }
