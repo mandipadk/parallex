@@ -4,7 +4,7 @@
 /// The CLI writes these when assembling a wrapper; the launcher reads them from
 /// `Bundle.main` at launch. Nothing else should hardcode these strings.
 public enum ParallexConfig {
-    public static let version = "0.8.0"
+    public static let version = "0.9.0"
 
     /// Top-level Info.plist key holding the launcher configuration dictionary.
     public static let rootKey = "Parallex"
@@ -32,6 +32,16 @@ public enum ParallexConfig {
         public static let createDirectories = "CreateDirectories"
         /// The instance's slug, linking the wrapper back to its manifest.
         public static let slug = "Slug"
+        /// The instance's home folder, presented to the app (an own-identity
+        /// copy) as the user's home: the copy loads Parallex's home-redirect
+        /// library, so everything it keeps in ~/Library stays in the instance.
+        public static let redirectHome = "RedirectHome"
+        /// The home-redirect library to load (absolute path, in Parallex's
+        /// support folder so it outlives any one copy).
+        public static let redirectLibrary = "RedirectLibrary"
+        /// Where the copy was built; the redirect is scoped to it, so a moved
+        /// copy needs rebuilding.
+        public static let redirectScope = "RedirectScope"
         /// File the launcher writes its PID to before exec. Because execv
         /// keeps the PID, this is the running instance's PID — the reliable
         /// way to find instances (their Launch Services identity reverts to

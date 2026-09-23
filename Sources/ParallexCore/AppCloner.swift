@@ -101,6 +101,24 @@ public enum AppCloner {
         var iconICNS: URL?
     }
 
+    /// Put the home-redirect library at its shared location (replaced
+    /// atomically — running copies have it mapped) and return that path.
+    static func installHomeLibrary(from source: URL) throws -> URL {
+        let fm = FileManager.default
+        let destination = Paths.homeLibrary
+        if let current = try? Data(contentsOf: destination), let new = try? Data(contentsOf: source), current == new {
+            return destination
+        }
+        try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let staged = destination.deletingLastPathComponent().appendingPathComponent(".libparallexhome-\(UUID().uuidString).dylib")
+        try fm.copyItem(at: source, to: staged)
+        guard rename(staged.path, destination.path) == 0 else {
+            try? fm.removeItem(at: staged)
+            throw ParallexError("Couldn't install \(destination.path) (\(String(cString: strerror(errno)))).")
+        }
+        return destination
+    }
+
     /// Build the copy in a staging directory next to the destination, then
     /// move it into place (never leaving a half-built app behind).
     static func build(_ spec: CloneSpec, sign: Bool = true) throws -> URL {
@@ -155,6 +173,15 @@ public enum AppCloner {
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: launcherDest.path)
             info["CFBundleExecutable"] = launcherName
         }
+        if let home = spec.launcherConfig[ParallexConfig.Key.redirectHome] as? String,
+           let library = spec.launcherConfig[ParallexConfig.Key.redirectLibrary] as? String,
+           let scope = spec.launcherConfig[ParallexConfig.Key.redirectScope] as? String {
+            try injectEnvironment(into: copy, source: spec.source.url, [
+                "DYLD_INSERT_LIBRARIES": library,
+                "PARALLEX_HOME_REDIRECT": home,
+                "PARALLEX_HOME_SCOPE": scope,
+            ])
+        }
         info[ParallexConfig.rootKey] = spec.launcherConfig
         let plistData = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
         try plistData.write(to: infoURL)
@@ -181,6 +208,41 @@ public enum AppCloner {
             try fm.moveItem(at: copy, to: spec.destination)
         }
         return spec.destination
+    }
+
+    /// Parts of an app that macOS starts itself — XPC services, helper apps
+    /// opened through Launch Services — don't inherit the launcher's
+    /// environment. Their own Info.plist can carry environment variables
+    /// (`XPCService.EnvironmentVariables`, `LSEnvironment`), so the home
+    /// redirect is written there too. Runs before re-signing.
+    /// Sandboxed services are skipped: the redirected home would be outside
+    /// their container, where the sandbox denies access.
+    static func injectEnvironment(into app: URL, source: URL, _ environment: [String: String]) throws {
+        let fm = FileManager.default
+        let contents = app.appendingPathComponent("Contents")
+        guard let enumerator = fm.enumerator(at: contents, includingPropertiesForKeys: [.isSymbolicLinkKey]) else { return }
+        for case let url as URL in enumerator where ["xpc", "app"].contains(url.pathExtension) {
+            if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true { continue }
+            let relative = String(url.path.dropFirst(app.path.count))
+            let entitlements = AppInspector.signingInfo(of: source.appendingPathComponent(relative)).entitlements ?? [:]
+            if entitlements["com.apple.security.app-sandbox"] as? Bool == true { continue }
+            let plistURL = url.appendingPathComponent("Contents/Info.plist")
+            guard let data = try? Data(contentsOf: plistURL),
+                  var plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any]
+            else { continue }
+            if url.pathExtension == "xpc" {
+                var service = plist["XPCService"] as? [String: Any] ?? [:]
+                var variables = service["EnvironmentVariables"] as? [String: String] ?? [:]
+                variables.merge(environment) { _, new in new }
+                service["EnvironmentVariables"] = variables
+                plist["XPCService"] = service
+            } else {
+                var variables = plist["LSEnvironment"] as? [String: String] ?? [:]
+                variables.merge(environment) { _, new in new }
+                plist["LSEnvironment"] = variables
+            }
+            try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: plistURL)
+        }
     }
 
     /// Re-sign the copy ad hoc, inside out. Nested code (frameworks, helper

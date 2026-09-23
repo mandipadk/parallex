@@ -27,6 +27,11 @@ struct WrapperSpec {
     var iconSource: IconBuilder.IconSource?
     var badge: IconBuilder.Badge?
     var pidFile: String? = nil
+    /// Own-identity copies: the home shown to the app, and the redirect
+    /// library's path inside the copy.
+    var redirectHome: String? = nil
+    var redirectLibrary: String? = nil
+    var redirectScope: String? = nil
 }
 
 /// Assembles, signs, and registers wrapper bundles. The bundle is built in a
@@ -177,9 +182,15 @@ public struct BundleBuilder {
         }
         if let homeOverride = spec.homeOverride {
             config[ParallexConfig.Key.homeOverride] = homeOverride
-            if !spec.homeSymlinks.isEmpty {
-                config[ParallexConfig.Key.homeSymlinks] = spec.homeSymlinks
-            }
+        }
+        if let redirectHome = spec.redirectHome, let redirectLibrary = spec.redirectLibrary,
+           let redirectScope = spec.redirectScope {
+            config[ParallexConfig.Key.redirectHome] = redirectHome
+            config[ParallexConfig.Key.redirectLibrary] = redirectLibrary
+            config[ParallexConfig.Key.redirectScope] = redirectScope
+        }
+        if spec.homeOverride != nil || spec.redirectHome != nil, !spec.homeSymlinks.isEmpty {
+            config[ParallexConfig.Key.homeSymlinks] = spec.homeSymlinks
         }
         if !spec.createDirectories.isEmpty {
             config[ParallexConfig.Key.createDirectories] = spec.createDirectories

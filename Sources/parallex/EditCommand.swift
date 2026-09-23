@@ -56,6 +56,9 @@ struct Edit: ParsableCommand {
     @Flag(help: "Remove all extra arguments.")
     var clearArgs = false
 
+    @Flag(inversion: .prefixedNo, help: "Keep an own-identity copy's ~/Library separate (on by default).")
+    var separateLibrary: Bool?
+
     @Option(help: ArgumentHelp(
         "Global shortcut that opens the instance, e.g. ctrl+opt+1 or ⌃⌥W (needs the Parallex app running).",
         valueName: "keys"
@@ -110,6 +113,9 @@ struct Edit: ParsableCommand {
         }
         if let clone {
             settings.cloneApp = clone ? true : nil
+        }
+        if let separateLibrary {
+            settings.separateLibrary = separateLibrary
         }
         let available = manifest.recipe?.options ?? []
         try checkOptionIDs(enableOptions + disableOptions, available: available)

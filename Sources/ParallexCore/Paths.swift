@@ -22,6 +22,13 @@ public enum Paths {
         instancesRoot.appendingPathComponent(slug, isDirectory: true)
     }
 
+    /// The shared home-redirect library own-identity copies load. It lives
+    /// here rather than inside each copy so tools a copy started keep
+    /// working after the copy is moved or removed.
+    public static var homeLibrary: URL {
+        supportRoot.appendingPathComponent("lib/libparallexhome.dylib")
+    }
+
     /// PID file the launcher writes before exec (see `Running`).
     public static func pidFile(slug: String) -> URL {
         instanceDir(slug: slug).appendingPathComponent("instance.pid")

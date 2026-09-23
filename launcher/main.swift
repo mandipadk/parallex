@@ -223,6 +223,36 @@ for (key, value) in config[ParallexConfig.Key.environment] as? [String: String] 
     setenv(key, value, 1)
 }
 
+// 3b. Own-identity copy with its own Library: load the home-redirect library
+//     into the app (only processes inside this bundle act on it). Set after
+//     the extra environment, so nothing there can undo it.
+if let redirectHome = config[ParallexConfig.Key.redirectHome] as? String,
+   let library = config[ParallexConfig.Key.redirectLibrary] as? String,
+   let scope = config[ParallexConfig.Key.redirectScope] as? String {
+    let bundle = Bundle.main.bundleURL.resolvingSymlinksInPath().path
+    // Its services carry the scope recorded at build time; somewhere else,
+    // they'd quietly use the real Library.
+    guard URL(fileURLWithPath: scope).resolvingSymlinksInPath().path == bundle else {
+        fail("This instance's app was moved from \(scope). Open Parallex and repair it, then open it again.")
+    }
+    guard FileManager.default.fileExists(atPath: library) else {
+        fail("Part of Parallex this instance needs is missing (\(library)). Open Parallex and repair the instance.")
+    }
+    let realHome = getpwuid(getuid()).flatMap { $0.pointee.pw_dir.map { String(cString: $0) } }
+        ?? FileManager.default.homeDirectoryForCurrentUser.path
+    scaffoldHome(
+        at: redirectHome,
+        realHome: realHome,
+        symlinks: config[ParallexConfig.Key.homeSymlinks] as? [String] ?? []
+    )
+    setenv("PARALLEX_HOME_REDIRECT", redirectHome, 1)
+    setenv("PARALLEX_HOME_SCOPE", bundle, 1)
+    let existing = (ProcessInfo.processInfo.environment["DYLD_INSERT_LIBRARIES"] ?? "")
+        .split(separator: ":").map(String.init)
+        .filter { !$0.isEmpty && !$0.hasSuffix("/libparallexhome.dylib") }
+    setenv("DYLD_INSERT_LIBRARIES", ([library] + existing).joined(separator: ":"), 1)
+}
+
 // 4. Record our PID and the executable we're about to become. execv keeps
 //    the PID, so this identifies the instance's process for its whole run.
 if let pidFile {

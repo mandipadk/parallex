@@ -15,6 +15,7 @@ struct InstanceDetail: View {
     @State private var applyError: String?
     @State private var confirmRemove = false
     @State private var cloneAssessment: AppCloner.Assessment?
+    @State private var targetSandboxed = false
 
     init(entry: InstanceEntry) {
         self.entry = entry
@@ -33,7 +34,7 @@ struct InstanceDetail: View {
                 DetailHeader(entry: entry)
                     .padding(.bottom, Theme.Space.xl)
                 ProblemBanners(entry: entry)
-                IsolationSection(entry: entry, draft: $draft, cloneAssessment: cloneAssessment)
+                IsolationSection(entry: entry, draft: $draft, cloneAssessment: cloneAssessment, targetSandboxed: targetSandboxed)
                 AppearanceSection(entry: entry, draft: $draft)
                 LaunchSection(entry: entry, openAtStart: $draft.settings.openAtLaunch.orFalse, shortcut: $draft.settings.shortcut)
                 StorageSection(entry: entry)
@@ -77,9 +78,11 @@ struct InstanceDetail: View {
         }
         .task(id: entry.manifest.targetApp) {
             let targetPath = entry.manifest.targetApp
-            cloneAssessment = await Task.detached {
-                (try? AppInspector.inspect(URL(fileURLWithPath: targetPath))).map(AppCloner.assess)
+            let inspected = await Task.detached {
+                (try? AppInspector.inspect(URL(fileURLWithPath: targetPath))).map { (AppCloner.assess($0), $0.isSandboxed) }
             }.value
+            cloneAssessment = inspected?.0
+            targetSandboxed = inspected?.1 ?? false
         }
         .confirmationDialog("Remove “\(entry.name)”?", isPresented: $confirmRemove, titleVisibility: .visible) {
             Button("Move Instance and Its Data to Trash", role: .destructive) { model.remove(entry, keepData: false) }
@@ -342,6 +345,7 @@ private struct IsolationSection: View {
     let entry: InstanceEntry
     @Binding var draft: InstanceDraft
     let cloneAssessment: AppCloner.Assessment?
+    let targetSandboxed: Bool
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -357,6 +361,14 @@ private struct IsolationSection: View {
                     )
                     .disabled(!cloneAssessment.possible)
                 }
+                if draft.settings.isClone, !targetSandboxed {
+                    ExplainedToggle(
+                        title: "Separate Library",
+                        detail: "Everything \(entry.targetName) keeps in ~/Library — sign-ins, caches, web storage — stays in this instance. Your documents and other folders stay shared.",
+                        isOn: separateLibraryBinding
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
                 ForEach(entry.manifest.recipe?.options ?? []) { option in
                     ExplainedToggle(title: option.title, detail: option.detail, isOn: optionBinding(option))
                 }
@@ -365,8 +377,23 @@ private struct IsolationSection: View {
         }
     }
 
+    /// On unless turned off; switching back on restores "default" when that's
+    /// what's stored, so it doesn't count as a change.
+    private var separateLibraryBinding: Binding<Bool> {
+        Binding(
+            get: { draft.settings.separateLibrary != false },
+            set: { on in
+                let stored = entry.manifest.effectiveSettings.separateLibrary
+                draft.settings.separateLibrary = on ? (stored == nil ? nil : true) : false
+            }
+        )
+    }
+
     private var summary: String {
         let manifest = entry.manifest
+        if manifest.redirectedHome != nil {
+            return "Runs as its own app with its own Library, so nothing it keeps there is shared with \(entry.targetName)."
+        }
         let identity = manifest.clone != nil ? "Runs as its own app. " : ""
         switch manifest.mode {
         case .dataDir:

@@ -12,6 +12,8 @@ let package = Package(
         // with the `parallex` CLI in the build directory; the Makefile renames
         // it to `Parallex` when assembling Parallex.app.
         .executable(name: "ParallexApp", targets: ["ParallexApp"]),
+        // Loaded into own-identity copies so they keep their own ~/Library.
+        .library(name: "parallexhome", type: .dynamic, targets: ["ParallexHome"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
@@ -36,6 +38,10 @@ let package = Package(
             dependencies: ["ParallexKit"],
             path: "launcher"
         ),
+
+        // The home-redirect library (C, no dependencies): answers account
+        // lookups with the instance's home inside an instance's own copy.
+        .target(name: "ParallexHome"),
 
         // "Parallex Links": receives sign-in links and passes each to the
         // right running copy of an app (see LinkRouting).

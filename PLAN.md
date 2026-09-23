@@ -221,4 +221,12 @@ Defaults: `--mode auto` (doctor logic), wrapper written to `/Applications`, data
    letters get a transliterated or hashed slug; names that reduce to the same slug get distinct
    slugs. Stress tests cover churn, awkward names, concurrency, corrupt manifests, and targets
    that move or disappear.
-8. **Later/optional** — badge style options; published Homebrew tap.
+8. **v0.9** — separate Library for own-identity copies of apps that aren't sandboxed: the copy
+   carries `libparallexhome.dylib` (interposes the account lookups so the app's home — and so its
+   `~/Library` — is the instance's), loaded by the launcher and written into nested XPC services'
+   and helper apps' environments; scoped to processes inside the copy. On by default for new
+   copies (native apps default to a copy), migrated off for older ones. The isolation check
+   treats anything such a copy keeps in the real `~/Library` as a leak. Removing a copy takes its
+   preferences and saved state along to the Trash. Validated on Spotify, Zed, IINA, VLC,
+   Obsidian and Ghostty: zero writes to the originals' data.
+9. **Later/optional** — badge style options; published Homebrew tap.

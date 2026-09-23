@@ -99,6 +99,6 @@ public enum AppCatalog {
             }
             return make(.limited, "Its own copy runs separately, but some data stays shared.", clone: true)
         }
-        return make(.ownIdentity, "Works best as its own copy, with its own identity.", clone: true)
+        return make(.ownIdentity, "Its own copy gets separate sign-in and data.", clone: true)
     }
 }

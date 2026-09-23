@@ -60,6 +60,19 @@ copy runs as itself: its own Dock icon and name, ⌘-Tab entry, notifications,
 and privacy permissions. Every way of opening it (Dock, notifications, login)
 still goes through the launcher, so its isolation always applies.
 
+- **Its own Library.** macOS finds an app's `~/Library` (Application Support,
+  caches, cookies, web storage…) from the user account rather than `$HOME`,
+  so for native apps a separate `HOME` alone leaves most of their data
+  shared. A copy of an app that isn't sandboxed therefore also carries a small
+  library, `libparallexhome.dylib`, that the launcher loads into it. The
+  library answers the account lookups (`getpwuid` and friends) with the
+  instance's home, so everything the app keeps under `~` lands in the
+  instance. Documents, Desktop, Downloads and your dotfiles stay shared
+  through links. The library is only active in processes whose executable
+  lives inside the copy, so tools the app starts (shells, `git`, …) behave
+  normally. It's on by default: turn off **Separate Library** in the
+  instance, or use `parallex edit <name> --no-separate-library`. Copies made
+  before 0.9 keep using the real `~/Library` until you turn it on.
 - **App Store / sandboxed apps** get their own sandbox container this way — the
   one way to give them separate data. Apps that keep data in shared app-group
   containers (e.g. WhatsApp) may still see the original's data there;
@@ -77,7 +90,7 @@ verdict):
 |------|------|--------|
 | app recipe | Claude, Codex | the app's own data-location switches (`CLAUDE_USER_DATA_DIR`, `CODEX_HOME`, …), with optional extras |
 | data-dir | Electron, Chromium browsers, VS Code family, Firefox | framework flags (`--user-data-dir=…`, `--no-remote --profile …`, …) |
-| home | other non-sandboxed apps | `HOME` points at a per-instance folder; Desktop/Documents/Downloads/… are symlinked back. Covers dotfiles and command-line state; see caveats for `~/Library` |
+| home | other non-sandboxed apps | `HOME` points at a per-instance folder; Desktop/Documents/Downloads/… are symlinked back. As an own-identity copy (the default for these apps) its whole `~/Library` is separate too; as a plain wrapper, only dotfiles and command-line state are |
 | launch-only | sandboxed (App Store) apps | a separate launcher only — macOS pins sandboxed app data to its container |
 
 ### Sign-in links
@@ -265,5 +278,5 @@ try with `--env`. Recipes live in `Presets.recipes`.
 
 ## Status
 
-v0.8 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
+v0.9 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
 in [poc/](poc/).

@@ -71,6 +71,57 @@ enum Fixtures {
         return app
     }
 
+    /// The repository root (for sources the tests compile themselves).
+    static var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    /// The home-redirect library, compiled once per test run from its
+    /// source (the test build doesn't produce the dynamic library product).
+    static let homeLibrary: URL = {
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parallex-tests-libparallexhome-\(ProcessInfo.processInfo.processIdentifier).dylib")
+        let source = repositoryRoot.appendingPathComponent("Sources/ParallexHome")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
+        process.arguments = [
+            "-dynamiclib", "-O2", "-I", source.appendingPathComponent("include").path,
+            source.appendingPathComponent("home.c").path, "-o", output.path,
+        ]
+        try! process.run()
+        process.waitUntilExit()
+        precondition(process.terminationStatus == 0, "couldn't compile the home-redirect library")
+        return output
+    }()
+
+    /// Compile a small native app whose executable writes what it sees as
+    /// home (NSHomeDirectory, Application Support, $HOME) to $FIXTURE_OUT.
+    static func makeHomeReportingApp(named name: String, bundleID: String, in directory: URL) throws -> URL {
+        let app = try makeApp(named: name, bundleID: bundleID, in: directory, extraInfoKeys: ["CFBundleShortVersionString": "1.0"])
+        let source = directory.appendingPathComponent("\(name)-main.m")
+        try Data("""
+        #import <Foundation/Foundation.h>
+        int main(void) {
+            @autoreleasepool {
+                NSString *support = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject;
+                NSString *report = [NSString stringWithFormat:@"%@\\n%@\\n%s\\n", NSHomeDirectory(), support, getenv("HOME") ?: ""];
+                [report writeToFile:[NSString stringWithUTF8String:getenv("FIXTURE_OUT")] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                [[NSFileManager defaultManager] createDirectoryAtPath:[support stringByAppendingPathComponent:@"\(name)"] withIntermediateDirectories:YES attributes:nil error:nil];
+            }
+            return 0;
+        }
+        """.utf8).write(to: source)
+        let executable = app.appendingPathComponent("Contents/MacOS/\(name)")
+        try? FileManager.default.removeItem(at: executable)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
+        process.arguments = ["-fobjc-arc", "-framework", "Foundation", source.path, "-o", executable.path]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw NSError(domain: "fixture", code: 1) }
+        return app
+    }
+
     static func makeTempDirectory(_ testName: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("parallex-tests-\(testName)-\(UUID().uuidString)")

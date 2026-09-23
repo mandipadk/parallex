@@ -16,10 +16,15 @@ class Parallex < Formula
   depends_on xcode: ["15.0", :build]
 
   def install
-    system "swift", "build", "-c", "release", "--disable-sandbox"
-    bin.install ".build/release/parallex"
-    bin.install ".build/release/parallex-launcher"
-    bin.install ".build/release/parallex-router"
+    # Universal, so copies of Intel apps (and tools they start under
+    # Rosetta) can load the home-redirect library.
+    system "swift", "build", "-c", "release", "--disable-sandbox", "--arch", "arm64", "--arch", "x86_64"
+    products = Utils.safe_popen_read("swift", "build", "-c", "release", "--arch", "arm64", "--arch", "x86_64",
+                                     "--show-bin-path").strip
+    bin.install "#{products}/parallex"
+    bin.install "#{products}/parallex-launcher"
+    bin.install "#{products}/parallex-router"
+    libexec.install "#{products}/libparallexhome.dylib"
   end
 
   test do

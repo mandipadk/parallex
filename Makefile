@@ -41,10 +41,13 @@ install: release
 	install "$(RELEASE_DIR)/parallex" "$(PREFIX)/bin/parallex"
 	install "$(RELEASE_DIR)/parallex-launcher" "$(PREFIX)/bin/parallex-launcher"
 	install "$(RELEASE_DIR)/parallex-router" "$(PREFIX)/bin/parallex-router"
+	install -d "$(PREFIX)/libexec"
+	install -m 644 "$(RELEASE_DIR)/libparallexhome.dylib" "$(PREFIX)/libexec/libparallexhome.dylib"
 	@echo "Installed $(PREFIX)/bin/parallex"
 
 uninstall:
-	rm -f "$(PREFIX)/bin/parallex" "$(PREFIX)/bin/parallex-launcher" "$(PREFIX)/bin/parallex-router"
+	rm -f "$(PREFIX)/bin/parallex" "$(PREFIX)/bin/parallex-launcher" "$(PREFIX)/bin/parallex-router" \
+		"$(PREFIX)/libexec/libparallexhome.dylib"
 
 # Assemble the GUI app bundle: GUI binary, the embedded wrapper launcher,
 # link router and `parallex` command, and the icon. Nested binaries are
@@ -59,10 +62,12 @@ app: release
 	cp "$(RELEASE_DIR)/parallex-launcher" "$(APP_DIST)/Contents/Resources/parallex-launcher"
 	cp "$(RELEASE_DIR)/parallex-router" "$(APP_DIST)/Contents/Resources/parallex-router"
 	cp "$(RELEASE_DIR)/parallex" "$(APP_DIST)/Contents/Resources/parallex"
+	cp "$(RELEASE_DIR)/libparallexhome.dylib" "$(APP_DIST)/Contents/Resources/libparallexhome.dylib"
 	cp Sources/ParallexApp/Resources/AppIcon.icns "$(APP_DIST)/Contents/Resources/AppIcon.icns"
 	codesign --force --sign - "$(APP_DIST)/Contents/Resources/parallex-launcher"
 	codesign --force --sign - "$(APP_DIST)/Contents/Resources/parallex-router"
 	codesign --force --sign - "$(APP_DIST)/Contents/Resources/parallex"
+	codesign --force --sign - "$(APP_DIST)/Contents/Resources/libparallexhome.dylib"
 	codesign --force --sign - "$(APP_DIST)"
 	@echo "Built $(APP_DIST) $(VERSION) ($(BUILD_NUMBER))"
 

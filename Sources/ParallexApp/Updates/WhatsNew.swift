@@ -18,6 +18,23 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.9.0", highlights: [
+            Highlight(
+                symbol: "square.stack.3d.up",
+                title: "Every copy gets its own Library",
+                detail: "Copies of native apps now keep their sign-ins, caches and web storage to themselves. Nothing is shared with the original."
+            ),
+            Highlight(
+                symbol: "checkmark.shield",
+                title: "Verified, not assumed",
+                detail: "Verify Isolation now flags anything a copy leaves in your real Library."
+            ),
+            Highlight(
+                symbol: "trash",
+                title: "Clean removal",
+                detail: "Removing a copy takes its preferences and window state with it to the Trash."
+            ),
+        ]),
         Release(version: "0.8.0", highlights: [
             Highlight(
                 symbol: "command",

@@ -13,6 +13,7 @@ final class CloneTests: XCTestCase {
         tempDir = try Fixtures.makeTempDirectory("clone")
         setenv("PARALLEX_HOME", tempDir.appendingPathComponent("support").path, 1)
         setenv("PARALLEX_LAUNCHER", Fixtures.launcherBinary.path, 1)
+        setenv("PARALLEX_HOME_LIBRARY", Fixtures.homeLibrary.path, 1)
         outDir = tempDir.appendingPathComponent("apps", isDirectory: true)
         try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
     }
@@ -20,6 +21,7 @@ final class CloneTests: XCTestCase {
     override func tearDownWithError() throws {
         unsetenv("PARALLEX_HOME")
         unsetenv("PARALLEX_LAUNCHER")
+        unsetenv("PARALLEX_HOME_LIBRARY")
         try? FileManager.default.removeItem(at: tempDir)
     }
 

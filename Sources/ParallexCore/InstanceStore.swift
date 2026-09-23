@@ -41,8 +41,17 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     public var openAtLaunch: Bool?
     /// Global keyboard shortcut that opens (or brings forward) the instance.
     public var shortcut: KeyShortcut?
+    /// Own-identity copies of apps that aren't sandboxed keep everything in
+    /// ~/Library (Application Support, caches, web storage…) in the
+    /// instance. `nil` means on; `false` turns it off.
+    public var separateLibrary: Bool?
 
     public var isClone: Bool { cloneApp == true }
+
+    /// Whether an own-identity copy of `app` gets its own ~/Library.
+    public func separatesLibrary(for app: AppInfo) -> Bool {
+        isClone && !app.isSandboxed && separateLibrary != false
+    }
 
     public init(
         requestedMode: RequestedMode = .auto,
@@ -135,6 +144,9 @@ public struct InstanceManifest: Codable, Sendable {
     public var settings: InstanceSettings?
     /// Set when the instance is a clone of its target app.
     public var clone: CloneRecord?
+    /// The home an own-identity copy is shown as the user's (its own
+    /// ~/Library lives there). Nil when the copy uses the real ~/Library.
+    public var redirectedHome: String?
 
     public struct CloneRecord: Codable, Sendable, Equatable {
         /// The copy's own bundle identifier.
@@ -161,7 +173,8 @@ public struct InstanceManifest: Codable, Sendable {
         parallexVersion: String,
         targetBundleID: String? = nil,
         settings: InstanceSettings? = nil,
-        clone: CloneRecord? = nil
+        clone: CloneRecord? = nil,
+        redirectedHome: String? = nil
     ) {
         self.name = name
         self.slug = slug
@@ -179,6 +192,7 @@ public struct InstanceManifest: Codable, Sendable {
         self.targetBundleID = targetBundleID
         self.settings = settings
         self.clone = clone
+        self.redirectedHome = redirectedHome
         if settings != nil {
             schemaVersion = 2
         }
@@ -189,7 +203,14 @@ public struct InstanceManifest: Codable, Sendable {
     /// and environment point into the instance directory, which is how
     /// user-supplied extras are told apart.
     public var effectiveSettings: InstanceSettings {
-        if let settings {
+        if var settings {
+            // Own-identity copies made before 0.9 used the real ~/Library;
+            // keep it that way until the user turns separation on, so a
+            // routine rebuild doesn't make the copy look signed out.
+            if settings.separateLibrary == nil, clone != nil, redirectedHome == nil,
+               InstanceStatus.compareVersions(parallexVersion, "0.9.0") == .orderedAscending {
+                settings.separateLibrary = false
+            }
             return settings
         }
         let instancePath = Paths.instanceDir(slug: slug).path
@@ -234,7 +255,8 @@ public struct InstanceManifest: Codable, Sendable {
         case .launchOnly:
             return "own identity — a copy of the app with its own bundle ID (data not separated)"
         default:
-            return "own identity + \(mode.rawValue) — a copy of the app with its own bundle ID, \(mode.summary)"
+            let library = redirectedHome != nil ? " and its own ~/Library" : ""
+            return "own identity + \(mode.rawValue) — a copy of the app with its own bundle ID\(library), \(mode.summary)"
         }
     }
 

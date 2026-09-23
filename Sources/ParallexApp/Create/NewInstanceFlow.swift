@@ -413,7 +413,8 @@ private struct ConfigureStep: View {
                 ExplainedToggle(
                     title: "Own identity",
                     detail: probe.cloneAssessment.possible
-                        ? "A copy of \(probe.name) with its own Dock icon, notifications, and permissions\(probe.sandboxed ? " — and its own data container" : "")."
+                        ? "A copy of \(probe.name) with its own Dock icon, notifications, and permissions — "
+                            + (probe.sandboxed ? "and its own data container." : "and its own Library, so sign-ins and data stay separate.")
                         : probe.cloneAssessment.notes.first ?? "Not possible for this app.",
                     isOn: $setup.cloneApp
                 )

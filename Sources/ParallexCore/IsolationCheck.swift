@@ -68,6 +68,8 @@ public enum IsolationCheck {
     struct Rules {
         let home: String
         let instanceDir: String
+        /// The instance's own app (a copy's resources aren't data).
+        let appBundle: String
         let originalDataLocations: [(prefix: String, reason: String)]
         let identityLocations: [String]
         /// Recipe-declared folders the app can't be told to move.
@@ -77,6 +79,7 @@ public enum IsolationCheck {
         init(manifest: InstanceManifest, home: String) {
             self.home = home
             instanceDir = Paths.instanceDir(slug: manifest.slug).path
+            appBundle = URL(fileURLWithPath: manifest.wrapperPath).resolvingSymlinksInPath().path
 
             let appName = URL(fileURLWithPath: manifest.targetApp).deletingPathExtension().lastPathComponent
             let bundleID = manifest.targetBundleID ?? Self.bundleID(ofApp: manifest.targetApp) ?? ""
@@ -122,23 +125,37 @@ public enum IsolationCheck {
             for item in manifest.homeSymlinks ?? [] {
                 choice.append(("\(home)/\(item)", "shared into the instance home"))
             }
+            func keyedByBundleID(_ id: String) -> [String] {
+                [
+                    "\(library)/Caches/\(id)/",
+                    "\(library)/HTTPStorages/\(id)/",
+                    "\(library)/HTTPStorages/\(id).binarycookies",
+                    "\(library)/WebKit/\(id)/",
+                    "\(library)/Cookies/\(id).binarycookies",
+                ]
+            }
+            if manifest.redirectedHome != nil {
+                // A copy with its own Library keeps even what macOS keys by
+                // bundle ID in the instance, so finding it in the real
+                // Library is a leak — and nothing is excused as unavoidable.
+                let ids = [bundleID, manifest.clone?.bundleIdentifier ?? ""].filter { !$0.isEmpty }
+                for location in ids.flatMap(keyedByBundleID) {
+                    original.append((location, "belongs in the copy's own Library"))
+                }
+                identityLocations = []
+                appShared = []
+            } else {
+                identityLocations = bundleID.isEmpty ? [] : keyedByBundleID(bundleID)
+                appShared = (manifest.recipe?.unavoidablyShared ?? []).map { ("\(home)/\($0.path)", $0.reason) }
+            }
             originalDataLocations = original
             sharedByChoice = choice
-
-            appShared = (manifest.recipe?.unavoidablyShared ?? []).map { ("\(home)/\($0.path)", $0.reason) }
-            identityLocations = bundleID.isEmpty ? [] : [
-                "\(library)/Caches/\(bundleID)/",
-                "\(library)/HTTPStorages/\(bundleID)/",
-                "\(library)/HTTPStorages/\(bundleID).binarycookies",
-                "\(library)/WebKit/\(bundleID)/",
-                "\(library)/Cookies/\(bundleID).binarycookies",
-            ]
         }
 
         func classify(_ path: String) -> IsolationReport.Finding? {
             // Only the user's own files matter; system, app-bundle, and temp
             // files are expected to be shared.
-            guard path.hasPrefix(home + "/") else { return nil }
+            guard path.hasPrefix(home + "/"), !path.hasPrefix(appBundle + "/") else { return nil }
             if path.hasPrefix(instanceDir + "/") || path == instanceDir {
                 return .init(path: path, category: .isolated, reason: "inside the instance directory")
             }

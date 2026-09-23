@@ -8,12 +8,17 @@ public enum LauncherLocator {
         try locate(helper: "parallex-launcher", override: "PARALLEX_LAUNCHER")
     }
 
+    /// The home-redirect library copied into own-identity copies.
+    public static func locateHomeLibrary() throws -> URL {
+        try locate(helper: "libparallexhome.dylib", override: "PARALLEX_HOME_LIBRARY", executable: false)
+    }
+
     /// The link router binary ("Parallex Links"), shipped the same way.
     public static func locateRouter() throws -> URL {
         try locate(helper: "parallex-router", override: "PARALLEX_ROUTER")
     }
 
-    static func locate(helper name: String, override variable: String) throws -> URL {
+    static func locate(helper name: String, override variable: String, executable: Bool = true) throws -> URL {
         var candidates: [URL] = []
         if let override = ProcessInfo.processInfo.environment[variable], !override.isEmpty {
             candidates.append(URL(fileURLWithPath: (override as NSString).expandingTildeInPath))
@@ -31,7 +36,9 @@ public enum LauncherLocator {
                     .appendingPathComponent("libexec/\(name)")
             )
         }
-        for candidate in candidates where FileManager.default.isExecutableFile(atPath: candidate.path) {
+        let fm = FileManager.default
+        for candidate in candidates
+        where executable ? fm.isExecutableFile(atPath: candidate.path) : fm.fileExists(atPath: candidate.path) {
             return candidate
         }
         let searched = candidates.map { "  \($0.path)" }.joined(separator: "\n")

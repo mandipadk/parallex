@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import ParallexKit
 
@@ -462,8 +463,15 @@ public enum InstanceCreator {
             instanceDir: instanceDir,
             sharedItems: sharedItems,
             enabledOptions: settings.enabledOptions.map(Set.init),
-            clone: settings.isClone
+            clone: settings.isClone,
+            separateLibrary: settings.separatesLibrary(for: target)
         )
+        // An own-identity copy with its own Library is shown the instance's
+        // home as the user's home (the home-mode home, or a dedicated one).
+        let redirectHome = settings.separatesLibrary(for: target)
+            ? plan.homeOverride ?? instanceDir.appendingPathComponent("home").path
+            : nil
+        let homeSymlinks = plan.homeOverride != nil ? plan.homeSymlinks : (redirectHome != nil ? sharedItems : [])
 
         // Plan recipe first, user-provided vars win, PARALLEX_INSTANCE always set.
         var environment = plan.environment
@@ -482,7 +490,7 @@ public enum InstanceCreator {
             arguments: arguments,
             environment: environment,
             homeOverride: plan.homeOverride,
-            homeSymlinks: plan.homeSymlinks,
+            homeSymlinks: homeSymlinks,
             createDirectories: plan.createDirectories,
             applicationCategory: target.infoPlist["LSApplicationCategoryType"] as? String,
             outputDirectory: outDir,
@@ -491,7 +499,8 @@ public enum InstanceCreator {
             badge: settings.badgeText.map {
                 IconBuilder.Badge(text: $0, colorHex: settings.badgeColorHex, colorSeed: slug)
             },
-            pidFile: Paths.pidFile(slug: slug).path
+            pidFile: Paths.pidFile(slug: slug).path,
+            redirectHome: redirectHome
         )
 
         var notes = plan.notes
@@ -527,12 +536,13 @@ public enum InstanceCreator {
             preset: plan.presetID,
             arguments: arguments,
             environment: environment,
-            homeSymlinks: plan.homeOverride != nil ? plan.homeSymlinks : nil,
+            homeSymlinks: plan.homeOverride != nil || redirectHome != nil ? homeSymlinks : nil,
             createdAt: previous?.createdAt ?? Date(),
             parallexVersion: ParallexConfig.version,
             targetBundleID: target.bundleID,
             settings: settings,
-            clone: cloneRecord
+            clone: cloneRecord,
+            redirectedHome: cloneRecord?.usesLauncher == true ? redirectHome : nil
         )
         try InstanceStore.save(manifest)
 
@@ -580,6 +590,12 @@ public enum InstanceCreator {
         cloneSpec.targetAppPath = ""
         cloneSpec.targetBundleID = nil
         cloneSpec.targetBinaryPath = executable
+        if useLauncher, spec.redirectHome != nil {
+            cloneSpec.redirectLibrary = try AppCloner.installHomeLibrary(from: LauncherLocator.locateHomeLibrary()).path
+            cloneSpec.redirectScope = destination.standardizedFileURL.path
+        } else {
+            cloneSpec.redirectHome = nil
+        }
         let config: [String: Any] = useLauncher
             ? BundleBuilder.launcherConfig(cloneSpec)
             : [ParallexConfig.Key.slug: spec.slug]
@@ -776,6 +792,15 @@ public enum InstanceRemover {
         let fm = FileManager.default
         let wasRunning = Running.isRunning(manifest)
 
+        // Before the copy goes to the Trash: it's how its identifier is
+        // told apart from any other copy's.
+        if manifest.clone != nil, !keepData, !wasRunning {
+            let instanceDir = Paths.instanceDir(slug: manifest.slug)
+            if fm.fileExists(atPath: instanceDir.path) {
+                moveSystemState(of: manifest, into: instanceDir)
+            }
+        }
+
         var wrapperTrashed = false
         var wrapperWasMissing = false
         var wrapperSkippedForeign = false
@@ -818,5 +843,42 @@ public enum InstanceRemover {
                 return fm.fileExists(atPath: container) ? container : nil
             }
         )
+    }
+
+    /// An own-identity copy's preferences and saved window state live where
+    /// macOS keeps them for its bundle ID (the preferences daemon isn't
+    /// redirected). Move them in with the instance's data, so they go to the
+    /// Trash together and nothing is left behind.
+    static func moveSystemState(of manifest: InstanceManifest, into instanceDir: URL) {
+        guard let identifier = manifest.clone?.bundleIdentifier, identifier.hasPrefix("com.parallex.instance.") else {
+            return
+        }
+        let fm = FileManager.default
+        // Another copy with the same identifier (an instance of the same
+        // name in another Parallex library) shares the preferences domain.
+        // (Launch Services queries are safe off the main thread.)
+        let others = NSWorkspace.shared.urlsForApplications(withBundleIdentifier: identifier)
+            .filter { $0.standardizedFileURL.path != URL(fileURLWithPath: manifest.wrapperPath).standardizedFileURL.path }
+            .filter { !$0.path.contains("/.Trash/") && FileManager.default.fileExists(atPath: $0.path) }
+        guard others.isEmpty else { return }
+        let library = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library")
+        let preferences = library.appendingPathComponent("Preferences/\(identifier).plist")
+        if fm.fileExists(atPath: preferences.path) {
+            let saved = instanceDir.appendingPathComponent("preferences.plist")
+            // Through the preferences daemon, which may hold newer values
+            // than the file (and would write them back after a plain move).
+            if (try? Shell.run("/usr/bin/defaults", ["export", identifier, saved.path])) != nil {
+                Shell.runAllowingFailure("/usr/bin/defaults", ["delete", identifier])
+                // The daemon leaves an empty file behind; its contents are
+                // saved above.
+                if let remaining = NSDictionary(contentsOf: preferences), remaining.count == 0 {
+                    try? fm.removeItem(at: preferences)
+                }
+            }
+        }
+        let state = library.appendingPathComponent("Saved Application State/\(identifier).savedState")
+        if fm.fileExists(atPath: state.path) {
+            try? fm.moveItem(at: state, to: instanceDir.appendingPathComponent("saved-state"))
+        }
     }
 }

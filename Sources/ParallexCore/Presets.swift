@@ -184,9 +184,13 @@ public enum Presets {
         instanceDir: URL,
         sharedItems: [String],
         enabledOptions: Set<String>? = nil,
-        clone: Bool = false
+        clone: Bool = false,
+        separateLibrary: Bool = false
     ) -> IsolationPlan {
         var notes: [String] = []
+        let libraryNote = "Its own copy keeps everything \(app.name) stores in ~/Library — Application Support, "
+            + "caches, web storage — inside the instance, so nothing is shared with the original by accident."
+
         let resolved: InstanceMode
         let recipe = recipe(for: app.bundleID)
 
@@ -211,7 +215,7 @@ public enum Presets {
                 homeOverride: nil,
                 homeSymlinks: [],
                 environment: environment.mapValues(expand),
-                notes: extraNotes + [recipe.note] + (clone ? [] : [tccNote]),
+                notes: extraNotes + [recipe.note] + (separateLibrary ? [libraryNote] : []) + (clone ? [] : [tccNote]),
                 availableOptions: recipe.options,
                 enabledOptions: active.map(\.id)
             )
@@ -294,6 +298,9 @@ public enum Presets {
                ) {
                 notes.append(dotNote)
             }
+            if separateLibrary {
+                notes.append(libraryNote)
+            }
             if !clone {
                 notes.append(tccNote)
             }
@@ -316,11 +323,16 @@ public enum Presets {
                     + "home; everything else is per-instance."
                 )
             }
-            notes.append(
-                "Note: recent macOS versions resolve ~/Library from the user account rather than the "
-                + "HOME variable, so home isolation reliably covers command-line state and dotfiles, "
-                + "but a native app may still write some of its data to your real ~/Library."
-            )
+            if separateLibrary {
+                notes.append(libraryNote)
+            } else {
+                notes.append(
+                    "Note: recent macOS versions resolve ~/Library from the user account rather than the "
+                    + "HOME variable, so home isolation reliably covers command-line state and dotfiles, "
+                    + "but a native app may still write some of its data to your real ~/Library. Turn on "
+                    + "“own identity” to keep its Library separate too."
+                )
+            }
             if !clone {
                 notes.append(tccNote)
             }
