@@ -23,7 +23,7 @@ const beats: { title: string; serif: string; line: ReactNode; visual: ReactNode 
   {
     title: "Links land",
     serif: "where they should.",
-    line: "Sign-in links open in the copy you used last.",
+    line: "Sign-in links reach the right copy, and web links open in that copy's browser.",
     visual: <LinkVisual />,
   },
   {
