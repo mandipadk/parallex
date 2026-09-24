@@ -49,6 +49,8 @@ public struct CreateRequest: Sendable {
     public var adoptData: URL?
     /// Make the instance a re-signed copy of the app with its own identity.
     public var cloneApp: Bool
+    /// For a copy: keep its ~/Library separate (`nil` = the default, on).
+    public var separateLibrary: Bool?
     public var force: Bool
 
     public init(
@@ -83,6 +85,120 @@ public struct CreateRequest: Sendable {
         self.adoptData = adoptData
         self.cloneApp = cloneApp
         self.force = force
+    }
+}
+
+/// Duplicating an instance: the same app and settings under a new name,
+/// optionally with a copy of its data.
+extension InstanceCreator {
+    public static func duplicate(
+        _ manifest: InstanceManifest,
+        name: String? = nil,
+        includeData: Bool = false,
+        builderOptions: BundleBuilder.Options = BundleBuilder.Options()
+    ) throws -> CreateResult {
+        if includeData, Running.isRunning(manifest) {
+            throw ParallexError("Quit “\(manifest.name)” first, so its data is copied in a consistent state.")
+        }
+        if includeData, let clone = manifest.clone, !clone.usesLauncher {
+            throw ParallexError(
+                "“\(manifest.name)” keeps its data in its own sandbox container, which can't be copied. "
+                + "Duplicate it without data instead."
+            )
+        }
+        let settings = manifest.effectiveSettings
+        let target = try locateTarget(of: manifest)
+        let sourceDir = Paths.instanceDir(slug: manifest.slug)
+        var request = CreateRequest(
+            appReference: target.path,
+            name: name ?? duplicateName(for: manifest.name),
+            mode: settings.mode,
+            outputDirectory: URL(fileURLWithPath: manifest.wrapperPath).deletingLastPathComponent(),
+            badgeText: settings.badgeText,
+            badgeColorHex: settings.badgeColorHex,
+            customIcon: settings.customIconFile.map { sourceDir.appendingPathComponent($0) },
+            environment: settings.extraEnvironment,
+            extraSharedItems: settings.extraSharedItems,
+            includeDefaultSharedItems: settings.includeDefaultSharedItems,
+            extraArguments: settings.extraArguments,
+            enabledOptions: settings.enabledOptions,
+            cloneApp: settings.isClone
+        )
+        request.separateLibrary = settings.separateLibrary
+        let result = try create(request, builderOptions: builderOptions)
+        if includeData {
+            // Building a copy takes a moment; the original may have been opened since.
+            if Running.isRunning(manifest) {
+                throw ParallexError(
+                    "Created “\(result.manifest.name)”, but “\(manifest.name)” was opened meanwhile, so its data "
+                    + "wasn't copied. Quit it and duplicate again, or use the new instance as it is."
+                )
+            }
+            try copyData(from: manifest, to: result.manifest)
+        }
+        return result
+    }
+
+    /// Files that only mean something to a running app — its single-instance
+    /// locks and sockets (Chromium/Electron, Firefox) — plus VS Code's
+    /// extension index, which records absolute paths into the source
+    /// instance (VS Code rebuilds it). A copy starting with these would hand
+    /// itself to the original or point back into it.
+    static let runStateNames: Set<String> = [
+        "SingletonLock", "SingletonSocket", "SingletonCookie", "lock", ".parentlock", "parent.lock", "extensions.json",
+    ]
+
+    static func removeRunState(in directory: URL) {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(at: directory, includingPropertiesForKeys: nil, options: []) else { return }
+        var doomed: [URL] = []
+        for case let url as URL in enumerator where runStateNames.contains(url.lastPathComponent) {
+            // extensions.json only where VS Code keeps it.
+            if url.lastPathComponent == "extensions.json", url.deletingLastPathComponent().lastPathComponent != "extensions" {
+                continue
+            }
+            doomed.append(url)
+        }
+        for url in doomed {
+            try? fm.removeItem(at: url)
+        }
+    }
+
+    /// "Claude Work Copy", then "Claude Work Copy 2", …
+    static func duplicateName(for name: String) -> String {
+        let names = Set(InstanceStore.loadAll().map { $0.name.lowercased() })
+        var candidate = "\(name) Copy"
+        var index = 2
+        while names.contains(candidate.lowercased()) {
+            candidate = "\(name) Copy \(index)"
+            index += 1
+        }
+        return candidate
+    }
+
+    /// Clone (APFS, near-free) the instance's data folders into another
+    /// instance's folder, plus a copy's preferences.
+    static func copyData(from source: InstanceManifest, to destination: InstanceManifest) throws {
+        let fm = FileManager.default
+        let from = Paths.instanceDir(slug: source.slug)
+        let to = Paths.instanceDir(slug: destination.slug)
+        let skipped: Set<String> = ["instance.json", "instance.pid"]
+        for item in (try? fm.contentsOfDirectory(atPath: from.path)) ?? []
+        where !skipped.contains(item) && !item.hasPrefix("custom-icon.") {
+            let target = to.appendingPathComponent(item)
+            if fm.fileExists(atPath: target.path) {
+                try fm.removeItem(at: target)
+            }
+            try Shell.run("/bin/cp", ["-cRp", from.appendingPathComponent(item).path, target.path])
+        }
+        removeRunState(in: to)
+        if let old = source.clone?.bundleIdentifier, let new = destination.clone?.bundleIdentifier {
+            let exported = fm.temporaryDirectory.appendingPathComponent("parallex-prefs-\(UUID().uuidString).plist")
+            defer { try? fm.removeItem(at: exported) }
+            if (try? Shell.run("/usr/bin/defaults", ["export", old, exported.path])) != nil {
+                Shell.runAllowingFailure("/usr/bin/defaults", ["import", new, exported.path])
+            }
+        }
     }
 }
 
@@ -222,6 +338,7 @@ public enum InstanceCreator {
             enabledOptions: request.enabledOptions,
             cloneApp: request.cloneApp ? true : nil
         )
+        settings.separateLibrary = request.separateLibrary
         try validateBadge(settings)
         if let adopt = request.adoptData {
             try validateAdoptable(adopt, target: target, slug: slug)
@@ -828,6 +945,8 @@ public enum InstanceRemover {
             try fm.trashItem(at: instanceDir, resultingItemURL: nil)
             dataTrashed = true
         }
+
+        WorkspaceStore.forget(slug: manifest.slug)
 
         return RemoveResult(
             instanceName: manifest.name,

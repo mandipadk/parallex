@@ -145,6 +145,7 @@ final class SwitcherPanel: NSPanel {
 struct SwitcherItem: Identifiable {
     enum Kind {
         case instance(InstanceEntry)
+        case workspace(Workspace)
         case runningOriginal(pid: pid_t)
         case launchOriginal(InstanceEntry)
     }
@@ -163,6 +164,8 @@ struct SwitcherItem: Identifiable {
         switch kind {
         case .instance(let entry):
             model.activate(entry)
+        case .workspace(let workspace):
+            model.openWorkspace(workspace)
         case .runningOriginal(let pid):
             InstanceLauncher.activate(pid: pid)
         case .launchOriginal(let entry):
@@ -174,6 +177,19 @@ struct SwitcherItem: Identifiable {
     static func all(from model: AppModel) -> [SwitcherItem] {
         var items: [SwitcherItem] = []
         let instancePIDs = Set(model.entries.compactMap(\.pid))
+        for workspace in model.workspaces {
+            let members = model.members(of: workspace)
+            guard !members.isEmpty else { continue }
+            items.append(SwitcherItem(
+                id: "workspace-\(workspace.id)",
+                title: workspace.name,
+                subtitle: "Workspace · " + members.map(\.name).joined(separator: ", "),
+                color: nil,
+                icon: IconCache.icon(for: members[0].iconPath),
+                kind: .workspace(workspace),
+                shortcut: workspace.shortcut?.displayString
+            ))
+        }
         let entries = model.entries.sorted { lhs, rhs in
             lhs.running != rhs.running ? lhs.running : lhs.manifest.name < rhs.manifest.name
         }

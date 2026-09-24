@@ -135,10 +135,8 @@ struct Edit: ParsableCommand {
             settings.shortcut = nil
         }
         if let shortcut, let parsed = KeyShortcut(parsing: shortcut) {
-            if let owner = InstanceStore.loadAll().first(where: {
-                $0.slug != manifest.slug && $0.effectiveSettings.shortcut?.sameKeys(as: parsed) == true
-            }) {
-                throw ValidationError("\(parsed.displayString) already opens “\(owner.name)”.")
+            if let owner = ShortcutOwners.owner(of: parsed, except: manifest.slug) {
+                throw ValidationError("\(parsed.displayString) already opens \(owner).")
             }
             settings.shortcut = parsed
         }

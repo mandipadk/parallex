@@ -18,6 +18,23 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.10.0", highlights: [
+            Highlight(
+                symbol: "rectangle.stack",
+                title: "Workspaces",
+                detail: "Group the instances you use together, like Work and Personal, and open them all at once with one shortcut."
+            ),
+            Highlight(
+                symbol: "link",
+                title: "Open from anywhere",
+                detail: "parallex:// links open an instance or a workspace from Shortcuts, launchers, scripts or a bookmark."
+            ),
+            Highlight(
+                symbol: "plus.square.on.square",
+                title: "Duplicate",
+                detail: "Make another instance with the same settings, starting fresh or with a copy of its data."
+            ),
+        ]),
         Release(version: "0.9.0", highlights: [
             Highlight(
                 symbol: "square.stack.3d.up",

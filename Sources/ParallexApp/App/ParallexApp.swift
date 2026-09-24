@@ -48,6 +48,8 @@ struct ParallexApp: App {
                 .environment(delegate.updater)
                 .capturesWindowOpener()
         }
+        // Links are handled by the app delegate; no scene opens for them.
+        .handlesExternalEvents(matching: [])
         .defaultSize(width: 980, height: 660)
         .windowResizability(.contentMinSize)
         .commands {
@@ -57,6 +59,11 @@ struct ParallexApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("New Instance…") { delegate.model.creating = .init() }
                     .keyboardShortcut("n", modifiers: .command)
+                Button("New Workspace") {
+                    delegate.windows.showMain()
+                    delegate.model.createWorkspace()
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
             }
             CommandGroup(after: .windowArrangement) {
                 Button("Switch To…") { delegate.switcher.show() }
@@ -190,6 +197,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.set(ParallexConfig.version, forKey: PreferenceKey.lastSeenVersion)
         whatsNewPending = false
         windows.showWhatsNew()
+    }
+
+    // MARK: - Links
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard let link = ParallexLink(url) else { continue }
+            handle(link)
+        }
+    }
+
+    private func handle(_ link: ParallexLink) {
+        model.refresh()
+        switch link {
+        case .open(let name):
+            if let entry = entry(named: name) {
+                model.activate(entry)
+            } else {
+                windows.showMain()
+                model.errorMessage = "No instance named “\(name)”."
+            }
+        case .workspace(let name):
+            if let workspace = WorkspaceStore.find(name, in: model.workspaces) {
+                model.openWorkspace(workspace)
+            } else {
+                windows.showMain()
+                model.errorMessage = "No workspace named “\(name)”."
+            }
+        case .show(let name):
+            windows.showMain(selecting: entry(named: name)?.id)
+        case .new(let app):
+            windows.showMain()
+            // Only apps in the usual places (the link can't name a path).
+            let url = app.flatMap { try? AppResolver.resolve($0) }.flatMap { url -> URL? in
+                let path = url.resolvingSymlinksInPath().path
+                let allowed = ["/Applications/", "/System/Applications/",
+                               FileManager.default.homeDirectoryForCurrentUser.path + "/Applications/"]
+                return allowed.contains { path.hasPrefix($0) } ? url : nil
+            }
+            model.creating = .init(app: url)
+        }
+    }
+
+    private func entry(named name: String) -> InstanceEntry? {
+        guard let manifest = InstanceStore.find(name) else { return nil }
+        return model.entries.first { $0.id == manifest.slug }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

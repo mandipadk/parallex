@@ -153,6 +153,37 @@ final class StressTests: XCTestCase {
         XCTAssertEqual(before, after, "the other library's app is untouched")
     }
 
+    func testDuplicateKeepsSettingsAndOptionallyData() throws {
+        var request = request("Original")
+        request.badgeText = "W"
+        request.environment = ["FOO": "bar"]
+        let original = try InstanceCreator.create(request, builderOptions: options).manifest
+        let data = Paths.instanceDir(slug: original.slug).appendingPathComponent("data/Preferences")
+        try FileManager.default.createDirectory(at: data.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("signed in".utf8).write(to: data)
+        try FileManager.default.createSymbolicLink(
+            atPath: data.deletingLastPathComponent().appendingPathComponent("SingletonLock").path,
+            withDestinationPath: "host-12345"
+        )
+
+        let fresh = try InstanceCreator.duplicate(original, builderOptions: options).manifest
+        XCTAssertEqual(fresh.name, "Original Copy")
+        XCTAssertEqual(fresh.settings?.badgeText, "W")
+        XCTAssertEqual(fresh.settings?.extraEnvironment, ["FOO": "bar"])
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: Paths.instanceDir(slug: fresh.slug).appendingPathComponent("data/Preferences").path), "starts empty")
+
+        let copied = try InstanceCreator.duplicate(original, includeData: true, builderOptions: options).manifest
+        XCTAssertEqual(copied.name, "Original Copy 2")
+        let copiedData = Paths.instanceDir(slug: copied.slug).appendingPathComponent("data/Preferences")
+        XCTAssertEqual(try String(contentsOf: copiedData, encoding: .utf8), "signed in")
+        XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(
+            atPath: copiedData.deletingLastPathComponent().appendingPathComponent("SingletonLock").path),
+            "a running app's lock isn't copied")
+        XCTAssertNotEqual(copied.arguments, original.arguments, "points at its own data folder")
+        assertConsistent()
+    }
+
     func testCorruptManifestDoesNotHideOtherInstances() throws {
         _ = try InstanceCreator.create(request("Healthy"), builderOptions: options)
         let broken = Paths.instanceDir(slug: "broken")

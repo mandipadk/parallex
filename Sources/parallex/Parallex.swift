@@ -21,10 +21,11 @@ struct Parallex: AsyncParsableCommand {
           parallex list
           parallex open "Claude Work"
           parallex edit "Claude Work" --badge W --option separate-claude-code
+          parallex workspace create Work --add "Claude Work"
           parallex repair --all
           parallex remove "Claude Work"
         """,
         version: ParallexConfig.version,
-        subcommands: [Create.self, Apps.self, List.self, Open.self, Edit.self, Repair.self, Check.self, Storage.self, Links.self, Remove.self, Doctor.self]
+        subcommands: [Create.self, Duplicate.self, Apps.self, List.self, Open.self, Edit.self, Repair.self, Check.self, Storage.self, Links.self, WorkspaceCommand.self, Remove.self, Doctor.self]
     )
 }

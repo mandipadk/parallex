@@ -15,6 +15,22 @@ struct MenuBarPanel: View {
         VStack(spacing: 0) {
             header
             divider
+            if !model.workspaces.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 6) {
+                        ForEach(model.workspaces) { workspace in
+                            WorkspaceChip(workspace: workspace, members: model.members(of: workspace)) {
+                                model.openWorkspace(workspace)
+                                closePanel()
+                            }
+                        }
+                    }
+                    .padding(.horizontal, Theme.Space.m)
+                    .padding(.vertical, Theme.Space.s)
+                }
+                .scrollIndicators(.hidden)
+                divider
+            }
             if model.entries.isEmpty {
                 empty
             } else {
@@ -262,5 +278,33 @@ private struct HoverHighlight<Content: View>: View {
                 in: .rect(cornerRadius: 7)
             )
             .onHover { hovering = $0 }
+    }
+}
+
+/// A workspace in the menu bar panel: one click opens all of it.
+private struct WorkspaceChip: View {
+    let workspace: Workspace
+    let members: [InstanceEntry]
+    let open: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 6) {
+                WorkspaceGlyph(members: members, size: 18)
+                Text(workspace.name)
+                    .font(Theme.Font.callout.weight(.medium))
+                    .lineLimit(1)
+            }
+            .padding(.leading, 6)
+            .padding(.trailing, 10)
+            .frame(height: 26)
+            .background(hovering ? Theme.subtleFill.opacity(1.6) : Theme.subtleFill, in: .capsule)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(workspace.shortcut.map { "Open \(workspace.name) (\($0.displayString))" } ?? "Open \(workspace.name)")
+        .disabled(members.isEmpty)
     }
 }

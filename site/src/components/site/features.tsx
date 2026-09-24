@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { AppWindow, Keyboard, PanelTop, RefreshCw } from "lucide-react"
+import { AppWindow, Keyboard, Layers, RefreshCw } from "lucide-react"
 import { Heading } from "./heading"
 import { Reveal, RevealGroup, RevealItem } from "./reveal"
 import { DockVisual } from "./visuals/dock-visual"
@@ -11,7 +11,7 @@ const beats: { title: string; serif: string; line: ReactNode; visual: ReactNode 
   {
     title: "Separate",
     serif: "by default.",
-    line: "Every copy has its own sign-in and data. Nothing leaks across.",
+    line: "Every copy has its own sign-in, data and Library. Nothing leaks across.",
     visual: <SplitVisual />,
   },
   {
@@ -35,10 +35,10 @@ const beats: { title: string; serif: string; line: ReactNode; visual: ReactNode 
 ]
 
 const extras = [
+  { icon: Layers, label: "Workspaces that open together" },
+  { icon: Keyboard, label: "A shortcut for every copy" },
   { icon: AppWindow, label: "Colored window outlines" },
-  { icon: PanelTop, label: "Menu-bar indicator" },
-  { icon: Keyboard, label: "Shortcuts for each copy" },
-  { icon: RefreshCw, label: "Survives app updates" },
+  { icon: RefreshCw, label: "Updates itself, safely" },
 ]
 
 export function Features() {

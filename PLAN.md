@@ -229,4 +229,8 @@ Defaults: `--mode auto` (doctor logic), wrapper written to `/Applications`, data
    treats anything such a copy keeps in the real `~/Library` as a leak. Removing a copy takes its
    preferences and saved state along to the Trash. Validated on Spotify, Zed, IINA, VLC,
    Obsidian and Ghostty: zero writes to the originals' data.
-9. **Later/optional** — badge style options; published Homebrew tap.
+9. **v0.10** — workspaces (named, ordered instance sets with a shortcut and "hide others"; in the
+   sidebar, menu bar and switcher; `parallex workspace …`; stored in `workspaces.json` under
+   their own lock); `parallex://` links (open/workspace/show/new — nothing destructive);
+   duplicate an instance, optionally with an APFS copy of its data and preferences.
+10. **Later/optional** — export/import of instances; badge style options; published Homebrew tap.

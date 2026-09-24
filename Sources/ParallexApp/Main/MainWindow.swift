@@ -90,7 +90,10 @@ struct InstancesView: View {
     }
 
     @ViewBuilder private var detail: some View {
-        if let entry = model.selectedEntry {
+        if let workspace = model.selectedWorkspace {
+            WorkspaceDetail(workspace: workspace)
+                .id(workspace.id)
+        } else if let entry = model.selectedEntry {
             InstanceDetail(entry: entry)
                 .id(entry.id)
         } else if model.entries.isEmpty {
@@ -112,6 +115,20 @@ struct Sidebar: View {
     var body: some View {
         @Bindable var model = model
         List(selection: $model.selection) {
+            if !model.workspaces.isEmpty {
+                Section("Workspaces") {
+                    ForEach(model.workspaces) { workspace in
+                        WorkspaceRow(workspace: workspace, members: model.members(of: workspace))
+                            .tag(AppModel.tag(for: workspace))
+                            .contextMenu {
+                                Button("Open All") { model.openWorkspace(workspace) }
+                                Button("Quit All") { model.quitWorkspace(workspace) }
+                                Divider()
+                                Button("Delete Workspace", role: .destructive) { model.deleteWorkspace(workspace) }
+                            }
+                    }
+                }
+            }
             ForEach(model.groups, id: \.app) { group in
                 Section {
                     ForEach(group.entries) { entry in
@@ -126,25 +143,48 @@ struct Sidebar: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            Button {
-                model.creating = .init()
-            } label: {
-                Label("New Instance", systemImage: "plus")
-                    .font(Theme.Font.body.weight(.medium))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(.rect)
+            HStack(spacing: Theme.Space.s) {
+                Button {
+                    model.creating = .init()
+                } label: {
+                    Label("New Instance", systemImage: "plus")
+                        .font(Theme.Font.body.weight(.medium))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("n", modifiers: .command)
+                Button {
+                    model.createWorkspace()
+                } label: {
+                    Image(systemName: "rectangle.stack.badge.plus")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 26, height: 26)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help("New Workspace (⇧⌘N)")
+                .disabled(model.entries.isEmpty)
             }
-            .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .padding(.horizontal, Theme.Space.l)
             .padding(.vertical, Theme.Space.m)
-            .keyboardShortcut("n", modifiers: .command)
         }
     }
 
     @ViewBuilder private func rowMenu(_ entry: InstanceEntry) -> some View {
         Button(entry.running ? "Bring to Front" : "Open") { model.activate(entry) }
         Button("Open Original \(entry.targetName)") { model.launchOriginal(entry) }
+        if !model.workspaces.isEmpty {
+            Menu("Add to Workspace") {
+                ForEach(model.workspaces) { workspace in
+                    Button(workspace.name) {
+                        model.changeWorkspace(workspace.id) { $0.members.append(entry.id) }
+                    }
+                    .disabled(workspace.members.contains(entry.id))
+                }
+            }
+        }
         Divider()
         Button("Show in Finder") { model.reveal(entry.manifest.wrapperPath) }
         Button("Show Data Folder") { model.revealData(entry) }

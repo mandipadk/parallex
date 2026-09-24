@@ -72,10 +72,10 @@ final class GlobalHotKey {
     }
 }
 
-/// Keeps one global hotkey per instance shortcut, in step with the registry.
-/// Pressing a shortcut opens the instance, brings it forward if it's
+/// Keeps one global hotkey per instance and workspace shortcut, in step with
+/// the registry. An instance's shortcut opens it, brings it forward if it's
 /// running, or hides it if it's already in front — one key to summon and
-/// dismiss.
+/// dismiss. A workspace's shortcut opens the workspace.
 @MainActor
 final class InstanceShortcuts {
     private let model: AppModel
@@ -88,17 +88,24 @@ final class InstanceShortcuts {
 
     private func track() {
         withObservationTracking {
-            sync(model.entries)
+            sync(model.entries, model.workspaces)
         } onChange: { [weak self] in
             Task { @MainActor in self?.track() }
         }
     }
 
-    private func sync(_ entries: [InstanceEntry]) {
+    private func sync(_ entries: [InstanceEntry], _ workspaces: [Workspace]) {
         var wanted: [String: KeyShortcut] = [:]
-        for entry in entries where !model.recordingShortcut {
-            if let shortcut = entry.manifest.settings?.shortcut, shortcut.isValidGlobal {
-                wanted[entry.id] = shortcut
+        if !model.recordingShortcut {
+            for entry in entries {
+                if let shortcut = entry.manifest.settings?.shortcut, shortcut.isValidGlobal {
+                    wanted[entry.id] = shortcut
+                }
+            }
+            for workspace in workspaces {
+                if let shortcut = workspace.shortcut, shortcut.isValidGlobal {
+                    wanted[AppModel.tag(for: workspace)] = shortcut
+                }
             }
         }
         for (slug, current) in registered where wanted[slug] != current.shortcut {
@@ -117,6 +124,12 @@ final class InstanceShortcuts {
 
     private func fire(_ slug: String) {
         model.refresh()
+        if slug.hasPrefix(AppModel.workspaceTagPrefix) {
+            if let workspace = model.workspaces.first(where: { AppModel.tag(for: $0) == slug }) {
+                model.openWorkspace(workspace)
+            }
+            return
+        }
         guard let entry = model.entries.first(where: { $0.id == slug }) else { return }
         if let pid = entry.pid, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
             NSRunningApplication(processIdentifier: pid)?.hide()

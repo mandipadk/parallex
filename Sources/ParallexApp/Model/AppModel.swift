@@ -56,6 +56,7 @@ struct InstanceEntry: Identifiable, Equatable {
 @Observable
 final class AppModel {
     private(set) var entries: [InstanceEntry] = []
+    private(set) var workspaces: [Workspace] = []
     /// The instance whose app is frontmost — shown in the menu bar.
     private(set) var frontmost: InstanceEntry?
     var selection: String?
@@ -119,10 +120,93 @@ final class AppModel {
         if fresh != entries {
             entries = fresh
         }
-        if let selection, !entries.contains(where: { $0.id == selection }) {
+        let freshWorkspaces = WorkspaceStore.load()
+        if freshWorkspaces != workspaces {
+            workspaces = freshWorkspaces
+        }
+        if let selection, !entries.contains(where: { $0.id == selection }), selectedWorkspace == nil {
             self.selection = entries.first?.id
         }
         updateFrontmost()
+    }
+
+    // MARK: - Workspaces
+
+    static let workspaceTagPrefix = "workspace:"
+
+    static func tag(for workspace: Workspace) -> String {
+        workspaceTagPrefix + workspace.id.uuidString
+    }
+
+    var selectedWorkspace: Workspace? {
+        guard let selection, selection.hasPrefix(Self.workspaceTagPrefix) else { return nil }
+        let id = selection.dropFirst(Self.workspaceTagPrefix.count)
+        return workspaces.first { $0.id.uuidString == id }
+    }
+
+    /// The instances in a workspace, in its order.
+    func members(of workspace: Workspace) -> [InstanceEntry] {
+        let bySlug = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return workspace.members.compactMap { bySlug[$0] }
+    }
+
+    /// A new workspace (named "Workspace", "Workspace 2", …), selected.
+    func createWorkspace(members: [String] = []) {
+        var index = 1
+        var name = "Workspace"
+        while workspaces.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            index += 1
+            name = "Workspace \(index)"
+        }
+        do {
+            let created = try WorkspaceStore.create(name: name, members: members)
+            refresh()
+            selection = Self.tag(for: created)
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    /// Change a workspace (applied to its stored state); returns an error
+    /// message to show in place.
+    @discardableResult
+    func changeWorkspace(_ id: UUID, _ change: (inout Workspace) -> Void) -> String? {
+        do {
+            try WorkspaceStore.update(id: id, change)
+            refresh()
+            return nil
+        } catch {
+            return "\(error)"
+        }
+    }
+
+    func deleteWorkspace(_ workspace: Workspace) {
+        do {
+            try WorkspaceStore.delete(id: workspace.id)
+            if selectedWorkspace?.id == workspace.id {
+                selection = entries.first?.id
+            }
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    func openWorkspace(_ workspace: Workspace) {
+        let manifests = entries.map(\.manifest)
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) {
+                WorkspaceLauncher.open(workspace, manifests: manifests)
+            }.value
+            if let failure = outcome.failed.first {
+                errorMessage = "Couldn't open \(failure.name): \(failure.reason)"
+            }
+            refresh()
+        }
+    }
+
+    func quitWorkspace(_ workspace: Workspace) {
+        _ = WorkspaceLauncher.quit(workspace, manifests: entries.map(\.manifest))
     }
 
     private func updateFrontmost() {
@@ -304,6 +388,24 @@ final class AppModel {
         }
     }
 
+    func duplicate(_ entry: InstanceEntry, includeData: Bool) {
+        let manifest = entry.manifest
+        busy.insert(entry.id)
+        Task {
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try InstanceCreator.duplicate(manifest, includeData: includeData)
+                }.value
+                refresh()
+                selection = result.manifest.slug
+                measureStorage()
+            } catch {
+                errorMessage = "\(error)"
+            }
+            busy.remove(entry.id)
+        }
+    }
+
     // MARK: - Maintenance
 
     /// Rebuild instances that only need routine upkeep — built by an older
@@ -412,7 +514,8 @@ final class AppModel {
         }
     }
 
-    /// Why `shortcut` can't be used for the instance `slug`, if it can't.
+    /// Why `shortcut` can't be used for the instance `slug` (or the
+    /// workspace with that id), if it can't.
     func shortcutConflict(_ shortcut: KeyShortcut, for slug: String) -> String? {
         if !shortcut.isValidGlobal {
             return "Include ⌃ or ⌥, so it doesn't take over typing or shortcuts like ⌘C."
@@ -421,8 +524,10 @@ final class AppModel {
            UserDefaults.standard.bool(forKey: PreferenceKey.switcherHotKey) {
             return "\(shortcut.displayString) opens the switcher."
         }
-        if let owner = entries.first(where: { $0.id != slug && $0.manifest.settings?.shortcut?.sameKeys(as: shortcut) == true }) {
-            return "\(shortcut.displayString) already opens “\(owner.name)”."
+        if let owner = ShortcutOwners.owner(
+            of: shortcut, except: slug, manifests: entries.map(\.manifest), workspaces: workspaces
+        ) {
+            return "\(shortcut.displayString) already opens \(owner)."
         }
         return nil
     }

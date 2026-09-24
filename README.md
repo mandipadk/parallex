@@ -160,6 +160,23 @@ older than its app) show at the top with a one-click fix. **New Instance**
 (⌘N) offers your installed apps sorted by how well they duplicate, then a live
 preview of the instance's icon as you name and color it.
 
+**Workspaces** group the instances you use together, like Work and Personal.
+One click (or one shortcut) opens them all, optionally hiding the other
+instances. They show at the top of the sidebar, in the menu bar and in the
+switcher. **Duplicate** makes another instance with the same settings,
+starting fresh or with a near-free APFS copy of its data.
+
+**Links** open things from anywhere: Shortcuts, launchers, scripts, a
+bookmark. Any web page can ask to open a link, so links only ever open or
+show things.
+
+```
+parallex://open/Claude%20Work     open (or bring forward) an instance
+parallex://workspace/Work         open a workspace
+parallex://show/Claude%20Work     show the instance in Parallex
+parallex://new?app=Obsidian       start a new instance of an app
+```
+
 **Notifications** are kept to the few that need you:
 - a running own-identity copy whose app has updated (with **Restart Now**)
 - an instance whose app is gone
@@ -184,6 +201,8 @@ parallex repair <name> | --all [--app <path>]
 parallex check <name> [--verbose] [--json]
 parallex storage [<name>] [--clean-caches] [--remove-unused]
 parallex links [status | enable [--ask] | disable]
+parallex workspace [list | create | add | remove | open | quit | rename | shortcut | delete]
+parallex duplicate <name> [--name <new name>] [--with-data]
 parallex remove <name> [--keep-data]
 parallex doctor <app> [--json]
 ```
@@ -278,5 +297,5 @@ try with `--env`. Recipes live in `Presets.recipes`.
 
 ## Status
 
-v0.9 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
+v0.10 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
 in [poc/](poc/).

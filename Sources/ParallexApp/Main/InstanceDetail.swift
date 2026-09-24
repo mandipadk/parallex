@@ -262,8 +262,21 @@ private struct DetailHeader: View {
             Menu {
                 Button("Open Original \(entry.targetName)") { model.launchOriginal(entry) }
                 Divider()
+                Button("Duplicate") { model.duplicate(entry, includeData: false) }
+                Button("Duplicate with Data") { model.duplicate(entry, includeData: true) }
+                    .disabled(entry.running || entry.manifest.clone?.usesLauncher == false)
+                    .help(entry.manifest.clone?.usesLauncher == false
+                          ? "Its data is in its own sandbox container, which can't be copied"
+                          : entry.running ? "Quit it first so its data is copied consistently"
+                          : "Starts where this one is — signed in, same history")
+                Divider()
                 Button("Show in Finder") { model.reveal(entry.manifest.wrapperPath) }
                 Button("Show Data Folder") { model.revealData(entry) }
+                Button("Copy Link") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(ParallexLink.url(opening: entry.name).absoluteString, forType: .string)
+                }
+                .help("A parallex:// link that opens this instance from Shortcuts, launchers or scripts")
                 Divider()
                 Button("Repair") { model.repair(entry) }
             } label: {
