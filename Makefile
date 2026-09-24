@@ -19,13 +19,17 @@ ZIP := dist/Parallex-$(VERSION).zip
 DMG := dist/Parallex.dmg
 NOTES ?= dist/release-notes.md
 
-.PHONY: build test release install uninstall app app-install dist publish icon clean
+.PHONY: build test bench release install uninstall app app-install dist publish icon clean
 
 build:
 	swift build $(LINK_FLAGS)
 
 test:
 	swift test
+
+# Time what the launcher adds before an app starts (budget: 50 ms).
+bench: build
+	Support/bench-launch.sh
 
 # Universal (arm64 + x86_64) release binaries. The launcher built here is the
 # one Parallex copies into every wrapper, so release wrappers run on both

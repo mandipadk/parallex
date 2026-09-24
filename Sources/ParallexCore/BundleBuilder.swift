@@ -222,6 +222,15 @@ public struct BundleBuilder {
         return info
     }
 
+    /// Forget an app that's about to go away, so it doesn't linger in Open
+    /// With menus or as a handler for links (Launch Services keeps records
+    /// of apps in the Trash).
+    static func unregister(_ url: URL) {
+        if let lsregister = lsregisterPath {
+            Shell.runAllowingFailure(lsregister, ["-u", url.path])
+        }
+    }
+
     static var lsregisterPath: String? {
         let candidates = [
             "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",

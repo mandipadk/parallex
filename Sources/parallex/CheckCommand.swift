@@ -74,7 +74,10 @@ struct Check: ParsableCommand {
             print("\(Term.green("✓")) No leaks into the original app's data found.")
         } else {
             print("\(Term.red("✗")) This instance is using the original app's data.")
-            if manifest.settings == nil || InstanceStatus.check(manifest).problems.contains(where: {
+            if report.findings(in: .leak).contains(where: { !$0.path.contains("/") }) {
+                print("  macOS didn't load Parallex's library into the copy. Quit it and open it again;"
+                    + " if that doesn't help, `parallex repair \"\(manifest.name)\"`.")
+            } else if manifest.settings == nil || InstanceStatus.check(manifest).problems.contains(where: {
                 if case .wrapperOutdated = $0 { return true }
                 return false
             }) {

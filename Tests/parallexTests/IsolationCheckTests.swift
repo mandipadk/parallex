@@ -95,4 +95,46 @@ final class IsolationCheckTests: XCTestCase {
         XCTAssertEqual(InstanceStatus.compareVersions("0.10.0", "0.9.9"), .orderedDescending)
         XCTAssertEqual(InstanceStatus.compareVersions("1.0", "1.0.0"), .orderedSame)
     }
+
+    /// A copy whose redirect library macOS didn't load is flagged, even though
+    /// no file it has open looks wrong.
+    func testNoticesWhenTheSeparationLibraryIsntLoaded() throws {
+        let source = tempDir.appendingPathComponent("sleeper.c")
+        let probe = tempDir.appendingPathComponent("sleeper")
+        try "#include <unistd.h>\nint main(void) { sleep(30); return 0; }\n".write(to: source, atomically: true, encoding: .utf8)
+        _ = try Shell.run("/usr/bin/clang", [source.path, "-o", probe.path])
+
+        func start(inserting library: URL?) throws -> Process {
+            let process = Process()
+            process.executableURL = probe
+            var environment = ProcessInfo.processInfo.environment
+            environment["DYLD_INSERT_LIBRARIES"] = library?.path
+            process.environment = environment
+            try process.run()
+            Thread.sleep(forTimeInterval: 0.3)
+            return process
+        }
+        var manifest = try manifest(bundleID: "com.fake.native", appName: "Native")
+        manifest.redirectedHome = tempDir.appendingPathComponent("home").path
+
+        let plain = try start(inserting: nil)
+        defer { plain.terminate() }
+        let missing = IsolationCheck.inactiveLibraries(manifest, pid: plain.processIdentifier)
+        XCTAssertEqual(missing.map(\.category), [.leak])
+        XCTAssertEqual(missing.first?.path, "libparallexhome.dylib")
+
+        // Under the name it ships with.
+        let library = tempDir.appendingPathComponent("libparallexhome.dylib")
+        try FileManager.default.copyItem(at: Fixtures.homeLibrary, to: library)
+        let redirected = try start(inserting: library)
+        defer { redirected.terminate() }
+        XCTAssertTrue(IsolationCheck.mappedFiles(of: redirected.processIdentifier).contains {
+            $0.hasSuffix("/libparallexhome.dylib")
+        })
+        XCTAssertEqual(IsolationCheck.inactiveLibraries(manifest, pid: redirected.processIdentifier), [])
+
+        manifest.redirectedHome = nil
+        XCTAssertEqual(IsolationCheck.inactiveLibraries(manifest, pid: plain.processIdentifier), [],
+                       "copies that don't use the library aren't checked for it")
+    }
 }

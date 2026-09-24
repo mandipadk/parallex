@@ -505,6 +505,7 @@ public enum InstanceCreator {
            fm.fileExists(atPath: oldWrapper.path),
            !sameItem(result.wrapperURL, oldWrapper),
            BundleBuilder.isParallexWrapper(oldWrapper) {
+            BundleBuilder.unregister(oldWrapper)
             try? fm.trashItem(at: oldWrapper, resultingItemURL: nil)
         }
         return result
@@ -961,6 +962,7 @@ public enum InstanceRemover {
         let wrapper = URL(fileURLWithPath: manifest.wrapperPath)
         if fm.fileExists(atPath: wrapper.path) {
             if BundleBuilder.isParallexWrapper(wrapper) {
+                BundleBuilder.unregister(wrapper)
                 try fm.trashItem(at: wrapper, resultingItemURL: nil)
                 wrapperTrashed = true
             } else {

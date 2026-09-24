@@ -58,9 +58,32 @@ public enum IsolationCheck {
             paths.formUnion(openFiles(of: member))
         }
         let rules = Rules(manifest: manifest, home: FileManager.default.homeDirectoryForCurrentUser.path)
-        let findings = paths.compactMap { rules.classify($0) }
+        let findings = (paths.compactMap { rules.classify($0) } + inactiveLibraries(manifest, pid: pid))
             .sorted { ($0.category.rawValue, $0.path) < ($1.category.rawValue, $1.path) }
         return IsolationReport(processCount: pids.count, fileCount: paths.count, findings: findings)
+    }
+
+    /// The libraries that keep a copy's data its own, when macOS didn't load
+    /// them into it — then everything the copy writes goes to the original's
+    /// places, so it counts as a leak. (A future macOS may stop honoring
+    /// injected libraries in ad hoc signed apps; this is how that shows.)
+    static func inactiveLibraries(_ manifest: InstanceManifest, pid: pid_t) -> [IsolationReport.Finding] {
+        var expected: [(name: String, reason: String)] = []
+        if manifest.redirectedHome != nil {
+            expected.append((URL(fileURLWithPath: Paths.homeLibrary.path).lastPathComponent,
+                             "not loaded — this copy is using your real Library"))
+        }
+        if !(manifest.separatedGroups ?? [:]).isEmpty {
+            expected.append((URL(fileURLWithPath: AppCloner.groupsLibraryPath).lastPathComponent,
+                             "not loaded — this copy is using the original's shared data"))
+        }
+        guard !expected.isEmpty else { return [] }
+        let loaded = Set(mappedFiles(of: pid).map { URL(fileURLWithPath: $0).lastPathComponent })
+        // Nothing readable (the process just exited): no verdict either way.
+        guard !loaded.isEmpty else { return [] }
+        return expected.filter { !loaded.contains($0.name) }.map {
+            IsolationReport.Finding(path: $0.name, category: .leak, reason: $0.reason)
+        }
     }
 
     // MARK: - Classification
@@ -280,6 +303,29 @@ public enum IsolationCheck {
             index += 1
         }
         return arguments
+    }
+
+    /// Files mapped into a process's memory (its executable and the
+    /// libraries loaded from disk; the system's shared cache isn't listed).
+    static func mappedFiles(of pid: pid_t) -> Set<String> {
+        var paths = Set<String>()
+        var address: UInt64 = 0
+        var info = proc_regionwithpathinfo()
+        let size = Int32(MemoryLayout<proc_regionwithpathinfo>.size)
+        // Bounded: a process has a few thousand regions at most.
+        for _ in 0..<100_000 {
+            guard proc_pidinfo(pid, PROC_PIDREGIONPATHINFO, address, &info, size) == size else { break }
+            let path = withUnsafeBytes(of: info.prp_vip.vip_path) {
+                String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
+            }
+            if !path.isEmpty {
+                paths.insert(path)
+            }
+            let next = info.prp_prinfo.pri_address &+ info.prp_prinfo.pri_size
+            guard next > address else { break }
+            address = next
+        }
+        return paths
     }
 
     /// Paths of the regular files and directories a process has open.
