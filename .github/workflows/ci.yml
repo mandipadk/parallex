@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -11,12 +12,17 @@ concurrency:
 
 jobs:
   test:
-    runs-on: macos-26
-    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS 26, and macOS 27 (GitHub names that image after its Xcode).
+        runner: [macos-26, xcode-27]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
-        run: swift --version
+        run: sw_vers && swift --version
       - name: Build
         run: swift build
       - name: Test
