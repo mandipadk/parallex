@@ -46,6 +46,10 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     /// caches, web storage…); a copy of a sandboxed app gets its own
     /// app-group containers. `nil` means on; `false` turns it off.
     public var separateLibrary: Bool?
+    /// With its own Library, the copy's home mirrors yours except for the
+    /// app's own hidden folders (like ~/.vscode), which stay in the
+    /// instance too. `nil` means on; `false` shares them with the original.
+    public var separateHiddenFolders: Bool?
 
     public var isClone: Bool { cloneApp == true }
 
@@ -151,6 +155,11 @@ public struct InstanceManifest: Codable, Sendable {
     public var redirectedHome: String?
     /// A sandboxed copy's app groups: the original's → the copy's own.
     public var separatedGroups: [String: String]?
+    /// When the copy's home mirrors yours: the app's own items, which stay
+    /// in the instance (see `HomeMirror`).
+    public var privateHomeItems: [String]?
+    /// Short aliases the launcher keeps pointing at long paths (alias → target).
+    public var links: [String: String]?
 
     public struct CloneRecord: Codable, Sendable, Equatable {
         /// The copy's own bundle identifier.
@@ -179,7 +188,9 @@ public struct InstanceManifest: Codable, Sendable {
         settings: InstanceSettings? = nil,
         clone: CloneRecord? = nil,
         redirectedHome: String? = nil,
-        separatedGroups: [String: String]? = nil
+        separatedGroups: [String: String]? = nil,
+        privateHomeItems: [String]? = nil,
+        links: [String: String]? = nil
     ) {
         self.name = name
         self.slug = slug
@@ -199,6 +210,8 @@ public struct InstanceManifest: Codable, Sendable {
         self.clone = clone
         self.redirectedHome = redirectedHome
         self.separatedGroups = separatedGroups
+        self.privateHomeItems = privateHomeItems
+        self.links = links
         if settings != nil {
             schemaVersion = 2
         }
@@ -220,6 +233,12 @@ public struct InstanceManifest: Codable, Sendable {
                 if InstanceStatus.compareVersions(parallexVersion, introduced) == .orderedAscending {
                     settings.separateLibrary = false
                 }
+            }
+            // Copies made before 0.13 shared the app's hidden folders (a
+            // VS Code copy used ~/.vscode); keep that until turned on.
+            if settings.separateHiddenFolders == nil, redirectedHome != nil, privateHomeItems == nil,
+               InstanceStatus.compareVersions(parallexVersion, "0.13.0") == .orderedAscending {
+                settings.separateHiddenFolders = false
             }
             return settings
         }

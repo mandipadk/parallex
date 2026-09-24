@@ -27,6 +27,8 @@ public struct IsolationPlan: Sendable {
     public var availableOptions: [RecipeOption] = []
     /// The option IDs this plan applied.
     public var enabledOptions: [String] = []
+    /// Short aliases the launcher keeps pointing at long paths (alias → target).
+    public var links: [String: String] = [:]
 }
 
 /// A per-app isolation recipe: what data-dir isolation means for one app.
@@ -155,6 +157,70 @@ public enum Presets {
         return folders
     }
 
+    /// Hidden folders in your home that belong to an app (beyond its name),
+    /// for apps that don't name them after themselves.
+    static let knownHomeFolders: [String: [String]] = [
+        // .vscode-shared: storage every VS Code window shares.
+        "com.microsoft.VSCode": [".vscode", ".vscode-shared"],
+        "com.microsoft.VSCodeInsiders": [".vscode-insiders"],
+        "com.vscodium": [".vscode-oss"],
+        "com.todesktop.230313mzl4w4u92": [".cursor"],
+        "com.exafunction.windsurf": [".windsurf", ".codeium"],
+        "dev.zed.Zed": [".config/zed", ".local/share/zed"],
+        "dev.zed.Zed-Preview": [".config/zed", ".local/share/zed"],
+    ]
+
+    /// What an own-identity copy keeps to itself in a home that otherwise
+    /// mirrors yours: the app's hidden folders (`~/.<app>`, `~/.config/<app>`
+    /// and any it's known to use). Shared tool folders (`.ssh`, `.config`
+    /// itself, `.claude`, …) and your documents are never among them.
+    public static func privateHomeItems(for app: AppInfo) -> [String] {
+        var names: [String] = []
+        let bundleName = app.infoPlist["CFBundleName"] as? String
+        // An executable named after its runtime (VS Code's is "Electron")
+        // says nothing about the app's own folders.
+        let executable = app.executableURL.lastPathComponent
+        let genericExecutables: Set<String> = ["electron", "java", "python", "python3", "node", "app", "main", "run", "launcher", "stub"]
+        let candidates = [app.name, bundleName, genericExecutables.contains(executable.lowercased()) ? nil : executable]
+        for candidate in candidates.compactMap({ $0 }) {
+            for form in [Slug.make(candidate), candidate.lowercased().replacingOccurrences(of: " ", with: "")]
+            where !form.isEmpty && !names.contains(form) {
+                names.append(form)
+            }
+        }
+        var items = knownHomeFolders[app.bundleID] ?? []
+        let shared = Set(defaultSharedItems.map { $0.lowercased() })
+        for name in names where !OriginalData.sharedDotfolders.contains(name) && OriginalData.isPlainName(name) {
+            for item in [".\(name)", ".config/\(name)"] where !items.contains(item) && !shared.contains(item) {
+                items.append(item)
+            }
+        }
+        return items
+    }
+
+    /// A short stand-in for `path` when a socket named `socketName` inside it
+    /// would pass the 104-byte limit: a link in your own temporary folder
+    /// (private to you, and the same across restarts), named after the path.
+    static func shortAlias(for path: String, socketName: String) -> String? {
+        guard (path + "/" + socketName).utf8.count > 100 else { return nil }
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV-1a: stable across runs
+        for byte in path.utf8 {
+            hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3
+        }
+        let name = "parallex-" + String(hash, radix: 36)
+        return userTemporaryDirectory.appendingPathComponent(name).path
+    }
+
+    /// macOS's temporary folder for this user (private to them), whatever
+    /// $TMPDIR says.
+    static var userTemporaryDirectory: URL {
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        if confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count) > 0 {
+            return URL(fileURLWithPath: String(cString: buffer), isDirectory: true)
+        }
+        return FileManager.default.temporaryDirectory
+    }
+
     public static func recipe(for bundleID: String) -> AppRecipe? {
         recipes.first { $0.matches(bundleID: bundleID) }
     }
@@ -268,6 +334,7 @@ public enum Presets {
             resolved = .launchOnly
         }
 
+        var links: [String: String] = [:]
         switch resolved {
         case .dataDir:
             let dataDir = instanceDir.appendingPathComponent("data").path
@@ -276,7 +343,15 @@ public enum Presets {
             switch app.framework {
             case .vscodeFamily:
                 let extensionsDir = instanceDir.appendingPathComponent("extensions").path
-                arguments = ["--user-data-dir=\(dataDir)", "--extensions-dir=\(extensionsDir)"]
+                // It opens a socket inside the data folder; a socket path
+                // can't be longer than 104 bytes, so a long one gets a short
+                // alias in your own temporary folder.
+                var userDataDir = dataDir
+                if let alias = shortAlias(for: dataDir, socketName: "1.999-main.sock") {
+                    links[alias] = dataDir
+                    userDataDir = alias
+                }
+                arguments = ["--user-data-dir=\(userDataDir)", "--extensions-dir=\(extensionsDir)"]
                 directories = [dataDir, extensionsDir]
                 notes.append(
                     "VS Code-family quirk: if extension search misbehaves in the new profile, the "
@@ -312,7 +387,8 @@ public enum Presets {
                 homeOverride: nil,
                 homeSymlinks: [],
                 environment: [:],
-                notes: notes
+                notes: notes,
+                links: links
             )
 
         case .home:

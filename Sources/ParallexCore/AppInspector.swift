@@ -45,6 +45,8 @@ public struct AppInfo {
     public let framework: AppFramework
     public let iconFileURL: URL?
     public let isParallexWrapper: Bool
+    /// The app's code-signing entitlements (empty when unsigned or unreadable).
+    let entitlements: [String: Any]
 }
 
 public enum AppInspector {
@@ -94,7 +96,8 @@ public enum AppInspector {
             isSandboxed: sandboxed,
             framework: detectFramework(appURL: url, bundleID: bundleID),
             iconFileURL: resolveIconFile(appURL: url, infoPlist: plist),
-            isParallexWrapper: plist[ParallexConfig.rootKey] != nil
+            isParallexWrapper: plist[ParallexConfig.rootKey] != nil,
+            entitlements: signing.entitlements ?? [:]
         )
     }
 

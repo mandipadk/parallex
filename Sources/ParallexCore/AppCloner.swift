@@ -54,14 +54,9 @@ public enum AppCloner {
             + "identity, so the instance gets its own Dock icon, name, notifications, and permissions.",
             "The copy doesn't update itself: when \(app.name) updates, Parallex shows “repair to refresh the copy”.",
         ]
-        let entitlements = AppInspector.signingInfo(of: app.url).entitlements ?? [:]
+        let entitlements = app.entitlements
         let dropped = entitlements.keys.filter(isRestricted).sorted()
-        if dropped.contains(where: { $0.contains("icloud") || $0.contains("ubiquity") }) {
-            notes.append("iCloud features won't work in the copy (they need \(app.name)'s own signature).")
-        }
-        if dropped.contains(where: { $0 == "aps-environment" || $0.contains("usernotifications") }) {
-            notes.append("Push-delivered notifications may not arrive in the copy.")
-        }
+        notes += CopyLimits.limits(of: app).map(\.detail)
         if dropped.contains("keychain-access-groups") {
             notes.append("Keychain sharing is off in the copy; it may ask to use keychain items the original created.")
         }
@@ -218,11 +213,16 @@ public enum AppCloner {
         if let home = spec.launcherConfig[ParallexConfig.Key.redirectHome] as? String,
            let library = spec.launcherConfig[ParallexConfig.Key.redirectLibrary] as? String,
            let scope = spec.launcherConfig[ParallexConfig.Key.redirectScope] as? String {
-            try injectEnvironment(into: copy, source: spec.source.url, [
+            var variables = [
                 "DYLD_INSERT_LIBRARIES": library,
                 "PARALLEX_HOME_REDIRECT": home,
                 "PARALLEX_HOME_SCOPE": scope,
-            ])
+            ]
+            // Services and helpers macOS starts itself see the same $HOME.
+            if spec.launcherConfig[ParallexConfig.Key.redirectPrivate] != nil {
+                variables["PARALLEX_HOME_ENV"] = "1"
+            }
+            try injectEnvironment(into: copy, source: spec.source.url, variables)
         }
         if !spec.groupMap.isEmpty, let source = spec.groupsLibrary {
             // Inside the copy (signed with it), so the copy never depends on
@@ -357,6 +357,12 @@ public enum AppCloner {
         // the original app.
         guard app.path.hasPrefix(workArea.resolvingSymlinksInPath().path + "/") else {
             throw ParallexError("Refusing to re-sign \(app.path): it isn't the copy being built.")
+        }
+        // Finder metadata and resource forks (Zoom ships one on its bundle)
+        // make codesign refuse: "detritus not allowed". They carry nothing
+        // the copy needs.
+        for attribute in ["com.apple.FinderInfo", "com.apple.ResourceFork"] {
+            Shell.runAllowingFailure("/usr/bin/xattr", ["-dr", attribute, app.path])
         }
         let workDir = fm.temporaryDirectory.appendingPathComponent("parallex-sign-\(UUID().uuidString)")
         try fm.createDirectory(at: workDir, withIntermediateDirectories: true)

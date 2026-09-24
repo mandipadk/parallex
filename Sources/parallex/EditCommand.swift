@@ -59,6 +59,9 @@ struct Edit: ParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Keep an own-identity copy's ~/Library separate (on by default).")
     var separateLibrary: Bool?
 
+    @Flag(inversion: .prefixedNo, help: "Keep the app's own hidden folders in your home (like ~/.vscode) separate too (on by default).")
+    var separateHiddenFolders: Bool?
+
     @Option(help: ArgumentHelp(
         "Global shortcut that opens the instance, e.g. ctrl+opt+1 or ⌃⌥W (needs the Parallex app running).",
         valueName: "keys"
@@ -116,6 +119,9 @@ struct Edit: ParsableCommand {
         }
         if let separateLibrary {
             settings.separateLibrary = separateLibrary
+        }
+        if let separateHiddenFolders {
+            settings.separateHiddenFolders = separateHiddenFolders
         }
         let available = manifest.recipe?.options ?? []
         try checkOptionIDs(enableOptions + disableOptions, available: available)

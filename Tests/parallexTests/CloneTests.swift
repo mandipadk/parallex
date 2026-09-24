@@ -100,6 +100,19 @@ final class CloneTests: XCTestCase {
         XCTAssertTrue(seen.hasSuffix("|cloney-work"), seen)
     }
 
+    /// Finder metadata on an app (Zoom ships some on its bundle) makes
+    /// codesign refuse ("detritus not allowed"); copies are made anyway.
+    func testAppsWithFinderMetadataCanBeCopied() throws {
+        let target = try makeSignableElectronApp(named: "Zoomy", bundleID: "com.fake.zoomy")
+        try Shell.run("/usr/bin/xattr", ["-wx", "com.apple.FinderInfo", String(repeating: "0", count: 16) + "0400" + String(repeating: "0", count: 44), target.path])
+        var request = CreateRequest(appReference: target.path, name: "Zoomy Work", outputDirectory: outDir)
+        request.cloneApp = true
+        let result = try InstanceCreator.create(request, builderOptions: options)
+        XCTAssertNoThrow(try Shell.run("/usr/bin/codesign", ["--verify", "--deep", result.wrapperURL.path]))
+        XCTAssertTrue(((try? Shell.run("/usr/bin/xattr", [target.path])) ?? "").contains("com.apple.FinderInfo"),
+                      "the original is left as it was")
+    }
+
     func testOriginalUpdateMarksCloneOutdated() throws {
         let target = try Fixtures.makeApp(
             named: "Versioned", bundleID: "com.fake.versioned", in: tempDir,

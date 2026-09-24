@@ -21,6 +21,7 @@ struct WrapperSpec {
     var homeOverride: String?
     var homeSymlinks: [String]
     var createDirectories: [String]
+    var links: [String: String] = [:]
     var applicationCategory: String?
     var outputDirectory: URL
     var launcherBinary: URL
@@ -32,6 +33,8 @@ struct WrapperSpec {
     var redirectHome: String? = nil
     var redirectLibrary: String? = nil
     var redirectScope: String? = nil
+    /// The copy's own items when its home mirrors yours (see `HomeMirror`).
+    var redirectPrivate: [String]? = nil
 }
 
 /// Assembles, signs, and registers wrapper bundles. The bundle is built in a
@@ -189,12 +192,18 @@ public struct BundleBuilder {
             config[ParallexConfig.Key.redirectHome] = redirectHome
             config[ParallexConfig.Key.redirectLibrary] = redirectLibrary
             config[ParallexConfig.Key.redirectScope] = redirectScope
+            if let redirectPrivate = spec.redirectPrivate {
+                config[ParallexConfig.Key.redirectPrivate] = redirectPrivate
+            }
         }
         if spec.homeOverride != nil || spec.redirectHome != nil, !spec.homeSymlinks.isEmpty {
             config[ParallexConfig.Key.homeSymlinks] = spec.homeSymlinks
         }
         if !spec.createDirectories.isEmpty {
             config[ParallexConfig.Key.createDirectories] = spec.createDirectories
+        }
+        if !spec.links.isEmpty {
+            config[ParallexConfig.Key.links] = spec.links
         }
         if let pidFile = spec.pidFile {
             config[ParallexConfig.Key.pidFile] = pidFile
@@ -227,8 +236,23 @@ public struct BundleBuilder {
     /// With menus or as a handler for links (Launch Services keeps records
     /// of apps in the Trash).
     static func unregister(_ url: URL) {
-        if let lsregister = lsregisterPath {
-            Shell.runAllowingFailure(lsregister, ["-u", url.path])
+        guard let lsregister = lsregisterPath else { return }
+        // Helper apps inside a copy (Electron's GPU and renderer helpers, an
+        // updater) get registered once they've run; they go too.
+        var nested: [String] = []
+        let contents = url.appendingPathComponent("Contents")
+        if let enumerator = FileManager.default.enumerator(
+            at: contents, includingPropertiesForKeys: [.isSymbolicLinkKey], options: [.skipsHiddenFiles]
+        ) {
+            for case let item as URL in enumerator where item.pathExtension == "app" {
+                if (try? item.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true {
+                    nested.append(item.path)
+                }
+                if nested.count >= 64 { break }
+            }
+        }
+        for path in nested.reversed() + [url.path] {
+            Shell.runAllowingFailure(lsregister, ["-u", path])
         }
     }
 

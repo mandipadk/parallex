@@ -355,6 +355,32 @@ final class InstanceCreatorTests: XCTestCase {
         XCTAssertThrowsError(try InstanceStorage.trash([dir.appendingPathComponent("data")], of: created.manifest))
     }
 
+    /// Storage never offers what an instance is using as "unused": a copy's
+    /// own home (its whole Library), or a data folder its arguments reach
+    /// through a short alias.
+    func testStorageKeepsCopyHomesAndAliasedDataInUse() throws {
+        setenv("PARALLEX_HOME_LIBRARY", Fixtures.homeLibrary.path, 1)
+        defer { unsetenv("PARALLEX_HOME_LIBRARY") }
+        // A dedicated home (not home mode), as copies of Electron apps get.
+        let copyApp = try Fixtures.makeHomeReportingApp(named: "Homer", bundleID: "com.fake.homer", in: tempDir)
+        var request = CreateRequest(appReference: copyApp.path, name: "Homer Copy", mode: .launchOnly, outputDirectory: outDir)
+        request.cloneApp = true
+        let copy = try InstanceCreator.create(request, builderOptions: options).manifest
+        let home = try XCTUnwrap(copy.redirectedHome)
+        try FileManager.default.createDirectory(atPath: home + "/Library/Application Support/Homer", withIntermediateDirectories: true)
+        XCTAssertFalse(InstanceStorage.report(for: copy).unused.map(\.url.lastPathComponent).contains("home"))
+        XCTAssertThrowsError(try InstanceStorage.trash([URL(fileURLWithPath: home)], of: copy))
+
+        let code = try Fixtures.makeApp(named: "FakeCode", bundleID: "com.fake.code", in: tempDir, electron: true, productJSON: true)
+        let editor = try InstanceCreator.create(
+            CreateRequest(appReference: code.path, name: "Fake Code Side Project", outputDirectory: outDir), builderOptions: options
+        ).manifest
+        XCTAssertNotNil(editor.links, "this test's paths are long enough to need the alias")
+        let data = Paths.instanceDir(slug: editor.slug).appendingPathComponent("data")
+        XCTAssertFalse(InstanceStorage.report(for: editor).unused.map(\.url.lastPathComponent).contains("data"))
+        XCTAssertThrowsError(try InstanceStorage.trash([data], of: editor))
+    }
+
     func testStaleStorageListCannotTrashFolderNowInUse() throws {
         let claudeApp = try Fixtures.makeApp(
             named: "FakeClaude", bundleID: "com.anthropic.claudefordesktop", in: tempDir, electron: true

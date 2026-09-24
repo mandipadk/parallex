@@ -4,7 +4,7 @@
 /// The CLI writes these when assembling a wrapper; the launcher reads them from
 /// `Bundle.main` at launch. Nothing else should hardcode these strings.
 public enum ParallexConfig {
-    public static let version = "0.12.4"
+    public static let version = "0.13.0"
 
     /// Top-level Info.plist key holding the launcher configuration dictionary.
     public static let rootKey = "Parallex"
@@ -30,6 +30,10 @@ public enum ParallexConfig {
         public static let homeSymlinks = "HomeSymlinks"
         /// Directories the launcher creates (mkdir -p) before exec (optional).
         public static let createDirectories = "CreateDirectories"
+        /// Links the launcher (re)creates before each launch, alias → target:
+        /// short stand-ins for paths an app can't use at their full length
+        /// (VS Code's socket must fit in 104 bytes).
+        public static let links = "Links"
         /// The instance's slug, linking the wrapper back to its manifest.
         public static let slug = "Slug"
         /// The instance's home folder, presented to the app (an own-identity
@@ -42,6 +46,12 @@ public enum ParallexConfig {
         /// Where the copy was built; the redirect is scoped to it, so a moved
         /// copy needs rebuilding.
         public static let redirectScope = "RedirectScope"
+        /// Present when the redirected home mirrors your real home: every
+        /// item in it is linked in except `Library` and these (relative
+        /// paths, at most two levels, e.g. `.vscode`, `.config/zed`), which
+        /// stay the instance's own. The copy then also sees that home as
+        /// `$HOME`.
+        public static let redirectPrivate = "RedirectPrivate"
         /// File the launcher writes its PID to before exec. Because execv
         /// keeps the PID, this is the running instance's PID — the reliable
         /// way to find instances (their Launch Services identity reverts to

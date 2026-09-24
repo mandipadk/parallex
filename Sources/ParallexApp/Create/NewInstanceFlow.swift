@@ -242,6 +242,9 @@ private struct ChooseAppStep: View {
                 .padding(.horizontal, Theme.Space.l)
                 .padding(.bottom, Theme.Space.l)
             }
+            #if DEBUG
+            .defaultScrollAnchor(DebugRoute.scrollAnchor)
+            #endif
         }
     }
 
@@ -250,7 +253,7 @@ private struct ChooseAppStep: View {
         let matching = model.catalog.filter {
             $0.fit != .unsupported && (trimmed.isEmpty || $0.name.localizedStandardContains(trimmed))
         }
-        return [CatalogApp.Fit.great, .ownIdentity, .limited].compactMap { fit in
+        return [CatalogApp.Fit.great, .ownIdentity, .limited, .systemParts].compactMap { fit in
             let apps = matching.filter { $0.fit == fit }
             return apps.isEmpty ? nil : (fit, apps)
         }
@@ -261,6 +264,7 @@ private struct ChooseAppStep: View {
         case .great: "Works great"
         case .ownIdentity: "Works as its own copy"
         case .limited: "Works, with some shared data"
+        case .systemParts: "Parts won't work in a copy"
         case .unsupported: "Can't be duplicated"
         }
     }
@@ -296,6 +300,13 @@ private struct CatalogRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(app.name).font(Theme.Font.body.weight(.medium))
+                        if app.verified {
+                            Label("Verified here", systemImage: "checkmark.seal.fill")
+                                .labelStyle(.iconOnly)
+                                .font(.system(size: 12))
+                                .foregroundStyle(Theme.running)
+                                .help("An instance of \(app.name) passed an isolation check on this Mac.")
+                        }
                         if instances > 0 {
                             Text(instances == 1 ? "1 instance" : "\(instances) instances")
                                 .font(Theme.Font.caption.weight(.medium))
@@ -309,6 +320,12 @@ private struct CatalogRow: View {
                         .font(Theme.Font.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                    if !app.cautions.isEmpty {
+                        Text(app.cautions.joined(separator: " · "))
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")

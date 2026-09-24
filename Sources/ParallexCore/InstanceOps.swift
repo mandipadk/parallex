@@ -51,6 +51,9 @@ public struct CreateRequest: Sendable {
     public var cloneApp: Bool
     /// For a copy: keep its ~/Library separate (`nil` = the default, on).
     public var separateLibrary: Bool?
+    /// For a copy with its own Library: keep the app's hidden folders in the
+    /// instance too (`nil` = the default, on).
+    public var separateHiddenFolders: Bool?
     public var force: Bool
 
     public init(
@@ -125,6 +128,7 @@ extension InstanceCreator {
             cloneApp: settings.isClone
         )
         request.separateLibrary = settings.separateLibrary
+        request.separateHiddenFolders = settings.separateHiddenFolders
         let result = try create(request, builderOptions: builderOptions)
         if includeData {
             // Building a copy takes a moment; the original may have been opened since.
@@ -339,6 +343,7 @@ public enum InstanceCreator {
             cloneApp: request.cloneApp ? true : nil
         )
         settings.separateLibrary = request.separateLibrary
+        settings.separateHiddenFolders = request.separateHiddenFolders
         try validateBadge(settings)
         if let adopt = request.adoptData {
             try validateAdoptable(adopt, target: target, slug: slug)
@@ -590,6 +595,14 @@ public enum InstanceCreator {
             ? plan.homeOverride ?? instanceDir.appendingPathComponent("home").path
             : nil
         let homeSymlinks = plan.homeOverride != nil ? plan.homeSymlinks : (redirectHome != nil ? sharedItems : [])
+        // A dedicated home mirrors yours, except for the app's own folders
+        // (and what the user shares explicitly). Home mode keeps its promise
+        // of a home of its own, shared items aside.
+        let privateHomeItems = redirectHome != nil && plan.homeOverride == nil && settings.separateHiddenFolders != false
+            ? Presets.privateHomeItems(for: target).filter { item in
+                !sharedItems.contains { item == $0 || item.hasPrefix($0 + "/") || $0.hasPrefix(item + "/") }
+            }
+            : nil
 
         // Plan recipe first, user-provided vars win, PARALLEX_INSTANCE always set.
         var environment = plan.environment
@@ -610,6 +623,7 @@ public enum InstanceCreator {
             homeOverride: plan.homeOverride,
             homeSymlinks: homeSymlinks,
             createDirectories: plan.createDirectories,
+            links: plan.links,
             applicationCategory: target.infoPlist["LSApplicationCategoryType"] as? String,
             outputDirectory: outDir,
             launcherBinary: try LauncherLocator.locate(),
@@ -618,7 +632,8 @@ public enum InstanceCreator {
                 IconBuilder.Badge(text: $0, colorHex: settings.badgeColorHex, colorSeed: slug)
             },
             pidFile: Paths.pidFile(slug: slug).path,
-            redirectHome: redirectHome
+            redirectHome: redirectHome,
+            redirectPrivate: privateHomeItems
         )
 
         var notes = plan.notes
@@ -665,7 +680,9 @@ public enum InstanceCreator {
             settings: settings,
             clone: cloneRecord,
             redirectedHome: cloneRecord?.usesLauncher == true ? redirectHome : nil,
-            separatedGroups: separatedGroups
+            separatedGroups: separatedGroups,
+            privateHomeItems: cloneRecord?.usesLauncher == true ? privateHomeItems : nil,
+            links: plan.links.isEmpty ? nil : plan.links
         )
         try InstanceStore.save(manifest)
 

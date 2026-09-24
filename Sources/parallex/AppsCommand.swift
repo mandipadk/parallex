@@ -20,10 +20,13 @@ struct Apps: ParsableCommand {
                 var name, bundleID, path, fit, summary: String
                 var version: String?
                 var recommendsClone: Bool
+                var cautions: [String]
+                var verified: Bool
             }
             let rows = apps.map {
                 Row(name: $0.name, bundleID: $0.bundleID, path: $0.url.path, fit: label($0.fit),
-                    summary: $0.summary, version: $0.version, recommendsClone: $0.recommendsClone)
+                    summary: $0.summary, version: $0.version, recommendsClone: $0.recommendsClone,
+                    cautions: $0.cautions, verified: $0.verified)
             }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -37,7 +40,11 @@ struct Apps: ParsableCommand {
                 print("\n" + Term.bold(heading(app.fit)))
             }
             let clone = app.recommendsClone ? Term.dim("  (--clone)") : ""
-            print("  \(app.name)\(clone)  \(Term.dim(app.summary))")
+            let verified = app.verified ? Term.green(" ✓ verified here") : ""
+            print("  \(app.name)\(clone)\(verified)  \(Term.dim(app.summary))")
+            if !app.cautions.isEmpty {
+                print("    " + Term.dim(app.cautions.joined(separator: " · ")))
+            }
         }
         print("")
     }
@@ -47,6 +54,7 @@ struct Apps: ParsableCommand {
         case .great: "Works great"
         case .ownIdentity: "Works as its own copy"
         case .limited: "Works, with some shared data"
+        case .systemParts: "Parts won't work in a copy"
         case .unsupported: "Can't be duplicated"
         }
     }
@@ -56,6 +64,7 @@ struct Apps: ParsableCommand {
         case .great: "great"
         case .ownIdentity: "own-identity"
         case .limited: "limited"
+        case .systemParts: "system-parts"
         case .unsupported: "unsupported"
         }
     }

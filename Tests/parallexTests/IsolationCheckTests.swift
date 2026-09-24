@@ -96,6 +96,22 @@ final class IsolationCheckTests: XCTestCase {
         XCTAssertEqual(InstanceStatus.compareVersions("1.0", "1.0.0"), .orderedSame)
     }
 
+    /// A copy's own hidden folders, found open in your real home, are the
+    /// original's (VS Code keeps state shared by all its windows in
+    /// ~/.vscode-shared) — unless the user chose to share them.
+    func testTheCopysHiddenFoldersInYourRealHome() throws {
+        var manifest = try manifest(bundleID: "com.microsoft.VSCode", appName: "Visual Studio Code")
+        manifest.redirectedHome = tempDir.appendingPathComponent("home").path
+        manifest.privateHomeItems = [".vscode", ".vscode-shared"]
+        let shared = "\(home)/.vscode-shared/sharedStorage/state.vscdb"
+        XCTAssertEqual(IsolationCheck.Rules(manifest: manifest, home: home).classify(shared)?.category, .leak)
+        XCTAssertEqual(IsolationCheck.Rules(manifest: manifest, home: home).classify("\(home)/.vscode/argv.json")?.category, .leak)
+        XCTAssertNotEqual(IsolationCheck.Rules(manifest: manifest, home: home).classify("\(home)/.vscode-other/x")?.category, .leak)
+
+        manifest.privateHomeItems = nil
+        XCTAssertEqual(IsolationCheck.Rules(manifest: manifest, home: home).classify(shared)?.category, .sharedByChoice)
+    }
+
     /// A copy whose redirect library macOS didn't load is flagged, even though
     /// no file it has open looks wrong.
     func testNoticesWhenTheSeparationLibraryIsntLoaded() throws {

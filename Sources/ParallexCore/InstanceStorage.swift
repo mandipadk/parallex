@@ -116,6 +116,12 @@ public enum InstanceStorage {
         if manifest.mode == .home {
             paths.append(instancePath + "home")
         }
+        // A copy's own home (its whole Library), and what short aliases in
+        // the arguments stand for (VS Code's data folder).
+        if let home = manifest.redirectedHome {
+            paths.append(home)
+        }
+        paths += Array((manifest.links ?? [:]).values)
         var names: [String] = []
         for value in paths {
             guard let range = value.range(of: instancePath) else { continue }

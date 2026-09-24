@@ -17,13 +17,13 @@ export PARALLEX_TRASH="$WORK/trash"
 
 LSR=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 cleanup() {
-    for name in "Bench Copy" "Bench Wrapper"; do
+    for name in "Bench Copy" "Bench Mirror" "Bench Wrapper"; do
         "$BIN/parallex" remove "$name" >/dev/null 2>&1 || true
     done
     # Running the bundles' binaries directly registers them too.
     local real
     real="$(cd "$WORK" && pwd -P)"
-    for app in "$APP" "$WORK/apps/Bench Copy.app" "$WORK/apps/Bench Wrapper.app"; do
+    for app in "$APP" "$WORK/apps/Bench Copy.app" "$WORK/apps/Bench Mirror.app" "$WORK/apps/Bench Wrapper.app"; do
         "$LSR" -u "$real${app#"$WORK"}" >/dev/null 2>&1 || true
     done
     rm -rf "$WORK"
@@ -47,6 +47,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 
 "$BIN/parallex" create "$APP" --name "Bench Copy" --clone --out "$WORK/apps" >/dev/null
+"$BIN/parallex" create "$APP" --name "Bench Mirror" --clone --mode launch-only --out "$WORK/apps" >/dev/null
 "$BIN/parallex" create "$APP" --name "Bench Wrapper" --mode launch-only --out "$WORK/apps" >/dev/null
 
 /usr/bin/python3 - "$APP" "$WORK/apps" <<'PY'
@@ -65,6 +66,7 @@ def median_ms(command, runs=40, warmup=3):
 direct = median_ms([f"{app}/Contents/MacOS/Bench"])
 rows = [
     ("Own-identity copy", median_ms([f"{apps}/Bench Copy.app/Contents/MacOS/parallex-launcher"])),
+    ("Copy, mirrored home", median_ms([f"{apps}/Bench Mirror.app/Contents/MacOS/parallex-launcher"])),
     ("Launch-only wrapper", median_ms([f"{apps}/Bench Wrapper.app/Contents/MacOS/launcher"])),
 ]
 print(f"App on its own       {direct:5.1f} ms")

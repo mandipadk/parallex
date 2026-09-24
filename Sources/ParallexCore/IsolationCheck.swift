@@ -66,7 +66,9 @@ public enum IsolationCheck {
         let rules = Rules(manifest: manifest, home: FileManager.default.homeDirectoryForCurrentUser.path)
         let findings = (paths.compactMap { rules.classify($0) } + inactiveLibraries(manifest, pid: pid))
             .sorted { ($0.category.rawValue, $0.path) < ($1.category.rawValue, $1.path) }
-        return IsolationReport(processCount: pids.count, fileCount: paths.count, findings: findings)
+        let report = IsolationReport(processCount: pids.count, fileCount: paths.count, findings: findings)
+        Verification.record(manifest, report: report)
+        return report
     }
 
     /// The libraries that keep a copy's data its own, when macOS didn't load
@@ -156,6 +158,19 @@ public enum IsolationCheck {
             }
             for item in manifest.homeSymlinks ?? [] {
                 choice.append(("\(home)/\(item)", "shared into the instance home"))
+            }
+            // A copy's own hidden folders: in your real home they're the
+            // original's (or shared on purpose, when that's turned off).
+            if manifest.redirectedHome != nil {
+                if let items = manifest.privateHomeItems {
+                    for item in items {
+                        original.append(("\(home)/\(item)", "the original's ~/\(item)"))
+                    }
+                } else {
+                    for item in Presets.knownHomeFolders[bundleID] ?? [] {
+                        choice.append(("\(home)/\(item)", "shared on purpose (Separate hidden folders off)"))
+                    }
+                }
             }
             func keyedByBundleID(_ id: String) -> [String] {
                 [

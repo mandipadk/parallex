@@ -100,6 +100,42 @@ final class SeparateLibraryTests: XCTestCase {
         XCTAssertNil(rebuilt.manifest.redirectedHome)
     }
 
+    /// Copies made before 0.13 shared the app's hidden folders; a routine
+    /// rebuild keeps that (a VS Code copy keeps its extensions) until the
+    /// user turns separation on. New copies separate them.
+    func testCopiesMadeBeforeHiddenFolderSeparationKeepSharing() throws {
+        let target = try Fixtures.makeHomeReportingApp(named: "Hidey", bundleID: "com.fake.hidey", in: tempDir)
+        var request = CreateRequest(appReference: target.path, name: "Hidey Work", mode: .launchOnly, outputDirectory: outDir)
+        request.cloneApp = true
+        let fresh = try InstanceCreator.create(request, builderOptions: options).manifest
+        XCTAssertEqual(fresh.privateHomeItems?.first, ".hidey")
+        XCTAssertNotNil(plistConfig(fresh)[ParallexConfig.Key.redirectPrivate])
+
+        var old = fresh
+        old.parallexVersion = "0.12.4"
+        old.privateHomeItems = nil
+        old.settings?.separateHiddenFolders = nil
+        XCTAssertEqual(old.effectiveSettings.separateHiddenFolders, false)
+        let rebuilt = try InstanceCreator.update(old, InstanceUpdate(), builderOptions: options).manifest
+        XCTAssertNil(rebuilt.privateHomeItems)
+        XCTAssertNotNil(rebuilt.redirectedHome, "its Library stays separate either way")
+        XCTAssertNil(plistConfig(rebuilt)[ParallexConfig.Key.redirectPrivate])
+        // A duplicate keeps the choice.
+        let twin = try InstanceCreator.duplicate(rebuilt, builderOptions: options).manifest
+        XCTAssertEqual(twin.effectiveSettings.separateHiddenFolders, false)
+        XCTAssertNil(twin.privateHomeItems)
+
+        var turnedOn = rebuilt.effectiveSettings
+        turnedOn.separateHiddenFolders = true
+        let separated = try InstanceCreator.update(rebuilt, InstanceUpdate(settings: turnedOn), builderOptions: options).manifest
+        XCTAssertEqual(separated.privateHomeItems?.first, ".hidey")
+    }
+
+    private func plistConfig(_ manifest: InstanceManifest) -> [String: Any] {
+        let plist = NSDictionary(contentsOf: URL(fileURLWithPath: manifest.wrapperPath).appendingPathComponent("Contents/Info.plist"))
+        return plist?[ParallexConfig.rootKey] as? [String: Any] ?? [:]
+    }
+
     func testWrappersAndSandboxedCopiesAreUnaffected() throws {
         let target = try Fixtures.makeHomeReportingApp(named: "Wrap", bundleID: "com.fake.wrap", in: tempDir)
         let result = try InstanceCreator.create(
@@ -223,6 +259,88 @@ final class SeparateLibraryTests: XCTestCase {
         XCTAssertFalse(InstanceStatus.check(result.manifest).problems.contains(.separationUnavailable))
     }
 
+    /// Apps built on Node (Electron) find "~" through $HOME. A copy sees its
+    /// instance's home there, as it does through the account lookup, and that
+    /// home mirrors yours: the app's own hidden folder is private, everything
+    /// else is your real one. Both kinds of copy home are covered: home mode
+    /// (native apps) and a dedicated home (apps run with framework flags).
+    func testNodeBasedCopySeesAMirroredHome() throws {
+        let node = try XCTUnwrap(
+            ((try? Shell.run("/bin/zsh", ["-lc", "command -v node"])) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty,
+            "needs node on PATH"
+        )
+        let app = tempDir.appendingPathComponent("Nodey.app")
+        let macOS = app.appendingPathComponent("Contents/MacOS")
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        try Shell.run("/bin/cp", [URL(fileURLWithPath: node).resolvingSymlinksInPath().path, macOS.appendingPathComponent("Nodey").path])
+        let plist: [String: Any] = [
+            "CFBundleExecutable": "Nodey", "CFBundleIdentifier": "com.fake.nodey", "CFBundleName": "Nodey",
+            "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "1.0",
+        ]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: app.appendingPathComponent("Contents/Info.plist"))
+        let script = tempDir.appendingPathComponent("probe.js")
+        try """
+            const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
+            const home = os.homedir();
+            fs.mkdirSync(path.join(home, '.nodey'), { recursive: true });
+            fs.writeFileSync(path.join(home, '.nodey', 'state'), 'mine');
+            const child = cp.execFileSync('/bin/sh', ['-c', 'echo "$HOME"; ls -a "$HOME"']).toString().trim().split('\\n');
+            fs.writeFileSync(process.env.FIXTURE_OUT, JSON.stringify({
+                homedir: home, env: process.env.HOME, childHome: child[0], childEntries: child.slice(1),
+                entries: fs.readdirSync(home),
+            }));
+            """.write(to: script, atomically: true, encoding: .utf8)
+        let realHome = FileManager.default.homeDirectoryForCurrentUser.path
+        let realEntries = Set((try? FileManager.default.contentsOfDirectory(atPath: realHome)) ?? [])
+            .subtracting(["Library", ".Trash", ".DS_Store", ".nodey"])
+
+        for (name, mode) in [("Nodey Home", RequestedMode.auto), ("Nodey Plain", .launchOnly)] {
+            var request = CreateRequest(appReference: app.path, name: name, mode: mode, outputDirectory: outDir)
+            request.cloneApp = true
+            request.extraArguments = [script.path]
+            let result = try InstanceCreator.create(request, builderOptions: options)
+            let home = try XCTUnwrap(result.manifest.redirectedHome, name)
+            // Home mode (native apps' default) keeps a home of its own; a
+            // dedicated home (apps run with framework flags) mirrors yours.
+            let mirrored = result.manifest.mode != .home
+
+            let out = tempDir.appendingPathComponent("\(name).json")
+            let process = Process()
+            process.executableURL = result.wrapperURL.appendingPathComponent("Contents/MacOS/parallex-launcher")
+            var environment = ProcessInfo.processInfo.environment
+            environment["FIXTURE_OUT"] = out.path
+            environment["PARALLEX_LAUNCHER_NO_UI"] = "1"
+            process.environment = environment
+            try process.run()
+            process.waitUntilExit()
+            let report = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(contentsOf: out)) as? [String: Any], "\(name) ran"
+            )
+            XCTAssertEqual(report["homedir"] as? String, home, "\(name): os.homedir() is the instance's home")
+            XCTAssertEqual(report["env"] as? String, home, name)
+            XCTAssertEqual(try String(contentsOfFile: home + "/.nodey/state", encoding: .utf8), "mine")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: realHome + "/.nodey"), "nothing in your real home")
+            let entries = Set(report["entries"] as? [String] ?? [])
+            if realEntries.contains("Documents") {
+                XCTAssertEqual(try? FileManager.default.destinationOfSymbolicLink(atPath: home + "/Documents"), realHome + "/Documents")
+            }
+            if mirrored {
+                XCTAssertTrue(result.manifest.privateHomeItems?.contains(".nodey") == true, name)
+                // Everything else in your home is there, as the real thing…
+                XCTAssertTrue(realEntries.isSubset(of: entries), "\(name) missing: \(realEntries.subtracting(entries).sorted())")
+                // …and a tool the app starts gets your real home back.
+                XCTAssertEqual(report["childHome"] as? String, realHome, name)
+            } else {
+                XCTAssertNil(result.manifest.privateHomeItems, name)
+                XCTAssertFalse(realEntries.subtracting(Presets.defaultSharedItems).isSubset(of: entries),
+                               "\(name): home mode doesn't mirror your home")
+                XCTAssertEqual(report["childHome"] as? String, home, "\(name): home mode's $HOME is the instance's, on purpose")
+            }
+        }
+    }
+
     func testToolsStartedByTheCopyDontInheritTheLibrary() throws {
         // A process outside the copy's bundle that inherits the variables
         // takes them out of its environment, so its children are clean.
@@ -327,4 +445,8 @@ final class SeparateLibraryTests: XCTestCase {
         XCTAssertFalse(labels.contains("Application Support/Linky"), "never through a link")
         XCTAssertTrue(FileManager.default.fileExists(atPath: realHome.appendingPathComponent(".config/linky").path))
     }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
 }

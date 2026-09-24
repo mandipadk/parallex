@@ -18,6 +18,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.13.0", highlights: [
+            Highlight(
+                symbol: "folder.badge.person.crop",
+                title: "Hidden folders stay separate",
+                detail: "New copies keep the folders their app makes in your home, like ~/.vscode, to themselves. Everything else there still looks like your own home."
+            ),
+            Highlight(
+                symbol: "checkmark.seal",
+                title: "Verified here",
+                detail: "Apps whose instance passed an isolation check on this Mac are marked, and the catalog says up front what a copy can't do."
+            ),
+        ]),
         Release(version: "0.12.0", highlights: [
             Highlight(
                 symbol: "person.2",

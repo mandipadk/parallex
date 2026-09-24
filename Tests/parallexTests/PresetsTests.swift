@@ -46,6 +46,31 @@ final class PresetsTests: XCTestCase {
         XCTAssertTrue(plan.arguments[1].hasPrefix("--extensions-dir="))
     }
 
+    /// VS Code opens a socket inside its data folder, and a socket path
+    /// can't pass 104 bytes: a long data path gets a short, stable alias in
+    /// your own temporary folder, which the launcher keeps pointing at it.
+    func testVSCodeFamilyGetsAShortAliasForLongPaths() throws {
+        let app = try Fixtures.makeApp(
+            named: "FakeCode", bundleID: "com.fake.code", in: tempDir,
+            electron: true, productJSON: true
+        )
+        let info = try AppInspector.inspect(app)
+        let short = Presets.plan(for: info, requested: .auto, instanceDir: URL(fileURLWithPath: "/p/i/code"), sharedItems: [])
+        XCTAssertEqual(short.arguments.first, "--user-data-dir=/p/i/code/data")
+        XCTAssertTrue(short.links.isEmpty)
+
+        let longDir = URL(fileURLWithPath: "/Users/someone/Library/Application Support/Parallex/instances/visual-studio-code-side-project")
+        let long = Presets.plan(for: info, requested: .auto, instanceDir: longDir, sharedItems: [])
+        let alias = try XCTUnwrap(long.links.first?.key)
+        XCTAssertEqual(long.links[alias], longDir.appendingPathComponent("data").path)
+        XCTAssertEqual(long.arguments.first, "--user-data-dir=\(alias)")
+        XCTAssertTrue(alias.hasPrefix(FileManager.default.temporaryDirectory.path))
+        XCTAssertLessThan((alias + "/1.999-main.sock").utf8.count, 104)
+        XCTAssertEqual(Presets.plan(for: info, requested: .auto, instanceDir: longDir, sharedItems: []).links, long.links,
+                       "stable, so a rebuild keeps the same alias")
+        XCTAssertTrue(long.createDirectories.contains(longDir.appendingPathComponent("data").path), "the data stays put")
+    }
+
     func testFirefoxGetsProfileFlags() throws {
         let app = try Fixtures.makeApp(
             named: "FakeFox", bundleID: "org.fake.firefox", in: tempDir, applicationIni: true

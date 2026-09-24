@@ -236,6 +236,31 @@ do {
 // 1. Pre-create the directories the instance needs (e.g. the user-data dir).
 //    A missing data directory silently costs isolation — many apps fall back
 //    to their default location — so failure here is fatal.
+// 1b. Short aliases for long paths (macOS empties temporary folders, so
+//     they're made again each launch). Only ever replaces a link.
+for (alias, target) in config[ParallexConfig.Key.links] as? [String: String] ?? [:] {
+    let fm = FileManager.default
+    if let current = try? fm.destinationOfSymbolicLink(atPath: alias) {
+        // Only a link of your own: in a folder others could write to,
+        // someone else's link could later be pointed elsewhere.
+        var info = stat()
+        let ownLink = lstat(alias, &info) == 0 && info.st_uid == getuid()
+        if current == target, ownLink { continue }
+        guard ownLink else {
+            fail("Something that isn't yours is in the way at \(alias). Remove it, then open the instance again.")
+        }
+        try? fm.removeItem(atPath: alias)
+    } else if (try? fm.attributesOfItem(atPath: alias)) != nil {
+        fail("Something that isn't Parallex's is in the way at \(alias). Move it, then open the instance again.")
+    }
+    do {
+        try fm.createDirectory(atPath: (alias as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: alias, withDestinationPath: target)
+    } catch {
+        fail("Could not prepare this instance's data folder (\(alias)): \(error.localizedDescription)")
+    }
+}
+
 for directory in config[ParallexConfig.Key.createDirectories] as? [String] ?? [] {
     do {
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
@@ -289,6 +314,18 @@ if let redirectHome = config[ParallexConfig.Key.redirectHome] as? String,
         realHome: realHome,
         symlinks: config[ParallexConfig.Key.homeSymlinks] as? [String] ?? []
     )
+    // Mirrored home: it looks like yours except for the app's own folders,
+    // and the copy sees it as $HOME too.
+    if let privateItems = config[ParallexConfig.Key.redirectPrivate] as? [String] {
+        HomeMirror.sync(
+            home: URL(fileURLWithPath: redirectHome, isDirectory: true),
+            realHome: URL(fileURLWithPath: realHome, isDirectory: true),
+            privateItems: privateItems
+        )
+        setenv("PARALLEX_HOME_ENV", "1", 1)
+    } else {
+        unsetenv("PARALLEX_HOME_ENV")
+    }
     setenv("PARALLEX_HOME_REDIRECT", redirectHome, 1)
     setenv("PARALLEX_HOME_SCOPE", bundle, 1)
     let existing = (ProcessInfo.processInfo.environment["DYLD_INSERT_LIBRARIES"] ?? "")

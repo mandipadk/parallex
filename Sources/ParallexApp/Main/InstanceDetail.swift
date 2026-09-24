@@ -450,6 +450,15 @@ private struct IsolationSection: View {
                         isOn: separateLibraryBinding
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
+                    // Home mode gives the copy a home of its own already.
+                    if draft.settings.separateLibrary != false, entry.manifest.mode != .home {
+                        ExplainedToggle(
+                            title: "Separate hidden folders",
+                            detail: "Folders \(entry.targetName) keeps in your home folder\(hiddenFolderExample) stay in this instance too. Everything else there, like your other tools' settings, is shared.",
+                            isOn: separateHiddenFoldersBinding
+                        )
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
                 } else if draft.settings.isClone, targetHasGroups {
                     ExplainedToggle(
                         title: "Separate shared data",
@@ -479,6 +488,22 @@ private struct IsolationSection: View {
                 draft.settings.separateLibrary = on ? (stored == nil ? nil : true) : false
             }
         )
+    }
+
+    private var separateHiddenFoldersBinding: Binding<Bool> {
+        Binding(
+            get: { draft.settings.separateHiddenFolders != false },
+            set: { on in
+                let stored = entry.manifest.effectiveSettings.separateHiddenFolders
+                draft.settings.separateHiddenFolders = on ? (stored == nil ? nil : true) : false
+            }
+        )
+    }
+
+    /// ", like ~/.vscode", from what the copy keeps to itself.
+    private var hiddenFolderExample: String {
+        guard let first = entry.manifest.privateHomeItems?.first(where: { !$0.contains("/") }) else { return "" }
+        return ", like ~/\(first)"
     }
 
     private var summary: String {
