@@ -50,7 +50,8 @@ struct InstanceDetail: View {
                     entry: entry, openAtStart: $draft.settings.openAtLaunch.orFalse,
                     menuBarIcon: $draft.settings.menuBarIcon.orFalse, shortcut: $draft.settings.shortcut,
                     hideFromDock: draft.settings.isClone && !targetIsAgent ? hideFromDockBinding : nil,
-                    throwaway: Throwaway.isPossible(for: entry.manifest) ? $draft.settings.throwaway.orFalse : nil
+                    throwaway: Throwaway.isPossible(for: entry.manifest) ? $draft.settings.throwaway.orFalse : nil,
+                    quitWhenUnused: $draft.settings.quitWhenUnused
                 )
                 StorageSection(entry: entry)
                 AdvancedSection(entry: entry, draft: $draft)
@@ -173,6 +174,7 @@ struct InstanceDetail: View {
         settings.shortcut = draft.settings.shortcut
         settings.menuBarIcon = draft.settings.menuBarIcon
         settings.throwaway = draft.settings.throwaway
+        settings.quitWhenUnused = draft.settings.quitWhenUnused
         guard settings != stored || entry.manifest.settings == nil else { return }
         if let saved = model.saveSettings(settings, for: entry) {
             var fresh = InstanceDraft(saved)
@@ -212,7 +214,8 @@ struct InstanceDraft: Equatable {
     /// Changes to fields that never need a rebuild on their own.
     var metadataSignature: [String] {
         [settings.openAtLaunch == true ? "1" : "0", settings.badgeColorHex ?? "", settings.shortcut?.displayString ?? "",
-         settings.menuBarIcon == true ? "1" : "0", settings.throwaway == true ? "1" : "0"]
+         settings.menuBarIcon == true ? "1" : "0", settings.throwaway == true ? "1" : "0",
+         settings.quitWhenUnused.map(String.init) ?? ""]
     }
 
     var parsedEnvironment: [String: String]? {
@@ -908,6 +911,7 @@ private struct LaunchSection: View {
     var hideFromDock: Binding<Bool>?
     /// Nil where it can't work (copies of sandboxed apps).
     var throwaway: Binding<Bool>?
+    @Binding var quitWhenUnused: Int?
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -933,6 +937,26 @@ private struct LaunchSection: View {
                 Spacer(minLength: Theme.Space.l)
                 ShortcutRecorder(shortcut: $shortcut) { candidate in
                     model.shortcutConflict(candidate, for: entry.id)
+                }
+            }
+            if IdleQuit.isAvailable, throwaway?.wrappedValue != true {
+                HStack(alignment: .center, spacing: Theme.Space.l) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Quit when unused").font(Theme.Font.body)
+                        Text("Quits it, as ⌘Q does, once it hasn't been in front for this long, to free its memory. Not while it's playing sound.")
+                            .font(Theme.Font.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: Theme.Space.l)
+                    Picker("Quit when unused", selection: $quitWhenUnused) {
+                        Text("Never").tag(Int?.none)
+                        ForEach(IdleQuit.choices(including: quitWhenUnused), id: \.self) { minutes in
+                            Text("After \(IdleQuit.describe(minutes))").tag(Int?.some(minutes))
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
                 }
             }
             if let throwaway {

@@ -18,6 +18,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.19.0", highlights: [
+            Highlight(
+                symbol: "moon.zzz",
+                title: "Quit when unused",
+                detail: "An instance can quit itself after 15 minutes, an hour or four of not being in front, freeing its memory. Not while it's playing sound. In its Launch section."
+            ),
+            Highlight(
+                symbol: "point.3.connected.trianglepath.dotted",
+                title: "Claude instances can share MCP servers",
+                detail: "Turn on Share MCP servers and an instance uses the ones set up in your other Claude, while sign-ins, chats and settings stay separate."
+            ),
+        ]),
         Release(version: "0.18.0", highlights: [
             Highlight(
                 symbol: "square.stack.3d.up",

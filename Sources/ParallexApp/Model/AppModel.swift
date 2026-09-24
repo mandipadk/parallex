@@ -164,10 +164,93 @@ final class AppModel {
         autoVerifyRunningInstances()
         measureMemory()
         clearFinishedThrowaways()
+        quitUnusedInstances()
         if let selection, !entries.contains(where: { $0.id == selection }), selectedWorkspace == nil {
             self.selection = entries.first?.id
         }
         updateFrontmost()
+    }
+
+    // MARK: - Quitting unused instances
+
+    /// When each running instance was last in front (or first seen running).
+    @ObservationIgnored private var lastInFront: [String: Date] = [:]
+    /// The process each idle quit was asked of, so it's asked once.
+    @ObservationIgnored private var idleQuitAsked: [String: pid_t] = [:]
+    @ObservationIgnored private var checkingIdle = false
+    /// Screen locked or asleep, the Mac asleep, or another user in front:
+    /// nothing is being used, so nothing counts as unused either.
+    @ObservationIgnored private var away = false
+
+    /// On return, every running instance starts its clock afresh.
+    private func setAway(_ isAway: Bool) {
+        away = isAway
+        if !isAway {
+            let now = Date()
+            for entry in entries where entry.running {
+                lastInFront[entry.id] = now
+            }
+        }
+    }
+
+    private func noteInFront() {
+        let now = Date()
+        for entry in entries where entry.running {
+            if frontmost?.id == entry.id || lastInFront[entry.id] == nil {
+                lastInFront[entry.id] = now
+            }
+        }
+        for id in lastInFront.keys where !entries.contains(where: { $0.id == id && $0.running }) {
+            lastInFront[id] = nil
+        }
+    }
+
+    /// Ask instances unused past their limit to quit, unless they're
+    /// playing sound.
+    func quitUnusedInstances() {
+        noteInFront()
+        guard IdleQuit.isAvailable, !away else { return }
+        let due = entries.filter(isIdleDue)
+        guard !due.isEmpty, !checkingIdle else { return }
+        checkingIdle = true
+        let targets = due.compactMap { entry in
+            entry.pid.map { InstanceMemory.Target(slug: entry.id, pid: $0, bundlePath: entry.isClone ? entry.manifest.wrapperPath : nil) }
+        }
+        Task {
+            let (processes, playing) = await Task.detached(priority: .utility) {
+                (InstanceMemory.processes(of: targets), IdleQuit.processesPlayingSound())
+            }.value
+            checkingIdle = false
+            // Can't tell what's playing: leave everything be.
+            guard let playing else { return }
+            for target in targets {
+                // Looked at again: it may have come to the front meanwhile.
+                guard !away, let entry = entries.first(where: { $0.id == target.slug && $0.pid == target.pid }),
+                      isIdleDue(entry)
+                else { continue }
+                guard processes[target.slug, default: [target.pid]].allSatisfy({ !playing.contains($0) }) else {
+                    // Playing counts as using it.
+                    lastInFront[target.slug] = Date()
+                    continue
+                }
+                idleQuitAsked[target.slug] = target.pid
+                NSRunningApplication(processIdentifier: target.pid)?.terminate()
+            }
+        }
+    }
+
+    /// Running, past its limit, not in front, not a throwaway (quitting
+    /// one would throw it away), and not already asked.
+    private func isIdleDue(_ entry: InstanceEntry) -> Bool {
+        let settings = entry.manifest.effectiveSettings
+        guard let pid = entry.pid, idleQuitAsked[entry.id] != pid, !busy.contains(entry.id),
+              settings.throwaway != true
+        else { return false }
+        return IdleQuit.isDue(
+            limitMinutes: settings.quitWhenUnused,
+            lastInFront: lastInFront[entry.id] ?? Date(),
+            isFront: frontmost?.id == entry.id
+        )
     }
 
     // MARK: - Throwaways
@@ -313,8 +396,14 @@ final class AppModel {
     }
 
     private func updateFrontmost() {
+        // The lock screen coming forward isn't you switching apps.
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier != "com.apple.loginwindow" else { return }
         let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let front = pid.flatMap { pid in entries.first { $0.pid == pid } }
+        // In front until now (the one leaving) and from now (the one coming).
+        for id in [frontmost?.id, front?.id].compactMap({ $0 }) {
+            lastInFront[id] = Date()
+        }
         if front?.id != frontmost?.id {
             frontmost = front
         }
@@ -322,6 +411,26 @@ final class AppModel {
 
     private func observeWorkspace() {
         let center = NSWorkspace.shared.notificationCenter
+        // Away and back, for quitting unused instances: the clock stops
+        // while the screen is locked or asleep, the Mac sleeps, or another
+        // user is in front, and restarts on return.
+        let awayAndBack: [(Notification.Name, Bool)] = [
+            (NSWorkspace.screensDidSleepNotification, true), (NSWorkspace.screensDidWakeNotification, false),
+            (NSWorkspace.willSleepNotification, true), (NSWorkspace.didWakeNotification, false),
+            (NSWorkspace.sessionDidResignActiveNotification, true), (NSWorkspace.sessionDidBecomeActiveNotification, false),
+        ]
+        for (name, isAway) in awayAndBack {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.setAway(isAway) }
+            })
+        }
+        for (name, isAway) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
+            observers.append(DistributedNotificationCenter.default().addObserver(
+                forName: Notification.Name(name), object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.setAway(isAway) }
+            })
+        }
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.refresh() }

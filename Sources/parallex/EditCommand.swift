@@ -83,6 +83,12 @@ struct Edit: ParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Make it a throwaway: once it has run and quit, the Parallex app moves it and its data to the Trash.")
     var throwaway: Bool?
 
+    @Option(help: ArgumentHelp(
+        "Quit it once it hasn't been in front for this many minutes, unless it's playing sound (needs the Parallex app running); `off` to stop.",
+        valueName: "minutes"
+    ))
+    var quitWhenUnused: String?
+
     @Argument(parsing: .postTerminator, help: .hidden)
     var passthroughArguments: [String] = []
 
@@ -137,6 +143,15 @@ struct Edit: ParsableCommand {
         }
         if let menuBarIcon {
             settings.menuBarIcon = menuBarIcon ? true : nil
+        }
+        if let quitWhenUnused {
+            if quitWhenUnused.lowercased() == "off" {
+                settings.quitWhenUnused = nil
+            } else if let minutes = Int(quitWhenUnused), minutes >= 5 {
+                settings.quitWhenUnused = minutes
+            } else {
+                throw ValidationError("--quit-when-unused takes a number of minutes (5 or more), or off.")
+            }
         }
         if let throwaway {
             guard !throwaway || Throwaway.isPossible(for: manifest) else {

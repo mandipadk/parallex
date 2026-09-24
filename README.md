@@ -296,6 +296,7 @@ Useful `create` options:
 | `--adopt-data DIR` | move an existing profile folder in as the instance's data |
 | `--clone` | own identity: make the instance a re-signed copy of the app (see above) |
 | `--throwaway` | once it has run and quit, the Parallex app moves it and its data to the Trash (also `edit --throwaway`) |
+| `--quit-when-unused N` | (`edit`) quit it after N minutes of not being in front, unless it's playing sound (`off` to stop; the Parallex app does it) |
 | `--hide-from-dock` | (`edit`) no Dock icon or ⌘-Tab entry for an own-identity copy; open it from its menu bar icon or shortcut |
 | `--web SITE` | a website as an app of its own, instead of an app's instance (see above); `edit --web` changes its address |
 | `--force` | rebuild an existing instance (keeps its data) |
@@ -309,6 +310,7 @@ parallex create "Google Chrome" --name "Chrome Dev" -- --remote-debugging-port=9
 parallex create Cursor --name "Cursor OSS" --badge O
 parallex doctor Slack                    # what would Parallex do with Slack?
 parallex edit "Claude Work" --option separate-claude-code
+parallex edit "Claude Work" --option share-mcp-servers   # same MCP servers as your Claude
 parallex check "Claude Work"             # any leaks into the original's data?
 parallex create WhatsApp --name "WhatsApp Work" --clone
 parallex create --web teams.microsoft.com --name "Teams Client"   # a website as an app

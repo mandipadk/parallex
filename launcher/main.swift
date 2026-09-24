@@ -261,6 +261,16 @@ for (alias, target) in config[ParallexConfig.Key.links] as? [String: String] ?? 
     }
 }
 
+// 1c. Settings shared with the original (like Claude's MCP servers). Not
+//     fatal: the instance opens with what it had.
+for item in (config[ParallexConfig.Key.settingsSync] as? [Any] ?? []).compactMap(SettingsSync.Item.init(plist:)) {
+    do {
+        try SettingsSync.apply(item)
+    } catch {
+        FileHandle.standardError.write(Data("parallex-launcher: couldn't share settings with \(item.to): \(error)\n".utf8))
+    }
+}
+
 for directory in config[ParallexConfig.Key.createDirectories] as? [String] ?? [] {
     do {
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)

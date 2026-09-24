@@ -4,7 +4,7 @@
 /// The CLI writes these when assembling a wrapper; the launcher reads them from
 /// `Bundle.main` at launch. Nothing else should hardcode these strings.
 public enum ParallexConfig {
-    public static let version = "0.18.0"
+    public static let version = "0.19.0"
 
     /// Top-level Info.plist key holding the launcher configuration dictionary.
     public static let rootKey = "Parallex"
@@ -34,6 +34,9 @@ public enum ParallexConfig {
         /// short stand-ins for paths an app can't use at their full length
         /// (VS Code's socket must fit in 104 bytes).
         public static let links = "Links"
+        /// Settings shared with the original app, synced before each
+        /// launch: [{From, To, Keys}] (see `SettingsSync`).
+        public static let settingsSync = "SettingsSync"
         /// The instance's slug, linking the wrapper back to its manifest.
         public static let slug = "Slug"
         /// The instance's home folder, presented to the app (an own-identity

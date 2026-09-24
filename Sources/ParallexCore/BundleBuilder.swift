@@ -22,6 +22,7 @@ struct WrapperSpec {
     var homeSymlinks: [String]
     var createDirectories: [String]
     var links: [String: String] = [:]
+    var settingsSync: [SettingsSync.Item] = []
     var applicationCategory: String?
     var outputDirectory: URL
     var launcherBinary: URL
@@ -214,6 +215,9 @@ public struct BundleBuilder {
         }
         if !spec.links.isEmpty {
             config[ParallexConfig.Key.links] = spec.links
+        }
+        if !spec.settingsSync.isEmpty {
+            config[ParallexConfig.Key.settingsSync] = spec.settingsSync.map(\.plist)
         }
         if let pidFile = spec.pidFile {
             config[ParallexConfig.Key.pidFile] = pidFile

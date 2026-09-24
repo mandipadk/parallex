@@ -682,6 +682,7 @@ public enum InstanceCreator {
             homeSymlinks: homeSymlinks,
             createDirectories: plan.createDirectories,
             links: plan.links,
+            settingsSync: plan.settingsSync,
             applicationCategory: target.infoPlist["LSApplicationCategoryType"] as? String,
             outputDirectory: outDir,
             launcherBinary: try LauncherLocator.locate(),

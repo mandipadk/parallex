@@ -1,4 +1,5 @@
 import Foundation
+import ParallexKit
 
 /// Isolation mode as requested by the user; `auto` resolves to a concrete
 /// `InstanceMode` via `Presets.plan`.
@@ -29,6 +30,8 @@ public struct IsolationPlan: Sendable {
     public var enabledOptions: [String] = []
     /// Short aliases the launcher keeps pointing at long paths (alias → target).
     public var links: [String: String] = [:]
+    /// Settings the launcher shares from the original before each launch.
+    public var settingsSync: [SettingsSync.Item] = []
 }
 
 /// A per-app isolation recipe: what data-dir isolation means for one app.
@@ -59,6 +62,9 @@ public struct RecipeOption: Sendable, Identifiable, Hashable {
     public let defaultEnabled: Bool
     let environment: [String: String]
     let createDirectories: [String]
+    /// Settings shared with the original. Paths take `${instance}` and
+    /// `${home}` (your real home).
+    var settingsSync: [SettingsSync.Item] = []
 }
 
 public enum Presets {
@@ -116,6 +122,20 @@ public enum Presets {
                     defaultEnabled: false,
                     environment: ["CLAUDE_CONFIG_DIR": "${instance}/claude-code"],
                     createDirectories: ["${instance}/claude-code"]
+                ),
+                RecipeOption(
+                    id: "share-mcp-servers",
+                    title: "Share MCP servers",
+                    detail: "Uses the MCP servers set up in your other Claude, brought up to date each time it opens. "
+                        + "Add or change them there. Sign-ins, chats and settings stay separate.",
+                    defaultEnabled: false,
+                    environment: [:],
+                    createDirectories: [],
+                    settingsSync: [SettingsSync.Item(
+                        from: "${home}/Library/Application Support/Claude/claude_desktop_config.json",
+                        to: "${instance}/data/claude_desktop_config.json",
+                        keys: ["mcpServers"]
+                    )]
                 ),
             ],
             unavoidablyShared: [
@@ -262,6 +282,7 @@ public enum Presets {
 
         func expand(_ value: String) -> String {
             value.replacingOccurrences(of: "${instance}", with: instanceDir.path)
+                .replacingOccurrences(of: "${home}", with: FileManager.default.homeDirectoryForCurrentUser.path)
         }
 
         /// The app's own recipe, which data-dir mode means for this app.
@@ -269,11 +290,13 @@ public enum Presets {
             let active = recipe.options.filter { enabledOptions?.contains($0.id) ?? $0.defaultEnabled }
             var environment = recipe.environment
             var directories = recipe.createDirectories
+            var syncs: [SettingsSync.Item] = []
             for option in active {
                 environment.merge(option.environment) { _, new in new }
                 directories += option.createDirectories.filter { !directories.contains($0) }
+                syncs += option.settingsSync.map { SettingsSync.Item(from: expand($0.from), to: expand($0.to), keys: $0.keys) }
             }
-            return IsolationPlan(
+            var plan = IsolationPlan(
                 mode: .dataDir,
                 presetID: recipe.id,
                 arguments: recipe.arguments.map(expand),
@@ -285,6 +308,8 @@ public enum Presets {
                 availableOptions: recipe.options,
                 enabledOptions: active.map(\.id)
             )
+            plan.settingsSync = syncs
+            return plan
         }
 
         switch requested {

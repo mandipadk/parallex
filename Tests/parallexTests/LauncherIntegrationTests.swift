@@ -143,6 +143,29 @@ final class LauncherIntegrationTests: XCTestCase {
         XCTAssertTrue(isDirectory.boolValue)
     }
 
+    /// Shared settings are brought in before the app starts; a broken file
+    /// doesn't stop it from opening.
+    func testSharesSettingsBeforeLaunch() throws {
+        let original = tempDir.appendingPathComponent("original.json")
+        let instance = tempDir.appendingPathComponent("instance/data/config.json")
+        let broken = tempDir.appendingPathComponent("broken.json")
+        try #"{"mcpServers": {"files": {"command": "npx"}}, "preferences": {"a": 1}}"#.write(to: original, atomically: true, encoding: .utf8)
+        try "{ nope".write(to: broken, atomically: true, encoding: .utf8)
+        let app = try makeWrapper(config: [
+            ParallexConfig.Key.targetBinary: "/usr/bin/true",
+            ParallexConfig.Key.settingsSync: [
+                SettingsSync.Item(from: original.path, to: instance.path, keys: ["mcpServers"]).plist,
+                SettingsSync.Item(from: original.path, to: broken.path, keys: ["mcpServers"]).plist,
+            ],
+        ])
+        let result = try runWrapper(app)
+        XCTAssertEqual(result.exitCode, 0, result.stderr)
+        let synced = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: instance)) as? [String: Any])
+        XCTAssertNotNil((synced["mcpServers"] as? [String: Any])?["files"])
+        XCTAssertNil(synced["preferences"], "only the shared key")
+        XCTAssertTrue(result.stderr.contains("couldn't share settings"), result.stderr)
+    }
+
     func testHomeOverrideScaffoldsAndExports() throws {
         let fm = FileManager.default
         // A fake "real home" containing a Downloads folder to share.

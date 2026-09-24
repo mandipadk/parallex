@@ -165,7 +165,8 @@ final class PresetsTests: XCTestCase {
         XCTAssertEqual(plan.environment["CLAUDE_USER_DATA_DIR"], dataDir)
         // Claude Code config stays shared unless the option is turned on.
         XCTAssertNil(plan.environment["CLAUDE_CONFIG_DIR"])
-        XCTAssertEqual(plan.availableOptions.map(\.id), ["separate-claude-code"])
+        XCTAssertEqual(plan.availableOptions.map(\.id), ["separate-claude-code", "share-mcp-servers"])
+        XCTAssertEqual(plan.settingsSync, [], "MCP servers stay separate unless chosen")
         XCTAssertEqual(plan.enabledOptions, [])
     }
 

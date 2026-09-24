@@ -53,6 +53,9 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     public var throwaway: Bool?
     /// When it became one: only launches after this count.
     public var throwawaySince: Date?
+    /// Quit it (as ⌘Q does) once it hasn't been in front for this many
+    /// minutes, unless it's playing sound (see `IdleQuit`).
+    public var quitWhenUnused: Int?
     /// Own-identity copies keep their data to themselves: a copy of an app
     /// that isn't sandboxed gets its own ~/Library (Application Support,
     /// caches, web storage…); a copy of a sandboxed app gets its own
@@ -115,6 +118,8 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
         rhs.throwaway = nil
         lhs.throwawaySince = nil
         rhs.throwawaySince = nil
+        lhs.quitWhenUnused = nil
+        rhs.quitWhenUnused = nil
         if lhs.badgeText == nil && rhs.badgeText == nil {
             lhs.badgeColorHex = nil
             rhs.badgeColorHex = nil

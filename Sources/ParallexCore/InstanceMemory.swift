@@ -23,6 +23,11 @@ public enum InstanceMemory {
 
     /// Bytes per instance slug, for the instances given (running ones).
     public static func measure(_ targets: [Target]) -> [String: UInt64] {
+        processes(of: targets).mapValues { $0.reduce(0) { $0 + footprint(of: $1) } }
+    }
+
+    /// Every process that's part of each instance, by slug.
+    public static func processes(of targets: [Target]) -> [String: [pid_t]] {
         guard !targets.isEmpty else { return [:] }
         let all = IsolationCheck.allPIDs()
         var children: [pid_t: [pid_t]] = [:]
@@ -45,7 +50,7 @@ public enum InstanceMemory {
             }
         }
 
-        var result: [String: UInt64] = [:]
+        var result: [String: [pid_t]] = [:]
         var counted = Set<pid_t>()
         for target in targets {
             var members: [pid_t] = []
@@ -69,7 +74,7 @@ public enum InstanceMemory {
                     members.append(pid)
                 }
             }
-            result[target.slug] = members.reduce(0) { $0 + footprint(of: $1) }
+            result[target.slug] = members
         }
         return result
     }
