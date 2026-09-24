@@ -2,6 +2,7 @@ import { motion } from "motion/react"
 import { BlurReveal } from "@/components/blur-reveal"
 import { EASE, riseIn } from "@/lib/site"
 import { DownloadButton } from "./download-button"
+import { InstallCommand } from "./install-command"
 import { ProductShot } from "./product-shot"
 import { Rays } from "./rays"
 
@@ -39,6 +40,7 @@ export function Hero() {
         >
           <DownloadButton />
           <p className="text-[13px] text-foreground/45">Free · Open source · macOS 14+</p>
+          <InstallCommand className="mt-2" />
         </motion.div>
       </div>
 

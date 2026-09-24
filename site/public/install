@@ -1,0 +1,69 @@
+#!/bin/sh
+# Install Parallex: https://parallex.mandip.dev
+#
+#   curl -fsSL https://parallex.mandip.dev/install | sh
+#
+# Downloads the latest release from GitHub, checks it against the SHA-256
+# checksum published with it, and puts Parallex in /Applications (or
+# ~/Applications when that isn't writable). A download made this way isn't
+# marked as coming from the internet, so macOS opens it without the
+# "Open Anyway" step. Read it first if you like: it's short.
+#
+# PARALLEX_INSTALL_DIR  install somewhere else
+# PARALLEX_NO_OPEN=1    don't open Parallex afterwards
+set -eu
+
+REPO="mandipadk/parallex"
+say() { printf '%s\n' "$*"; }
+fail() { printf 'Parallex: %s\n' "$*" >&2; exit 1; }
+
+[ "$(uname -s)" = "Darwin" ] || fail "Parallex is a Mac app."
+major=$(sw_vers -productVersion | cut -d. -f1)
+[ "$major" -ge 14 ] || fail "Parallex needs macOS 14 or later."
+
+dest="${PARALLEX_INSTALL_DIR:-/Applications}"
+if [ -z "${PARALLEX_INSTALL_DIR:-}" ] && [ ! -w "$dest" ]; then
+    dest="$HOME/Applications"
+fi
+mkdir -p "$dest"
+
+# Never replace the Parallex that's running.
+if pgrep -f "$dest/Parallex.app/Contents/MacOS/" >/dev/null 2>&1; then
+    fail "Parallex is running. Update it from Parallex › Check for Updates, or quit it and run this again."
+fi
+
+say "Finding the latest Parallex…"
+release=$(curl -fsSL -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/releases/latest") \
+    || fail "couldn't reach GitHub."
+zip_url=$(printf '%s' "$release" | grep -o '"browser_download_url": *"[^"]*/Parallex-[0-9.]*\.zip"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')
+sum_url=$(printf '%s' "$release" | grep -o '"browser_download_url": *"[^"]*/Parallex-[0-9.]*\.zip\.sha256"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')
+[ -n "$zip_url" ] || fail "couldn't find the download in the latest release."
+[ -n "$sum_url" ] || fail "the latest release has no checksum; download the DMG from parallex.mandip.dev instead."
+version=$(printf '%s' "$zip_url" | sed 's/.*Parallex-\([0-9.]*\)\.zip/\1/')
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+say "Downloading Parallex $version…"
+curl -fsSL "$zip_url" -o "$work/Parallex.zip" || fail "the download failed."
+expected=$(curl -fsSL "$sum_url" | awk '{print $1}') || fail "couldn't get the checksum."
+actual=$(shasum -a 256 "$work/Parallex.zip" | awk '{print $1}')
+[ -n "$expected" ] && [ "$expected" = "$actual" ] || fail "the download doesn't match its checksum; nothing was installed."
+
+ditto -x -k "$work/Parallex.zip" "$work/unpacked" || fail "couldn't unpack the download."
+[ -d "$work/unpacked/Parallex.app" ] || fail "the download doesn't contain Parallex.app."
+codesign --verify --deep "$work/unpacked/Parallex.app" 2>/dev/null || fail "the app's signature doesn't check out; nothing was installed."
+
+if [ -d "$dest/Parallex.app" ]; then
+    rm -rf "$work/previous"
+    mv "$dest/Parallex.app" "$work/previous" || fail "couldn't replace $dest/Parallex.app."
+fi
+mv "$work/unpacked/Parallex.app" "$dest/Parallex.app" || {
+    [ -d "$work/previous" ] && mv "$work/previous" "$dest/Parallex.app"
+    fail "couldn't install into $dest."
+}
+
+say "Installed Parallex $version in $dest."
+if [ "${PARALLEX_NO_OPEN:-}" != "1" ]; then
+    open "$dest/Parallex.app"
+fi

@@ -92,17 +92,19 @@ app-install: app
 # signature (made with the release key in the login keychain), and a DMG for
 # downloading from the website.
 dist: app
-	rm -f "$(ZIP)" "$(ZIP).sig" "$(DMG)"
+	rm -f "$(ZIP)" "$(ZIP).sig" "$(ZIP).sha256" "$(DMG)"
 	ditto -c -k --sequesterRsrc --keepParent "$(APP_DIST)" "$(ZIP)"
 	swift Support/release-key.swift sign "$(ZIP)" > "$(ZIP).sig"
+	# For the Terminal installer (site/public/install).
+	cd "$(dir $(ZIP))" && shasum -a 256 "$(notdir $(ZIP))" > "$(notdir $(ZIP)).sha256"
 	Support/make-dmg.sh "$(APP_DIST)" "$(DMG)"
-	@echo "Built $(ZIP), $(ZIP).sig and $(DMG)"
+	@echo "Built $(ZIP), $(ZIP).sig, $(ZIP).sha256 and $(DMG)"
 
 # Publish a GitHub release for the current version with the notes in $(NOTES).
 publish: dist
 	@test -s "$(NOTES)" || { echo "error: write the release notes to $(NOTES) first"; exit 1; }
 	@test -z "$$(git status --porcelain -- Sources launcher Package.swift)" || { echo "error: commit your changes first"; exit 1; }
-	gh release create "v$(VERSION)" "$(ZIP)" "$(ZIP).sig" "$(DMG)" --target "$$(git rev-parse HEAD)" \
+	gh release create "v$(VERSION)" "$(ZIP)" "$(ZIP).sig" "$(ZIP).sha256" "$(DMG)" --target "$$(git rev-parse HEAD)" \
 		--title "Parallex $(VERSION)" --notes-file "$(NOTES)"
 
 # Regenerate the app icon from its source (Support/make-app-icon.swift).

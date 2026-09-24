@@ -166,6 +166,9 @@ private struct PanelInstanceRow: View {
     let open: () -> Void
     let openOriginal: () -> Void
     @State private var hovering = false
+    /// Over the arrow: the row says what it does (menu bar panels don't
+    /// show tooltips).
+    @State private var hoveringOriginal = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -176,9 +179,10 @@ private struct PanelInstanceRow: View {
                         Text(entry.name)
                             .font(Theme.Font.body.weight(isFront ? .semibold : .regular))
                             .lineLimit(1)
-                        Text(entry.targetName)
+                        Text(hoveringOriginal ? "Opens the original \(entry.targetName)" : entry.targetName)
                             .font(Theme.Font.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(hoveringOriginal ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
+                            .contentTransition(.opacity)
                     }
                     Spacer(minLength: 0)
                     if let shortcut = entry.manifest.settings?.shortcut, !hovering {
@@ -209,14 +213,20 @@ private struct PanelInstanceRow: View {
                 }
                 .buttonStyle(.plain)
                 .help("Open the original \(entry.targetName)")
+                .accessibilityLabel("Open the original \(entry.targetName)")
+                .onHover { hoveringOriginal = $0 }
                 .transition(.opacity)
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .background(hovering ? Theme.subtleFill : .clear, in: .rect(cornerRadius: 7))
-        .onHover { hovering = $0 }
+        .onHover { inside in
+            hovering = inside
+            if !inside { hoveringOriginal = false }
+        }
         .animation(Theme.Motion.fade, value: hovering)
+        .animation(Theme.Motion.fade, value: hoveringOriginal)
     }
 }
 
