@@ -54,6 +54,9 @@ public struct CreateRequest: Sendable {
     /// For a copy with its own Library: keep the app's hidden folders in the
     /// instance too (`nil` = the default, on).
     public var separateHiddenFolders: Bool?
+    /// Use this keychain name suffix instead of a new one (a duplicate with
+    /// data needs its source's key to read what it copied).
+    var keychainSuffix: String??
     public var force: Bool
 
     public init(
@@ -129,6 +132,10 @@ extension InstanceCreator {
         )
         request.separateLibrary = settings.separateLibrary
         request.separateHiddenFolders = settings.separateHiddenFolders
+        if includeData {
+            // What's copied was encrypted with the source's key.
+            request.keychainSuffix = .some(manifest.keychainSuffix)
+        }
         let result = try create(request, builderOptions: builderOptions)
         if includeData {
             // Building a copy takes a moment; the original may have been opened since.
@@ -359,6 +366,8 @@ public enum InstanceCreator {
             outputDirectory: outDir,
             settings: settings,
             previous: existing,
+            // An adopted profile was encrypted with the original's key.
+            keychainSuffix: request.adoptData != nil ? .some(nil) : request.keychainSuffix,
             builderOptions: builderOptions
         )
         if let adopt = request.adoptData {
@@ -574,6 +583,7 @@ public enum InstanceCreator {
         outputDirectory outDir: URL,
         settings: InstanceSettings,
         previous: InstanceManifest?,
+        keychainSuffix requestedKeychainSuffix: String?? = nil,
         builderOptions: BundleBuilder.Options
     ) throws -> CreateResult {
         let instanceDir = Paths.instanceDir(slug: slug)
@@ -595,6 +605,14 @@ public enum InstanceCreator {
             ? plan.homeOverride ?? instanceDir.appendingPathComponent("home").path
             : nil
         let homeSymlinks = plan.homeOverride != nil ? plan.homeSymlinks : (redirectHome != nil ? sharedItems : [])
+        // A new copy with its own Library gets its own encryption key too;
+        // an existing one keeps whichever it has been using, even while its
+        // Library isn't separate (its data needs that key when it is again).
+        let keychainSuffix: String? = {
+            if let requestedKeychainSuffix { return requestedKeychainSuffix }
+            if let previous { return previous.keychainSuffix }
+            return redirectHome != nil ? KeychainNames.suffix(for: slug) : nil
+        }()
         // A dedicated home mirrors yours, except for the app's own folders
         // (and what the user shares explicitly). Home mode keeps its promise
         // of a home of its own, shared items aside.
@@ -633,7 +651,9 @@ public enum InstanceCreator {
             },
             pidFile: Paths.pidFile(slug: slug).path,
             redirectHome: redirectHome,
-            redirectPrivate: privateHomeItems
+            redirectPrivate: privateHomeItems,
+            keychainSuffix: redirectHome != nil ? keychainSuffix : nil,
+            keychainKeep: redirectHome != nil && keychainSuffix != nil ? KeychainNames.foreignServices(for: target) : []
         )
 
         var notes = plan.notes
@@ -682,7 +702,8 @@ public enum InstanceCreator {
             redirectedHome: cloneRecord?.usesLauncher == true ? redirectHome : nil,
             separatedGroups: separatedGroups,
             privateHomeItems: cloneRecord?.usesLauncher == true ? privateHomeItems : nil,
-            links: plan.links.isEmpty ? nil : plan.links
+            links: plan.links.isEmpty ? nil : plan.links,
+            keychainSuffix: cloneRecord?.usesLauncher == true || previous?.keychainSuffix != nil ? keychainSuffix : nil
         )
         try InstanceStore.save(manifest)
 

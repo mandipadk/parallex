@@ -346,6 +346,116 @@ final class SeparateLibraryTests: XCTestCase {
         }
     }
 
+    /// A new copy keeps its own "<App> Safe Storage" key (what Electron and
+    /// Chromium apps encrypt their data with) under a name of its own, so it
+    /// neither prompts for nor shares the original's. Both keychain APIs are
+    /// covered, other items are untouched. Runs against a throwaway keychain.
+    func testACopyKeepsItsOwnSafeStorageKey() throws {
+        let keychain = tempDir.appendingPathComponent("probe.keychain-db").path
+        // Creating a keychain adds it to your search list; put the list back
+        // right away (the probe names its keychain explicitly).
+        let searchList = try Shell.run("/usr/bin/security", ["list-keychains", "-d", "user"])
+        let savedList = searchList.split(separator: "\n").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \"")) }
+            .filter { !$0.isEmpty }
+        try XCTSkipIf(savedList.isEmpty, "couldn't read the keychain search list")
+        try Shell.run("/usr/bin/security", ["create-keychain", "-p", "probe", keychain])
+        Shell.runAllowingFailure("/usr/bin/security", ["list-keychains", "-d", "user", "-s"] + savedList)
+        defer { Shell.runAllowingFailure("/usr/bin/security", ["delete-keychain", keychain]) }
+        try Shell.run("/usr/bin/security", ["unlock-keychain", "-p", "probe", keychain])
+
+        let source = tempDir.appendingPathComponent("kc.c")
+        try """
+            #include <Security/Security.h>
+            #include <stdio.h>
+            #include <stdlib.h>
+            #include <string.h>
+            #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            int main(void) {
+                SecKeychainRef kc = NULL;
+                if (SecKeychainOpen(getenv("PROBE_KEYCHAIN"), &kc) != 0) return 2;
+                OSStatus add1 = SecKeychainAddGenericPassword(kc, 18, "Probe Safe Storage", 5, "Probe", 3, "pw1", NULL);
+                OSStatus add2 = SecKeychainAddGenericPassword(kc, 5, "Other", 5, "Probe", 3, "pw3", NULL);
+                OSStatus add4 = SecKeychainAddGenericPassword(kc, 19, "Chrome Safe Storage", 6, "Chrome", 3, "pw4", NULL);
+                CFArrayRef list = CFArrayCreate(NULL, (const void **)&kc, 1, &kCFTypeArrayCallBacks);
+                const void *keys[] = { kSecClass, kSecAttrService, kSecAttrAccount, kSecValueData, kSecUseKeychain };
+                CFDataRef pw2 = CFDataCreate(NULL, (const UInt8 *)"pw2", 3);
+                const void *values[] = { kSecClassGenericPassword, CFSTR("Modern Safe Storage"), CFSTR("Modern"), pw2, kc };
+                CFDictionaryRef item = CFDictionaryCreate(NULL, keys, values, 5, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+                OSStatus add3 = SecItemAdd(item, NULL);
+                UInt32 length = 0; void *data = NULL;
+                OSStatus find = SecKeychainFindGenericPassword(list, 18, "Probe Safe Storage", 5, "Probe", &length, &data, NULL);
+                int found = find == 0 && length == 3 && memcmp(data, "pw1", 3) == 0;
+                const void *qkeys[] = { kSecClass, kSecAttrService, kSecMatchSearchList, kSecReturnData };
+                const void *qvalues[] = { kSecClassGenericPassword, CFSTR("Modern Safe Storage"), list, kCFBooleanTrue };
+                CFDictionaryRef query = CFDictionaryCreate(NULL, qkeys, qvalues, 4, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+                CFTypeRef result = NULL;
+                OSStatus copy = SecItemCopyMatching(query, &result);
+                int copied = copy == 0 && result != NULL && CFDataGetLength(result) == 3;
+                FILE *out = fopen(getenv("FIXTURE_OUT"), "w");
+                fprintf(out, "%d %d %d %d %d %d", (int)add1, (int)add2, (int)add3, found, copied, (int)add4);
+                fclose(out);
+                return 0;
+            }
+            """.write(to: source, atomically: true, encoding: .utf8)
+        let app = tempDir.appendingPathComponent("Keyed.app")
+        let macOS = app.appendingPathComponent("Contents/MacOS")
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        try Shell.run("/usr/bin/clang", [source.path, "-framework", "Security", "-framework", "CoreFoundation",
+                                        "-o", macOS.appendingPathComponent("Keyed").path])
+        let plist: [String: Any] = [
+            "CFBundleExecutable": "Keyed", "CFBundleIdentifier": "com.fake.keyed", "CFBundleName": "Keyed",
+            "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "1.0",
+        ]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: app.appendingPathComponent("Contents/Info.plist"))
+
+        var request = CreateRequest(appReference: app.path, name: "Keyed Work", outputDirectory: outDir)
+        request.cloneApp = true
+        let result = try InstanceCreator.create(request, builderOptions: options)
+        XCTAssertEqual(result.manifest.keychainSuffix, " (Parallex keyed-work)")
+
+        let out = tempDir.appendingPathComponent("keyed.txt")
+        let process = Process()
+        process.executableURL = result.wrapperURL.appendingPathComponent("Contents/MacOS/parallex-launcher")
+        var environment = ProcessInfo.processInfo.environment
+        environment["FIXTURE_OUT"] = out.path
+        environment["PROBE_KEYCHAIN"] = keychain
+        environment["PARALLEX_LAUNCHER_NO_UI"] = "1"
+        process.environment = environment
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(try String(contentsOf: out, encoding: .utf8), "0 0 0 1 1 0", "adds and finds work, under the copy's names")
+
+        func exists(_ service: String) -> Bool {
+            (try? Shell.run("/usr/bin/security", ["find-generic-password", "-s", service, keychain])) != nil
+        }
+        XCTAssertTrue(exists("Probe Safe Storage (Parallex keyed-work)"))
+        XCTAssertTrue(exists("Modern Safe Storage (Parallex keyed-work)"))
+        XCTAssertFalse(exists("Probe Safe Storage"), "the original's name stays free")
+        XCTAssertFalse(exists("Modern Safe Storage"))
+        XCTAssertTrue(exists("Other"), "other items keep their names")
+        XCTAssertTrue(exists("Chrome Safe Storage"), "another browser's key keeps its name (for importing from it)")
+        XCTAssertFalse(exists("Chrome Safe Storage (Parallex keyed-work)"))
+
+        // Its key name stays with it through a Library off-and-on.
+        var off = result.manifest.effectiveSettings
+        off.separateLibrary = false
+        let without = try InstanceCreator.update(result.manifest, InstanceUpdate(settings: off), builderOptions: options).manifest
+        XCTAssertEqual(without.keychainSuffix, " (Parallex keyed-work)")
+        XCTAssertNil(plistConfig(without)[ParallexConfig.Key.keychainSuffix], "not used while the Library is shared")
+        var on = without.effectiveSettings
+        on.separateLibrary = true
+        let again = try InstanceCreator.update(without, InstanceUpdate(settings: on), builderOptions: options).manifest
+        XCTAssertEqual(plistConfig(again)[ParallexConfig.Key.keychainSuffix] as? String, " (Parallex keyed-work)")
+
+        // A duplicate with data reads what it copied with its source's key;
+        // a fresh one gets its own.
+        let twin = try InstanceCreator.duplicate(again, includeData: true, builderOptions: options).manifest
+        XCTAssertEqual(twin.keychainSuffix, " (Parallex keyed-work)")
+        let fresh = try InstanceCreator.duplicate(again, builderOptions: options).manifest
+        XCTAssertEqual(fresh.keychainSuffix, " (Parallex \(fresh.slug))")
+    }
+
     func testToolsStartedByTheCopyDontInheritTheLibrary() throws {
         // A process outside the copy's bundle that inherits the variables
         // takes them out of its environment, so its children are clean.
@@ -415,8 +525,13 @@ final class SeparateLibraryTests: XCTestCase {
         try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
         try Data("old".utf8).write(to: existing.appendingPathComponent("session"))
 
-        try OriginalData.copy(into: manifest, realHome: realHome)
+        XCTAssertEqual(manifest.keychainSuffix, " (Parallex seedy-work)", "a new copy has its own key")
+        try OriginalData.copy(into: manifest, realHome: realHome, builderOptions: options)
         XCTAssertEqual(try String(contentsOf: existing.appendingPathComponent("session"), encoding: .utf8), "account=me")
+        // The original's data needs the original's key.
+        let after = try XCTUnwrap(InstanceStore.load(slug: "seedy-work"))
+        XCTAssertNil(after.keychainSuffix)
+        XCTAssertNil(plistConfig(after)[ParallexConfig.Key.keychainSuffix])
         XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: existing.appendingPathComponent("SingletonLock").path))
         let copiedCookies = URL(fileURLWithPath: home).appendingPathComponent("Library/HTTPStorages/\(manifest.clone!.bundleIdentifier)/httpstorages.sqlite")
         XCTAssertTrue(FileManager.default.fileExists(atPath: copiedCookies.path), "keyed by the copy's own bundle ID")

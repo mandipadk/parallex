@@ -160,6 +160,10 @@ public struct InstanceManifest: Codable, Sendable {
     public var privateHomeItems: [String]?
     /// Short aliases the launcher keeps pointing at long paths (alias → target).
     public var links: [String: String]?
+    /// What the copy's "<App> Safe Storage" keychain items are renamed with
+    /// (its own encryption key). Nil: it uses the original's, as copies
+    /// made before 0.13.1 do, and copies started from the original's data.
+    public var keychainSuffix: String?
 
     public struct CloneRecord: Codable, Sendable, Equatable {
         /// The copy's own bundle identifier.
@@ -190,7 +194,8 @@ public struct InstanceManifest: Codable, Sendable {
         redirectedHome: String? = nil,
         separatedGroups: [String: String]? = nil,
         privateHomeItems: [String]? = nil,
-        links: [String: String]? = nil
+        links: [String: String]? = nil,
+        keychainSuffix: String? = nil
     ) {
         self.name = name
         self.slug = slug
@@ -212,6 +217,7 @@ public struct InstanceManifest: Codable, Sendable {
         self.separatedGroups = separatedGroups
         self.privateHomeItems = privateHomeItems
         self.links = links
+        self.keychainSuffix = keychainSuffix
         if settings != nil {
             schemaVersion = 2
         }

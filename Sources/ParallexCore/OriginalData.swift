@@ -115,7 +115,8 @@ public enum OriginalData {
     @discardableResult
     public static func copy(
         into manifest: InstanceManifest,
-        realHome: URL = FileManager.default.homeDirectoryForCurrentUser
+        realHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+        builderOptions: BundleBuilder.Options = BundleBuilder.Options()
     ) throws -> [Item] {
         guard manifest.redirectedHome != nil else {
             let app = URL(fileURLWithPath: manifest.targetApp).deletingPathExtension().lastPathComponent
@@ -136,6 +137,7 @@ public enum OriginalData {
         guard !items.isEmpty else {
             throw ParallexError("Found nothing of the original app's to copy.")
         }
+
         let fm = FileManager.default
         for item in items {
             switch item.kind {
@@ -158,6 +160,15 @@ public enum OriginalData {
                 try Shell.run("/usr/bin/defaults", ["export", from, exported.path])
                 try Shell.run("/usr/bin/defaults", ["import", to, exported.path])
             }
+        }
+        // What's copied was encrypted with the original's key: from now on
+        // the copy uses that key, not one of its own. Recorded first, so
+        // if the rebuild fails, the next repair finishes the switch.
+        if manifest.keychainSuffix != nil {
+            var sharing = InstanceStore.load(slug: manifest.slug) ?? manifest
+            sharing.keychainSuffix = nil
+            try InstanceStore.save(sharing)
+            _ = try InstanceCreator.update(sharing, InstanceUpdate(), builderOptions: builderOptions)
         }
         return items
     }

@@ -68,6 +68,18 @@ final class InstanceArchiveTests: XCTestCase {
         XCTAssertEqual(imported.clone?.bundleIdentifier, "com.parallex.instance.\(imported.slug)")
         XCTAssertEqual(imported.redirectedHome, Paths.instanceDir(slug: imported.slug).appendingPathComponent("home").path)
         XCTAssertTrue(InstanceStatus.check(imported).problems.isEmpty, "\(InstanceStatus.check(imported).problems)")
+        // Its data was encrypted with its own key: restoring it here finds
+        // that key again.
+        XCTAssertEqual(imported.keychainSuffix, original.keychainSuffix)
+    }
+
+    /// A file's keychain name is only taken when it's one Parallex makes.
+    func testOnlyParallexKeychainNamesAreImported() {
+        XCTAssertTrue(KeychainNames.isValidSuffix(" (Parallex movable-2)"))
+        for bad in ["", " (Parallex )", "(Parallex x)", " (Parallex x) Safe Storage", " (Parallex a/b)",
+                    " (Parallex \(String(repeating: "x", count: 120)))", " (Parallex ümlaut)"] {
+            XCTAssertFalse(KeychainNames.isValidSuffix(bad), bad)
+        }
     }
 
     func testRejectsFilesThatArentInstances() throws {

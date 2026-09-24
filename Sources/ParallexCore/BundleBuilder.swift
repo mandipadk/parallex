@@ -35,6 +35,9 @@ struct WrapperSpec {
     var redirectScope: String? = nil
     /// The copy's own items when its home mirrors yours (see `HomeMirror`).
     var redirectPrivate: [String]? = nil
+    var keychainSuffix: String? = nil
+    /// "… Safe Storage" names that are other apps' and stay as they are.
+    var keychainKeep: [String] = []
 }
 
 /// Assembles, signs, and registers wrapper bundles. The bundle is built in a
@@ -194,6 +197,12 @@ public struct BundleBuilder {
             config[ParallexConfig.Key.redirectScope] = redirectScope
             if let redirectPrivate = spec.redirectPrivate {
                 config[ParallexConfig.Key.redirectPrivate] = redirectPrivate
+            }
+            if let keychainSuffix = spec.keychainSuffix {
+                config[ParallexConfig.Key.keychainSuffix] = keychainSuffix
+                if !spec.keychainKeep.isEmpty {
+                    config[ParallexConfig.Key.keychainKeep] = spec.keychainKeep
+                }
             }
         }
         if spec.homeOverride != nil || spec.redirectHome != nil, !spec.homeSymlinks.isEmpty {

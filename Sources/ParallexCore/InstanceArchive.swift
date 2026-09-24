@@ -207,6 +207,9 @@ public enum InstanceArchive {
         manifest.arguments = []
         manifest.environment = ["PARALLEX_INSTANCE": slug]
         manifest.redirectedHome = manifest.redirectedHome.map(rebase)
+        if let suffix = manifest.keychainSuffix, !KeychainNames.isValidSuffix(suffix) {
+            manifest.keychainSuffix = nil
+        }
         manifest.clone?.bundleIdentifier = "com.parallex.instance.\(slug)"
         // Build the copy fresh from this Mac's app.
         manifest.clone?.sourceVersion = ""

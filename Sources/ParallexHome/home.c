@@ -9,6 +9,11 @@
 // The Parallex launcher sets:
 //   PARALLEX_HOME_REDIRECT  the instance's home folder
 //   PARALLEX_HOME_SCOPE     the copy's bundle path
+//   PARALLEX_KEYCHAIN_SUFFIX appended to the names of the copy's "<App>
+//                           Safe Storage" keychain items (the key Electron
+//                           and Chromium apps encrypt their data with), so a
+//                           copy has its own instead of prompting for, and
+//                           sharing, the original's
 //   PARALLEX_HOME_ENV       "1": also answer getenv("HOME") with the
 //                           instance's home (apps built on Node, Chromium
 //                           or Rust find "~" through $HOME, not the account)
@@ -18,6 +23,8 @@
 // out of its environment, so its own children never see them. Without both
 // variables the library does nothing.
 
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/Security.h>
 #include <limits.h>
 #include <mach-o/dyld.h>
 #include <pwd.h>
@@ -45,6 +52,9 @@ static bool redirect_env = false;
 // For handing your real $HOME back to what the app starts (see below).
 static char real_home_entry[PATH_MAX + 8];
 static char scope_path[PATH_MAX];
+static char keychain_suffix[128];
+// "\n"-separated "… Safe Storage" names left alone (other browsers' keys).
+static char keychain_keep[1024];
 
 static bool has_suffix(const char *text, size_t length, const char *suffix) {
     size_t suffix_length = strlen(suffix);
@@ -86,6 +96,8 @@ static void leave_environment(void) {
     unsetenv("PARALLEX_HOME_REDIRECT");
     unsetenv("PARALLEX_HOME_SCOPE");
     unsetenv("PARALLEX_HOME_ENV");
+    unsetenv("PARALLEX_KEYCHAIN_SUFFIX");
+    unsetenv("PARALLEX_KEYCHAIN_KEEP");
 }
 
 __attribute__((constructor)) static void parallex_home_init(void) {
@@ -119,6 +131,14 @@ __attribute__((constructor)) static void parallex_home_init(void) {
     strlcpy(scope_path, resolved_scope, sizeof(scope_path));
     const char *env = getenv("PARALLEX_HOME_ENV");
     redirect_env = env != NULL && strcmp(env, "1") == 0;
+    const char *suffix = getenv("PARALLEX_KEYCHAIN_SUFFIX");
+    if (suffix != NULL && suffix[0] != '\0' && strlen(suffix) < sizeof(keychain_suffix)) {
+        strlcpy(keychain_suffix, suffix, sizeof(keychain_suffix));
+        const char *keep = getenv("PARALLEX_KEYCHAIN_KEEP");
+        if (keep != NULL && strlen(keep) + 2 < sizeof(keychain_keep)) {
+            snprintf(keychain_keep, sizeof(keychain_keep), "\n%s\n", keep);
+        }
+    }
     // Calls from this library aren't interposed: this is the real account.
     struct passwd *account = getpwuid(getuid());
     if (account != NULL && account->pw_dir != NULL) {
@@ -233,6 +253,152 @@ static int parallex_posix_spawnp(pid_t *pid, const char *file, const posix_spawn
     free(fixed);
     return result;
 }
+
+// MARK: Keychain
+
+static const char safe_storage[] = " Safe Storage";
+
+static bool renames_keychain(void) {
+    return active && keychain_suffix[0] != '\0';
+}
+
+// Whether `name` (length bytes) is on the list of names left alone.
+static bool is_kept(const char *name, size_t length) {
+    if (keychain_keep[0] == '\0' || length + 3 > sizeof(keychain_keep)) {
+        return false;
+    }
+    char needle[sizeof(keychain_keep)];
+    needle[0] = '\n';
+    memcpy(needle + 1, name, length);
+    needle[length + 1] = '\n';
+    needle[length + 2] = '\0';
+    return strstr(keychain_keep, needle) != NULL;
+}
+
+// "<App> Safe Storage" → "<App> Safe Storage<suffix>", for the legacy API
+// (the name isn't NUL-terminated there). NULL when it stays as it is; the
+// caller frees it.
+static char *renamed_service(UInt32 length, const char *name) {
+    size_t tail = sizeof(safe_storage) - 1;
+    if (!renames_keychain() || name == NULL || length < tail || memcmp(name + length - tail, safe_storage, tail) != 0
+        || is_kept(name, length)) {
+        return NULL;
+    }
+    size_t size = length + strlen(keychain_suffix) + 1;
+    char *renamed = malloc(size);
+    if (renamed != NULL) {
+        memcpy(renamed, name, length);
+        strlcpy(renamed + length, keychain_suffix, size - length);
+    }
+    return renamed;
+}
+
+static void copy_entry(const void *key, const void *value, void *into) {
+    CFDictionarySetValue((CFMutableDictionaryRef)into, key, value);
+}
+
+// The same for a SecItem query or attribute dictionary. NULL when it stays
+// as it is; the caller releases it. (A fresh dictionary with CF's retaining
+// callbacks, whatever the caller built theirs with.)
+static CFDictionaryRef renamed_query(CFDictionaryRef query) {
+    if (!renames_keychain() || query == NULL) {
+        return NULL;
+    }
+    CFTypeRef kind = CFDictionaryGetValue(query, kSecClass);
+    CFTypeRef service = CFDictionaryGetValue(query, kSecAttrService);
+    if ((kind != NULL && !CFEqual(kind, kSecClassGenericPassword)) || service == NULL
+        || CFGetTypeID(service) != CFStringGetTypeID()
+        || !CFStringHasSuffix((CFStringRef)service, CFSTR(" Safe Storage"))) {
+        return NULL;
+    }
+    char current[512];
+    if (!CFStringGetCString((CFStringRef)service, current, sizeof(current), kCFStringEncodingUTF8)
+        || is_kept(current, strlen(current))) {
+        return NULL;
+    }
+    CFMutableDictionaryRef renamed = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+                                                               &kCFTypeDictionaryValueCallBacks);
+    CFStringRef name = CFStringCreateWithFormat(NULL, NULL, CFSTR("%s%s"), current, keychain_suffix);
+    if (renamed == NULL || name == NULL) {
+        if (renamed != NULL) CFRelease(renamed);
+        if (name != NULL) CFRelease(name);
+        return NULL;
+    }
+    CFDictionaryApplyFunction(query, copy_entry, renamed);
+    CFDictionarySetValue(renamed, kSecAttrService, name);
+    CFRelease(name);
+    return renamed;
+}
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+static OSStatus parallex_find_generic(CFTypeRef keychains, UInt32 service_length, const char *service,
+                                      UInt32 account_length, const char *account, UInt32 *password_length,
+                                      void **password, SecKeychainItemRef *item) {
+    char *renamed = renamed_service(service_length, service);
+    OSStatus status = renamed != NULL
+        ? SecKeychainFindGenericPassword(keychains, (UInt32)strlen(renamed), renamed, account_length, account,
+                                         password_length, password, item)
+        : SecKeychainFindGenericPassword(keychains, service_length, service, account_length, account,
+                                         password_length, password, item);
+    free(renamed);
+    return status;
+}
+
+static OSStatus parallex_add_generic(SecKeychainRef keychain, UInt32 service_length, const char *service,
+                                     UInt32 account_length, const char *account, UInt32 password_length,
+                                     const void *password, SecKeychainItemRef *item) {
+    char *renamed = renamed_service(service_length, service);
+    OSStatus status = renamed != NULL
+        ? SecKeychainAddGenericPassword(keychain, (UInt32)strlen(renamed), renamed, account_length, account,
+                                        password_length, password, item)
+        : SecKeychainAddGenericPassword(keychain, service_length, service, account_length, account,
+                                        password_length, password, item);
+    free(renamed);
+    return status;
+}
+#pragma clang diagnostic pop
+
+static OSStatus parallex_item_copy(CFDictionaryRef query, CFTypeRef *result) {
+    CFDictionaryRef renamed = renamed_query(query);
+    OSStatus status = SecItemCopyMatching(renamed != NULL ? renamed : query, result);
+    if (renamed != NULL) CFRelease(renamed);
+    return status;
+}
+
+static OSStatus parallex_item_add(CFDictionaryRef attributes, CFTypeRef *result) {
+    CFDictionaryRef renamed = renamed_query(attributes);
+    OSStatus status = SecItemAdd(renamed != NULL ? renamed : attributes, result);
+    if (renamed != NULL) CFRelease(renamed);
+    return status;
+}
+
+static OSStatus parallex_item_update(CFDictionaryRef query, CFDictionaryRef changes) {
+    CFDictionaryRef renamed = renamed_query(query);
+    CFDictionaryRef renamed_changes = renamed_query(changes);
+    OSStatus status = SecItemUpdate(renamed != NULL ? renamed : query,
+                                    renamed_changes != NULL ? renamed_changes : changes);
+    if (renamed != NULL) CFRelease(renamed);
+    if (renamed_changes != NULL) CFRelease(renamed_changes);
+    return status;
+}
+
+static OSStatus parallex_item_delete(CFDictionaryRef query) {
+    CFDictionaryRef renamed = renamed_query(query);
+    OSStatus status = SecItemDelete(renamed != NULL ? renamed : query);
+    if (renamed != NULL) CFRelease(renamed);
+    return status;
+}
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+INTERPOSE(parallex_find_generic, SecKeychainFindGenericPassword);
+INTERPOSE(parallex_add_generic, SecKeychainAddGenericPassword);
+#pragma clang diagnostic pop
+INTERPOSE(parallex_item_copy, SecItemCopyMatching);
+INTERPOSE(parallex_item_add, SecItemAdd);
+INTERPOSE(parallex_item_update, SecItemUpdate);
+INTERPOSE(parallex_item_delete, SecItemDelete);
 
 INTERPOSE(parallex_getenv, getenv);
 INTERPOSE(parallex_execve, execve);

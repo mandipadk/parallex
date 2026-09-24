@@ -71,8 +71,9 @@ public enum AppCloner {
             }
         } else {
             notes.append(
-                "The copy may ask for access to keychain items \(app.name) created (e.g. “\(app.name) Safe "
-                + "Storage”) — allow it, or it starts without saved sign-ins."
+                "With its own Library, a new copy also keeps its own encryption key in the keychain (its own "
+                + "“\(app.name) Safe Storage”) instead of the original's. macOS may ask once to let the copy "
+                + "use it after Parallex refreshes the copy."
             )
         }
         if FileManager.default.fileExists(atPath: app.url.appendingPathComponent("Contents/_MASReceipt").path) {
@@ -221,6 +222,12 @@ public enum AppCloner {
             // Services and helpers macOS starts itself see the same $HOME.
             if spec.launcherConfig[ParallexConfig.Key.redirectPrivate] != nil {
                 variables["PARALLEX_HOME_ENV"] = "1"
+            }
+            if let suffix = spec.launcherConfig[ParallexConfig.Key.keychainSuffix] as? String {
+                variables["PARALLEX_KEYCHAIN_SUFFIX"] = suffix
+                if let keep = spec.launcherConfig[ParallexConfig.Key.keychainKeep] as? [String] {
+                    variables["PARALLEX_KEYCHAIN_KEEP"] = keep.joined(separator: "\n")
+                }
             }
             try injectEnvironment(into: copy, source: spec.source.url, variables)
         }

@@ -52,6 +52,12 @@ public enum ParallexConfig {
         /// stay the instance's own. The copy then also sees that home as
         /// `$HOME`.
         public static let redirectPrivate = "RedirectPrivate"
+        /// Appended to the copy's "<App> Safe Storage" keychain items' names,
+        /// so it has its own encryption key instead of the original's.
+        public static let keychainSuffix = "KeychainSuffix"
+        /// "… Safe Storage" names left alone: other apps' keys (a browser
+        /// copy importing from Chrome reads Chrome's).
+        public static let keychainKeep = "KeychainKeep"
         /// File the launcher writes its PID to before exec. Because execv
         /// keeps the PID, this is the running instance's PID — the reliable
         /// way to find instances (their Launch Services identity reverts to

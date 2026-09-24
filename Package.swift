@@ -44,7 +44,10 @@ let package = Package(
 
         // The home-redirect library (C, no dependencies): answers account
         // lookups with the instance's home inside an instance's own copy.
-        .target(name: "ParallexHome"),
+        .target(
+            name: "ParallexHome",
+            linkerSettings: [.linkedFramework("Security"), .linkedFramework("CoreFoundation")]
+        ),
 
         // The app-group mapping library (Objective-C): translates a sandboxed
         // copy's requests for its original app groups to its own.

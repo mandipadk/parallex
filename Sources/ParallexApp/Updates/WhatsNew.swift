@@ -22,7 +22,7 @@ enum ReleaseHighlights {
             Highlight(
                 symbol: "folder.badge.person.crop",
                 title: "Hidden folders stay separate",
-                detail: "New copies keep the folders their app makes in your home, like ~/.vscode, to themselves. Everything else there still looks like your own home."
+                detail: "New copies keep the folders their app makes in your home, like ~/.vscode, to themselves, and their own encryption key in your keychain."
             ),
             Highlight(
                 symbol: "checkmark.seal",

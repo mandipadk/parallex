@@ -87,6 +87,7 @@ enum Fixtures {
         process.arguments = [
             "-dynamiclib", "-O2", "-I", source.appendingPathComponent("include").path,
             source.appendingPathComponent("home.c").path, "-o", output.path,
+            "-framework", "Security", "-framework", "CoreFoundation",
         ]
         try! process.run()
         process.waitUntilExit()

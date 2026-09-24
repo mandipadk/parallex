@@ -326,6 +326,13 @@ if let redirectHome = config[ParallexConfig.Key.redirectHome] as? String,
     } else {
         unsetenv("PARALLEX_HOME_ENV")
     }
+    if let suffix = config[ParallexConfig.Key.keychainSuffix] as? String {
+        setenv("PARALLEX_KEYCHAIN_SUFFIX", suffix, 1)
+        setenv("PARALLEX_KEYCHAIN_KEEP", (config[ParallexConfig.Key.keychainKeep] as? [String] ?? []).joined(separator: "\n"), 1)
+    } else {
+        unsetenv("PARALLEX_KEYCHAIN_SUFFIX")
+        unsetenv("PARALLEX_KEYCHAIN_KEEP")
+    }
     setenv("PARALLEX_HOME_REDIRECT", redirectHome, 1)
     setenv("PARALLEX_HOME_SCOPE", bundle, 1)
     let existing = (ProcessInfo.processInfo.environment["DYLD_INSERT_LIBRARIES"] ?? "")
