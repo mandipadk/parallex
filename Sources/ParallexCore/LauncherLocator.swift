@@ -13,6 +13,11 @@ public enum LauncherLocator {
         try locate(helper: "libparallexhome.dylib", override: "PARALLEX_HOME_LIBRARY", executable: false)
     }
 
+    /// The app-group mapping library copied into sandboxed own-identity copies.
+    public static func locateGroupsLibrary() throws -> URL {
+        try locate(helper: "libparallexgroups.dylib", override: "PARALLEX_GROUPS_LIBRARY", executable: false)
+    }
+
     /// The link router binary ("Parallex Links"), shipped the same way.
     public static func locateRouter() throws -> URL {
         try locate(helper: "parallex-router", override: "PARALLEX_ROUTER")

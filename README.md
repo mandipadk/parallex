@@ -73,6 +73,16 @@ still goes through the launcher, so its isolation always applies.
   normally. It's on by default: turn off **Separate Library** in the
   instance, or use `parallex edit <name> --no-separate-library`. Copies made
   before 0.9 keep using the real `~/Library` until you turn it on.
+- **Shared containers of App Store apps.** Many sandboxed apps keep their
+  sign-in and data in app-group containers shared by the developer's apps
+  (WhatsApp, for one). These are keyed by group, not by app. A copy's group
+  entitlements are therefore renamed to groups of its own, and its nested
+  services get identifiers of their own. A small library shipped inside the
+  copy, `libparallexgroups.dylib`, which Launch Services loads into it,
+  translates the app's requests for its original groups and services to the
+  copy's. Tested live: a WhatsApp copy starts signed out, with its database
+  in its own containers, and the original's are never opened. This is on by
+  default for new copies ("Separate shared data").
 - **App Store / sandboxed apps** get their own sandbox container this way — the
   one way to give them separate data. Apps that keep data in shared app-group
   containers (e.g. WhatsApp) may still see the original's data there;
@@ -319,5 +329,5 @@ try with `--env`. Recipes live in `Presets.recipes`.
 
 ## Status
 
-v0.11 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
+v0.12 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
 in [poc/](poc/).

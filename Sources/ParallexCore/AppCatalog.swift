@@ -94,10 +94,9 @@ public enum AppCatalog {
         if info.isSandboxed {
             let entitlements = AppInspector.signingInfo(of: info.url).entitlements ?? [:]
             let groups = entitlements["com.apple.security.application-groups"] as? [String] ?? []
-            if groups.isEmpty {
-                return make(.ownIdentity, "Its own copy gets its own data container.", clone: true)
-            }
-            return make(.limited, "Its own copy runs separately, but some data stays shared.", clone: true)
+            return make(.ownIdentity, groups.isEmpty
+                ? "Its own copy gets its own data container."
+                : "Its own copy gets its own containers, including shared ones.", clone: true)
         }
         return make(.ownIdentity, "Its own copy gets separate sign-in and data.", clone: true)
     }

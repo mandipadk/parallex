@@ -25,6 +25,7 @@ class Parallex < Formula
     bin.install "#{products}/parallex-launcher"
     bin.install "#{products}/parallex-router"
     libexec.install "#{products}/libparallexhome.dylib"
+    libexec.install "#{products}/libparallexgroups.dylib"
   end
 
   test do

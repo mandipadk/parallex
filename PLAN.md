@@ -238,4 +238,14 @@ Defaults: `--mode auto` (doctor logic), wrapper written to `/Applications`, data
     daemon; APFS clones; run-state files dropped); export/import of instances as `.parallex`
     files (a registered document type; paths rebased to the importing Mac, the app rebuilt there,
     a copy's preferences carried along).
-11. **Later/optional** — badge style options; published Homebrew tap.
+11. **v0.11.1–0.11.2** — one frosted window (sidebar, content and toolbar share one material; the
+    classic full-height sidebar kept via `UIDesignRequiresCompatibility`), a toolbar wordmark,
+    content clipped below the toolbar.
+12. **v0.12** — separate app-group containers for own-identity copies of sandboxed apps: group
+    entitlements renamed (`group.parallex.<slug>-<tag>.<original>`, the tag random per instance and
+    kept across rebuilds), nested XPC services given identifiers under the copy's, and
+    `libparallexgroups.dylib` — shipped inside the copy, loaded through `LSEnvironment` and the
+    services' environment — mapping group containers, group defaults, service connections, and
+    group-prefixed Mach service, semaphore, shared-memory and message-port names to the copy's own.
+    Verified with WhatsApp. Earlier copies keep sharing until turned on.
+13. **Later/optional** — badge style options; published Homebrew tap.

@@ -70,6 +70,9 @@ public enum IsolationCheck {
         let instanceDir: String
         /// The instance's own app (a copy's resources aren't data).
         let appBundle: String
+        /// Outside the instance folder but the instance's alone (a copy's
+        /// container and app-group containers).
+        let ownLocations: [String]
         let originalDataLocations: [(prefix: String, reason: String)]
         let identityLocations: [String]
         /// Recipe-declared folders the app can't be told to move.
@@ -148,6 +151,19 @@ public enum IsolationCheck {
                 identityLocations = bundleID.isEmpty ? [] : keyedByBundleID(bundleID)
                 appShared = (manifest.recipe?.unavoidablyShared ?? []).map { ("\(home)/\($0.path)", $0.reason) }
             }
+            // A sandboxed copy with its own app groups: the original's group
+            // containers are the original's data; the copy's are its own.
+            var own: [String] = []
+            for (originalGroup, renamed) in manifest.separatedGroups ?? [:] {
+                original.append(("\(library)/Group Containers/\(originalGroup)/", "the original's shared container"))
+                own.append("\(library)/Group Containers/\(renamed)/")
+            }
+            if let copyID = manifest.clone?.bundleIdentifier {
+                own.append("\(library)/Containers/\(copyID)/")
+                // Its renamed services' containers (slugs have no dots).
+                own.append("\(library)/Containers/\(copyID).")
+            }
+            ownLocations = own
             originalDataLocations = original
             sharedByChoice = choice
         }
@@ -158,6 +174,9 @@ public enum IsolationCheck {
             guard path.hasPrefix(home + "/"), !path.hasPrefix(appBundle + "/") else { return nil }
             if path.hasPrefix(instanceDir + "/") || path == instanceDir {
                 return .init(path: path, category: .isolated, reason: "inside the instance directory")
+            }
+            if ownLocations.contains(where: { path.hasPrefix($0) }) {
+                return .init(path: path, category: .isolated, reason: "the copy's own container")
             }
             if let match = sharedByChoice.first(where: { matches(path, $0.prefix) }) {
                 return .init(path: path, category: .sharedByChoice, reason: match.reason)

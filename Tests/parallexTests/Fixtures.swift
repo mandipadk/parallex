@@ -94,6 +94,23 @@ enum Fixtures {
         return output
     }()
 
+    /// The app-group mapping library, compiled once per test run.
+    static let groupsLibrary: URL = {
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parallex-tests-libparallexgroups-\(ProcessInfo.processInfo.processIdentifier).dylib")
+        let source = repositoryRoot.appendingPathComponent("Sources/ParallexGroups")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
+        process.arguments = [
+            "-dynamiclib", "-fobjc-arc", "-framework", "Foundation", "-I", source.appendingPathComponent("include").path,
+            source.appendingPathComponent("groups.m").path, "-o", output.path,
+        ]
+        try! process.run()
+        process.waitUntilExit()
+        precondition(process.terminationStatus == 0, "couldn't compile the app-group mapping library")
+        return output
+    }()
+
     /// Compile a small native app whose executable writes what it sees as
     /// home (NSHomeDirectory, Application Support, $HOME) to $FIXTURE_OUT.
     static func makeHomeReportingApp(named name: String, bundleID: String, in directory: URL) throws -> URL {

@@ -16,6 +16,7 @@ struct InstanceDetail: View {
     @State private var confirmRemove = false
     @State private var cloneAssessment: AppCloner.Assessment?
     @State private var targetSandboxed = false
+    @State private var targetHasGroups = false
 
     init(entry: InstanceEntry) {
         self.entry = entry
@@ -34,7 +35,10 @@ struct InstanceDetail: View {
                 DetailHeader(entry: entry)
                     .padding(.bottom, Theme.Space.xl)
                 ProblemBanners(entry: entry)
-                IsolationSection(entry: entry, draft: $draft, cloneAssessment: cloneAssessment, targetSandboxed: targetSandboxed)
+                IsolationSection(
+                    entry: entry, draft: $draft, cloneAssessment: cloneAssessment,
+                    targetSandboxed: targetSandboxed, targetHasGroups: targetHasGroups
+                )
                 AppearanceSection(entry: entry, draft: $draft)
                 LaunchSection(entry: entry, openAtStart: $draft.settings.openAtLaunch.orFalse, shortcut: $draft.settings.shortcut)
                 StorageSection(entry: entry)
@@ -79,10 +83,13 @@ struct InstanceDetail: View {
         .task(id: entry.manifest.targetApp) {
             let targetPath = entry.manifest.targetApp
             let inspected = await Task.detached {
-                (try? AppInspector.inspect(URL(fileURLWithPath: targetPath))).map { (AppCloner.assess($0), $0.isSandboxed) }
+                (try? AppInspector.inspect(URL(fileURLWithPath: targetPath))).map {
+                    (AppCloner.assess($0), $0.isSandboxed, $0.isSandboxed && !AppCloner.appGroups(of: $0.url).isEmpty)
+                }
             }.value
             cloneAssessment = inspected?.0
             targetSandboxed = inspected?.1 ?? false
+            targetHasGroups = inspected?.2 ?? false
         }
         .confirmationDialog("Remove “\(entry.name)”?", isPresented: $confirmRemove, titleVisibility: .visible) {
             Button("Move Instance and Its Data to Trash", role: .destructive) { model.remove(entry, keepData: false) }
@@ -361,6 +368,7 @@ private struct IsolationSection: View {
     @Binding var draft: InstanceDraft
     let cloneAssessment: AppCloner.Assessment?
     let targetSandboxed: Bool
+    let targetHasGroups: Bool
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -380,6 +388,13 @@ private struct IsolationSection: View {
                     ExplainedToggle(
                         title: "Separate Library",
                         detail: "Everything \(entry.targetName) keeps in ~/Library — sign-ins, caches, web storage — stays in this instance. Your documents and other folders stay shared.",
+                        isOn: separateLibraryBinding
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                } else if draft.settings.isClone, targetHasGroups {
+                    ExplainedToggle(
+                        title: "Separate shared data",
+                        detail: "\(entry.targetName) keeps its sign-in and data in containers shared across the developer's apps. This copy gets its own.",
                         isOn: separateLibraryBinding
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -411,6 +426,9 @@ private struct IsolationSection: View {
         let manifest = entry.manifest
         if manifest.redirectedHome != nil {
             return "Runs as its own app with its own Library, so nothing it keeps there is shared with \(entry.targetName)."
+        }
+        if manifest.separatedGroups != nil {
+            return "Runs as its own app with its own containers, shared ones included — separate from \(entry.targetName)."
         }
         let identity = manifest.clone != nil ? "Runs as its own app. " : ""
         switch manifest.mode {

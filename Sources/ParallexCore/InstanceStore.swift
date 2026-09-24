@@ -41,16 +41,18 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     public var openAtLaunch: Bool?
     /// Global keyboard shortcut that opens (or brings forward) the instance.
     public var shortcut: KeyShortcut?
-    /// Own-identity copies of apps that aren't sandboxed keep everything in
-    /// ~/Library (Application Support, caches, web storage…) in the
-    /// instance. `nil` means on; `false` turns it off.
+    /// Own-identity copies keep their data to themselves: a copy of an app
+    /// that isn't sandboxed gets its own ~/Library (Application Support,
+    /// caches, web storage…); a copy of a sandboxed app gets its own
+    /// app-group containers. `nil` means on; `false` turns it off.
     public var separateLibrary: Bool?
 
     public var isClone: Bool { cloneApp == true }
 
-    /// Whether an own-identity copy of `app` gets its own ~/Library.
+    /// Whether an own-identity copy of `app` keeps its data separate (its
+    /// own ~/Library, or for a sandboxed app its own app groups).
     public func separatesLibrary(for app: AppInfo) -> Bool {
-        isClone && !app.isSandboxed && separateLibrary != false
+        isClone && separateLibrary != false
     }
 
     public init(
@@ -147,6 +149,8 @@ public struct InstanceManifest: Codable, Sendable {
     /// The home an own-identity copy is shown as the user's (its own
     /// ~/Library lives there). Nil when the copy uses the real ~/Library.
     public var redirectedHome: String?
+    /// A sandboxed copy's app groups: the original's → the copy's own.
+    public var separatedGroups: [String: String]?
 
     public struct CloneRecord: Codable, Sendable, Equatable {
         /// The copy's own bundle identifier.
@@ -174,7 +178,8 @@ public struct InstanceManifest: Codable, Sendable {
         targetBundleID: String? = nil,
         settings: InstanceSettings? = nil,
         clone: CloneRecord? = nil,
-        redirectedHome: String? = nil
+        redirectedHome: String? = nil,
+        separatedGroups: [String: String]? = nil
     ) {
         self.name = name
         self.slug = slug
@@ -193,6 +198,7 @@ public struct InstanceManifest: Codable, Sendable {
         self.settings = settings
         self.clone = clone
         self.redirectedHome = redirectedHome
+        self.separatedGroups = separatedGroups
         if settings != nil {
             schemaVersion = 2
         }
@@ -207,9 +213,13 @@ public struct InstanceManifest: Codable, Sendable {
             // Own-identity copies made before 0.9 used the real ~/Library;
             // keep it that way until the user turns separation on, so a
             // routine rebuild doesn't make the copy look signed out.
-            if settings.separateLibrary == nil, clone != nil, redirectedHome == nil,
-               InstanceStatus.compareVersions(parallexVersion, "0.9.0") == .orderedAscending {
-                settings.separateLibrary = false
+            // Likewise copies of sandboxed apps made before 0.12, which
+            // shared the original's app groups.
+            if settings.separateLibrary == nil, let clone, redirectedHome == nil, separatedGroups == nil {
+                let introduced = clone.usesLauncher ? "0.9.0" : "0.12.0"
+                if InstanceStatus.compareVersions(parallexVersion, introduced) == .orderedAscending {
+                    settings.separateLibrary = false
+                }
             }
             return settings
         }

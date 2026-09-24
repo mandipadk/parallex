@@ -581,11 +581,11 @@ public enum InstanceCreator {
             sharedItems: sharedItems,
             enabledOptions: settings.enabledOptions.map(Set.init),
             clone: settings.isClone,
-            separateLibrary: settings.separatesLibrary(for: target)
+            separateLibrary: settings.separatesLibrary(for: target) && !target.isSandboxed
         )
         // An own-identity copy with its own Library is shown the instance's
         // home as the user's home (the home-mode home, or a dedicated one).
-        let redirectHome = settings.separatesLibrary(for: target)
+        let redirectHome = settings.separatesLibrary(for: target) && !target.isSandboxed
             ? plan.homeOverride ?? instanceDir.appendingPathComponent("home").path
             : nil
         let homeSymlinks = plan.homeOverride != nil ? plan.homeSymlinks : (redirectHome != nil ? sharedItems : [])
@@ -621,12 +621,16 @@ public enum InstanceCreator {
         )
 
         var notes = plan.notes
+        var separatedGroups: [String: String]?
         let output: BundleBuilder.BuildOutput
         var cloneRecord: InstanceManifest.CloneRecord?
         if settings.isClone {
             let built = try buildClone(
-                spec: spec, target: target, previous: previous, builderOptions: builderOptions
+                spec: spec, target: target, previous: previous,
+                separateGroups: settings.separatesLibrary(for: target) && target.isSandboxed,
+                builderOptions: builderOptions
             )
+            separatedGroups = built.groupMap.isEmpty ? nil : built.groupMap
             output = built.output
             cloneRecord = built.record
             spec.targetBinaryPath = built.executable
@@ -659,7 +663,8 @@ public enum InstanceCreator {
             targetBundleID: target.bundleID,
             settings: settings,
             clone: cloneRecord,
-            redirectedHome: cloneRecord?.usesLauncher == true ? redirectHome : nil
+            redirectedHome: cloneRecord?.usesLauncher == true ? redirectHome : nil,
+            separatedGroups: separatedGroups
         )
         try InstanceStore.save(manifest)
 
@@ -681,8 +686,12 @@ public enum InstanceCreator {
         spec: WrapperSpec,
         target: AppInfo,
         previous: InstanceManifest?,
+        separateGroups: Bool,
         builderOptions: BundleBuilder.Options
-    ) throws -> (output: BundleBuilder.BuildOutput, record: InstanceManifest.CloneRecord, executable: String) {
+    ) throws -> (
+        output: BundleBuilder.BuildOutput, record: InstanceManifest.CloneRecord, executable: String,
+        groupMap: [String: String]
+    ) {
         let fm = FileManager.default
         let assessment = AppCloner.assess(target)
         guard assessment.possible else {
@@ -735,7 +744,23 @@ public enum InstanceCreator {
             }
         }
 
-        let url = try AppCloner.build(AppCloner.CloneSpec(
+        // A sandboxed copy's own app groups (see AppCloner.renamedGroup).
+        var groupMap: [String: String] = [:]
+        var groupsLibrary: URL?
+        if separateGroups, target.isSandboxed {
+            // Keep the names a rebuild already gave (the copy's data is
+            // there); new groups get this instance's tag.
+            let previousMap = previous?.separatedGroups ?? [:]
+            let tag = previousMap.values.first.flatMap { Self.groupTag(in: $0, slug: spec.slug) } ?? AppCloner.newGroupTag()
+            for group in AppCloner.appGroups(of: target.url) {
+                groupMap[group] = previousMap[group] ?? AppCloner.renamedGroup(group, slug: spec.slug, tag: tag)
+            }
+            if !groupMap.isEmpty {
+                groupsLibrary = try LauncherLocator.locateGroupsLibrary()
+            }
+        }
+
+        var buildSpec = AppCloner.CloneSpec(
             source: target,
             destination: destination,
             bundleIdentifier: spec.bundleIdentifier,
@@ -744,7 +769,10 @@ public enum InstanceCreator {
             launcherBinary: spec.launcherBinary,
             launcherConfig: config,
             iconICNS: icon
-        ), sign: builderOptions.sign)
+        )
+        buildSpec.groupMap = groupMap
+        buildSpec.groupsLibrary = groupsLibrary
+        let url = try AppCloner.build(buildSpec, sign: builderOptions.sign)
         if builderOptions.registerWithLaunchServices, let lsregister = BundleBuilder.lsregisterPath {
             Shell.runAllowingFailure(lsregister, ["-f", url.path])
         }
@@ -753,7 +781,14 @@ public enum InstanceCreator {
             sourceVersion: AppCloner.version(of: target.url),
             usesLauncher: useLauncher
         )
-        return (BundleBuilder.BuildOutput(url: url, warnings: warnings), record, executable)
+        return (BundleBuilder.BuildOutput(url: url, warnings: warnings), record, executable, groupMap)
+    }
+
+    /// The instance tag in a renamed group ("group.parallex.<slug>-<tag>.…").
+    static func groupTag(in renamed: String, slug: String) -> String? {
+        let prefix = "group.parallex.\(slug)-"
+        guard renamed.hasPrefix(prefix) else { return nil }
+        return renamed.dropFirst(prefix.count).split(separator: ".").first.map(String.init)
     }
 
     private static func isCustom(_ source: IconBuilder.IconSource?) -> Bool {
@@ -899,7 +934,9 @@ public struct RemoveResult: Sendable {
     public let wasRunning: Bool
     /// A clone's sandbox container, which macOS doesn't let other apps
     /// delete; the user can remove it in Finder.
-    public let leftoverContainer: String?
+    /// The copy's sandbox containers (its own and its services'), which
+    /// macOS only lets the user delete.
+    public let leftoverContainers: [String]
 }
 
 public enum InstanceRemover {
@@ -947,6 +984,16 @@ public enum InstanceRemover {
         }
 
         WorkspaceStore.forget(slug: manifest.slug)
+        var leftoverGroups: [String] = []
+        if !keepData {
+            let groups = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Group Containers")
+            for renamed in (manifest.separatedGroups ?? [:]).values.sorted() where renamed.hasPrefix("group.parallex.") {
+                let container = groups.appendingPathComponent(renamed)
+                if fm.fileExists(atPath: container.path), (try? fm.trashItem(at: container, resultingItemURL: nil)) == nil {
+                    leftoverGroups.append(container.path)
+                }
+            }
+        }
 
         return RemoveResult(
             instanceName: manifest.name,
@@ -956,11 +1003,13 @@ public enum InstanceRemover {
             dataTrashed: dataTrashed,
             dataKeptAt: dataKeptAt,
             wasRunning: wasRunning,
-            leftoverContainer: manifest.clone.flatMap { clone in
-                let container = fm.homeDirectoryForCurrentUser
-                    .appendingPathComponent("Library/Containers/\(clone.bundleIdentifier)").path
-                return fm.fileExists(atPath: container) ? container : nil
-            }
+            leftoverContainers: (manifest.clone.map { clone in
+                let containers = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Containers")
+                return ((try? fm.contentsOfDirectory(atPath: containers.path)) ?? [])
+                    .filter { $0 == clone.bundleIdentifier || $0.hasPrefix(clone.bundleIdentifier + ".") }
+                    .sorted()
+                    .map { containers.appendingPathComponent($0).path }
+            } ?? []) + leftoverGroups
         )
     }
 

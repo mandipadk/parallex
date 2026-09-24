@@ -18,6 +18,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.12.0", highlights: [
+            Highlight(
+                symbol: "person.2",
+                title: "Two WhatsApps, two accounts",
+                detail: "Own copies of App Store apps now get their own shared containers too — where WhatsApp and others keep their sign-in and messages."
+            ),
+            Highlight(
+                symbol: "macwindow",
+                title: "One calm window",
+                detail: "The sidebar, content and toolbar are a single frosted surface, with the Parallex wordmark up top."
+            ),
+        ]),
         Release(version: "0.11.0", highlights: [
             Highlight(
                 symbol: "arrow.right.doc.on.clipboard",

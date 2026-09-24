@@ -68,9 +68,8 @@ public enum AppCloner {
         if app.isSandboxed {
             if let groups = entitlements["com.apple.security.application-groups"] as? [String], !groups.isEmpty {
                 notes.append(
-                    "\(app.name) keeps data in shared app-group containers (\(groups.first!)…), which are keyed by "
-                    + "group, not by app — the copy will likely see the original's data there, and macOS may ask "
-                    + "permission. Isolation is only certain for data in the app's own container."
+                    "\(app.name) keeps data in shared app-group containers (\(groups.first!)…). The copy gets its "
+                    + "own renamed ones, so its sign-in and data stay separate from the original's."
                 )
             } else {
                 notes.append("Sandboxed: the copy gets its own container, so its data is separate from the original's.")
@@ -99,18 +98,61 @@ public enum AppCloner {
         var launcherBinary: URL
         var launcherConfig: [String: Any]
         var iconICNS: URL?
+        /// Sandboxed copies: their app groups renamed (original → the copy's
+        /// own), with the mapping library (installed inside the copy) that
+        /// translates the app's requests.
+        var groupMap: [String: String] = [:]
+        var groupsLibrary: URL? = nil
+    }
+
+    /// Where the mapping library lives inside a sandboxed copy.
+    static let groupsLibraryPath = "Contents/Frameworks/libparallexgroups.dylib"
+
+    /// The copy's own name for one of the app's groups. `tag` is random per
+    /// instance (and kept across rebuilds), so a new instance with an old
+    /// name never lands in the old one's containers.
+    static func renamedGroup(_ original: String, slug: String, tag: String) -> String {
+        let rest = original.hasPrefix("group.") ? String(original.dropFirst("group.".count)) : original
+        return "group.parallex.\(slug)-\(tag).\(rest)"
+    }
+
+    static func newGroupTag() -> String {
+        String(UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(6))
+    }
+
+    /// Every app group the app and its nested code are entitled to.
+    public static func appGroups(of app: URL) -> [String] {
+        var groups: [String] = []
+        func collect(_ url: URL) {
+            let entitlements = AppInspector.signingInfo(of: url).entitlements ?? [:]
+            for group in entitlements["com.apple.security.application-groups"] as? [String] ?? [] where !groups.contains(group) {
+                groups.append(group)
+            }
+        }
+        collect(app)
+        if let enumerator = FileManager.default.enumerator(at: app.appendingPathComponent("Contents"), includingPropertiesForKeys: nil) {
+            // Everything re-signing gives its own entitlements.
+            for case let url as URL in enumerator
+            where ["xpc", "appex", "app", "plugin", "bundle", "systemextension", "framework"].contains(url.pathExtension) {
+                collect(url)
+            }
+        }
+        return groups
     }
 
     /// Put the home-redirect library at its shared location (replaced
     /// atomically — running copies have it mapped) and return that path.
     static func installHomeLibrary(from source: URL) throws -> URL {
+        try installSharedLibrary(from: source, to: Paths.homeLibrary)
+    }
+
+    private static func installSharedLibrary(from source: URL, to destination: URL) throws -> URL {
         let fm = FileManager.default
-        let destination = Paths.homeLibrary
         if let current = try? Data(contentsOf: destination), let new = try? Data(contentsOf: source), current == new {
             return destination
         }
         try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let staged = destination.deletingLastPathComponent().appendingPathComponent(".libparallexhome-\(UUID().uuidString).dylib")
+        let staged = destination.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).dylib")
         try fm.copyItem(at: source, to: staged)
         guard rename(staged.path, destination.path) == 0 else {
             try? fm.removeItem(at: staged)
@@ -182,6 +224,35 @@ public enum AppCloner {
                 "PARALLEX_HOME_SCOPE": scope,
             ])
         }
+        if !spec.groupMap.isEmpty, let source = spec.groupsLibrary {
+            // Inside the copy (signed with it), so the copy never depends on
+            // anything outside itself.
+            let library = copy.appendingPathComponent(groupsLibraryPath)
+            try fm.createDirectory(at: library.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? fm.removeItem(at: library)
+            try fm.copyItem(at: source, to: library)
+            let libraryPath = spec.destination.standardizedFileURL.appendingPathComponent(groupsLibraryPath).path
+            // Nested services get identities of their own too: with the
+            // original's identifier and a new signature, macOS would ask
+            // whether they may use the original service's data.
+            let serviceMap = try renameNestedBundles(in: copy, slug: spec.bundleIdentifier)
+            func encode(_ map: [String: String]) -> String {
+                map.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ";")
+            }
+            // Launch Services applies LSEnvironment to the app however it's
+            // opened; services get the same through their own Info.plist.
+            var environment = [
+                "DYLD_INSERT_LIBRARIES": libraryPath,
+                "PARALLEX_GROUP_MAP": encode(spec.groupMap),
+            ]
+            if !serviceMap.isEmpty {
+                environment["PARALLEX_SERVICE_MAP"] = encode(serviceMap)
+            }
+            var launchEnvironment = info["LSEnvironment"] as? [String: String] ?? [:]
+            launchEnvironment.merge(environment) { _, new in new }
+            info["LSEnvironment"] = launchEnvironment
+            try injectEnvironment(into: copy, source: spec.source.url, environment, includeSandboxed: true)
+        }
         info[ParallexConfig.rootKey] = spec.launcherConfig
         let plistData = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
         try plistData.write(to: infoURL)
@@ -190,7 +261,7 @@ public enum AppCloner {
         try? fm.removeItem(at: contents.appendingPathComponent("_MASReceipt"))
 
         if sign {
-            try resign(copy, source: spec.source, within: staging)
+            try resign(copy, source: spec.source, within: staging, groupMap: spec.groupMap)
         }
 
         // Swap in the new copy; if that fails, put the old one back.
@@ -210,6 +281,31 @@ public enum AppCloner {
         return spec.destination
     }
 
+    /// Give every nested XPC service an identifier under the copy's own
+    /// (`<copy id>.<original id>`). Returns original → new, for the service
+    /// connections the mapping library translates. Helper apps and
+    /// extensions keep theirs: they're looked up by identifier through APIs
+    /// the library doesn't translate (login items, extension settings).
+    static func renameNestedBundles(in app: URL, slug copyID: String) throws -> [String: String] {
+        let fm = FileManager.default
+        var renamed: [String: String] = [:]
+        guard let enumerator = fm.enumerator(at: app.appendingPathComponent("Contents"), includingPropertiesForKeys: [.isSymbolicLinkKey])
+        else { return [:] }
+        for case let url as URL in enumerator where url.pathExtension == "xpc" {
+            if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true { continue }
+            let plistURL = url.appendingPathComponent("Contents/Info.plist")
+            guard let data = try? Data(contentsOf: plistURL),
+                  var plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any],
+                  let original = plist["CFBundleIdentifier"] as? String, !original.hasPrefix(copyID)
+            else { continue }
+            let new = "\(copyID).\(original)"
+            plist["CFBundleIdentifier"] = new
+            renamed[original] = new
+            try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: plistURL)
+        }
+        return renamed
+    }
+
     /// Parts of an app that macOS starts itself — XPC services, helper apps
     /// opened through Launch Services — don't inherit the launcher's
     /// environment. Their own Info.plist can carry environment variables
@@ -217,7 +313,9 @@ public enum AppCloner {
     /// redirect is written there too. Runs before re-signing.
     /// Sandboxed services are skipped: the redirected home would be outside
     /// their container, where the sandbox denies access.
-    static func injectEnvironment(into app: URL, source: URL, _ environment: [String: String]) throws {
+    static func injectEnvironment(
+        into app: URL, source: URL, _ environment: [String: String], includeSandboxed: Bool = false
+    ) throws {
         let fm = FileManager.default
         let contents = app.appendingPathComponent("Contents")
         guard let enumerator = fm.enumerator(at: contents, includingPropertiesForKeys: [.isSymbolicLinkKey]) else { return }
@@ -225,7 +323,7 @@ public enum AppCloner {
             if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true { continue }
             let relative = String(url.path.dropFirst(app.path.count))
             let entitlements = AppInspector.signingInfo(of: source.appendingPathComponent(relative)).entitlements ?? [:]
-            if entitlements["com.apple.security.app-sandbox"] as? Bool == true { continue }
+            if !includeSandboxed, entitlements["com.apple.security.app-sandbox"] as? Bool == true { continue }
             let plistURL = url.appendingPathComponent("Contents/Info.plist")
             guard let data = try? Data(contentsOf: plistURL),
                   var plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any]
@@ -249,7 +347,7 @@ public enum AppCloner {
     /// apps, extensions, XPC services) keeps its own entitlements minus the
     /// restricted ones; the hardened runtime is dropped, which also lifts
     /// library validation between the re-signed pieces.
-    static func resign(_ bundle: URL, source: AppInfo, within workArea: URL) throws {
+    static func resign(_ bundle: URL, source: AppInfo, within workArea: URL, groupMap: [String: String] = [:]) throws {
         let fm = FileManager.default
         // Resolve symlinked prefixes (/var → /private/var) so enumerated
         // paths and the bundle path share one spelling; relative paths map
@@ -269,6 +367,9 @@ public enum AppCloner {
             if let original,
                var entitlements = AppInspector.signingInfo(of: original).entitlements {
                 entitlements = entitlements.filter { !isRestricted($0.key) }
+                if let groups = entitlements["com.apple.security.application-groups"] as? [String], !groupMap.isEmpty {
+                    entitlements["com.apple.security.application-groups"] = groups.map { groupMap[$0] ?? $0 }
+                }
                 if !entitlements.isEmpty {
                     let file = workDir.appendingPathComponent("\(UUID().uuidString).plist")
                     try PropertyListSerialization.data(fromPropertyList: entitlements, format: .xml, options: 0)
