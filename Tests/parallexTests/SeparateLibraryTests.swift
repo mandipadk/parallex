@@ -204,7 +204,10 @@ final class SeparateLibraryTests: XCTestCase {
         }
 
         // The hardened runtime makes dyld ignore inserted libraries: what a
-        // stricter macOS would do to every copy.
+        // stricter macOS would do to every copy. (Not with System Integrity
+        // Protection off, as on CI machines: then dyld loads them anyway.)
+        let sip = (try? Shell.run("/usr/bin/csrutil", ["status"])) ?? ""
+        try XCTSkipUnless(sip.contains("enabled"), "needs System Integrity Protection on to simulate a stricter macOS")
         try Shell.run("/usr/bin/codesign", ["--force", "--sign", "-", "--options", "runtime", launcher.path])
         let refused = try launch()
         XCTAssertNotEqual(refused.status, 0)
