@@ -43,7 +43,10 @@ struct SupportCard: View {
                 Text("It's free, and made by a student. A few dollars helps get it signed by Apple, so it opens without “Open Anyway”.")
                     .font(Theme.Font.caption)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    // Not fixedSize: sizing the window, macOS measures the
+                    // sidebar's bar at almost no width, and a fixed-height
+                    // text there set the window's minimum to its full height.
+                    .lineLimit(4)
                 HStack(spacing: Theme.Space.s) {
                     Button("Sponsor") { open(SupportLinks.sponsors) }
                         .buttonStyle(.primary)
