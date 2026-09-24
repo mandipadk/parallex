@@ -40,7 +40,10 @@ struct InstanceDetail: View {
                     targetSandboxed: targetSandboxed, targetHasGroups: targetHasGroups
                 )
                 AppearanceSection(entry: entry, draft: $draft)
-                LaunchSection(entry: entry, openAtStart: $draft.settings.openAtLaunch.orFalse, shortcut: $draft.settings.shortcut)
+                LaunchSection(
+                    entry: entry, openAtStart: $draft.settings.openAtLaunch.orFalse,
+                    menuBarIcon: $draft.settings.menuBarIcon.orFalse, shortcut: $draft.settings.shortcut
+                )
                 StorageSection(entry: entry)
                 AdvancedSection(entry: entry, draft: $draft)
                 RemoveFooter { confirmRemove = true }
@@ -137,6 +140,7 @@ struct InstanceDetail: View {
         settings.openAtLaunch = draft.settings.openAtLaunch
         settings.badgeColorHex = draft.settings.badgeColorHex
         settings.shortcut = draft.settings.shortcut
+        settings.menuBarIcon = draft.settings.menuBarIcon
         guard settings != stored || entry.manifest.settings == nil else { return }
         if let saved = model.saveSettings(settings, for: entry) {
             var fresh = InstanceDraft(saved)
@@ -175,7 +179,8 @@ struct InstanceDraft: Equatable {
 
     /// Changes to fields that never need a rebuild on their own.
     var metadataSignature: [String] {
-        [settings.openAtLaunch == true ? "1" : "0", settings.badgeColorHex ?? "", settings.shortcut?.displayString ?? ""]
+        [settings.openAtLaunch == true ? "1" : "0", settings.badgeColorHex ?? "", settings.shortcut?.displayString ?? "",
+         settings.menuBarIcon == true ? "1" : "0"]
     }
 
     var parsedEnvironment: [String: String]? {
@@ -783,6 +788,7 @@ private struct AppearanceSection: View {
 private struct LaunchSection: View {
     let entry: InstanceEntry
     @Binding var openAtStart: Bool
+    @Binding var menuBarIcon: Bool
     @Binding var shortcut: KeyShortcut?
     @Environment(AppModel.self) private var model
 
@@ -792,6 +798,11 @@ private struct LaunchSection: View {
                 title: "Open when Parallex starts",
                 detail: "With Parallex opening at login, this instance is ready when you are.",
                 isOn: $openAtStart
+            )
+            ExplainedToggle(
+                title: "Show in the menu bar",
+                detail: "Its icon up top opens \(entry.name), brings it forward, or hides it when it's in front.",
+                isOn: $menuBarIcon
             )
             HStack(alignment: .center, spacing: Theme.Space.l) {
                 VStack(alignment: .leading, spacing: 2) {

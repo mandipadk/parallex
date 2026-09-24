@@ -109,6 +109,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var windows = AppWindows(model: model, updater: updater)
     lazy var switcher = SwitcherController(model: model)
     private lazy var shortcuts = InstanceShortcuts(model: model)
+    private lazy var menuBarIcons = InstanceMenuBarIcons(model: model) { [weak self] slug in
+        self?.windows.showMain(selecting: slug)
+    }
     private lazy var notifier = Notifier(model: model)
     /// What's New waits for the first time the window opens after a login launch.
     private var whatsNewPending = false
@@ -131,6 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyPreferences()
         trackTagTargets()
         _ = shortcuts
+        _ = menuBarIcons
         setUpUpdates()
         observers.append(NotificationCenter.default.addObserver(
             forName: .parallexPreferencesChanged, object: nil, queue: .main

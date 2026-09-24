@@ -143,10 +143,12 @@ final class AppCatalogTests: XCTestCase {
 
         var launchOnly = original
         launchOnly.openAtLaunch = true
+        launchOnly.menuBarIcon = true
         launchOnly.badgeColorHex = "#30D158" // no badge: color is bookkeeping
         XCTAssertFalse(original.requiresRebuild(toReach: launchOnly))
         let saved = try InstanceCreator.saveSettings(launchOnly, for: created.manifest)
         XCTAssertEqual(InstanceStore.load(slug: "meta-work")?.settings?.openAtLaunch, true)
+        XCTAssertEqual(InstanceStore.load(slug: "meta-work")?.settings?.menuBarIcon, true, "a menu bar icon needs no rebuild")
         XCTAssertEqual(saved.colorHex, "#30D158")
 
         var badged = launchOnly

@@ -485,6 +485,16 @@ final class AppModel {
         return (workspaces.first { $0.id == workspace.id } ?? workspace, failures)
     }
 
+    /// What a shortcut or a menu bar icon does: open the instance if it's
+    /// closed, bring it forward, or hide it when it's already in front.
+    func bringForwardOrHide(_ entry: InstanceEntry) {
+        if let pid = entry.pid, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
+            NSRunningApplication(processIdentifier: pid)?.hide()
+        } else if entry.status.canLaunch || entry.running {
+            activate(entry)
+        }
+    }
+
     /// Give instances a color (a workspace's). Instances without a badge
     /// change in place; badged ones are rebuilt to repaint their icon,
     /// except while they run (a copy can't be rebuilt underneath itself).

@@ -41,6 +41,8 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     public var openAtLaunch: Bool?
     /// Global keyboard shortcut that opens (or brings forward) the instance.
     public var shortcut: KeyShortcut?
+    /// An icon in the menu bar that opens, brings forward or hides it.
+    public var menuBarIcon: Bool?
     /// Own-identity copies keep their data to themselves: a copy of an app
     /// that isn't sandboxed gets its own ~/Library (Application Support,
     /// caches, web storage…); a copy of a sandboxed app gets its own
@@ -97,6 +99,8 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
         rhs.openAtLaunch = nil
         lhs.shortcut = nil
         rhs.shortcut = nil
+        lhs.menuBarIcon = nil
+        rhs.menuBarIcon = nil
         if lhs.badgeText == nil && rhs.badgeText == nil {
             lhs.badgeColorHex = nil
             rhs.badgeColorHex = nil

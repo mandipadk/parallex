@@ -131,10 +131,6 @@ final class InstanceShortcuts {
             return
         }
         guard let entry = model.entries.first(where: { $0.id == slug }) else { return }
-        if let pid = entry.pid, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
-            NSRunningApplication(processIdentifier: pid)?.hide()
-        } else if entry.status.canLaunch || entry.running {
-            model.activate(entry)
-        }
+        model.bringForwardOrHide(entry)
     }
 }
