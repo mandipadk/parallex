@@ -274,7 +274,7 @@ public enum AppCloner {
                 try? fm.moveItem(at: previous, to: spec.destination)
                 throw error
             }
-            try? fm.trashItem(at: previous, resultingItemURL: nil)
+            try? Trash.move(previous)
         } else {
             try fm.moveItem(at: copy, to: spec.destination)
         }

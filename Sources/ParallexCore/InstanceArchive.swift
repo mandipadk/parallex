@@ -213,7 +213,7 @@ public enum InstanceArchive {
         do {
             try InstanceStore.save(manifest)
         } catch {
-            try? fm.trashItem(at: destination, resultingItemURL: nil)
+            try? Trash.move(destination)
             lock.release()
             throw error
         }
@@ -232,7 +232,7 @@ public enum InstanceArchive {
             )
         } catch {
             // Don't leave a half-imported instance behind.
-            try? fm.trashItem(at: destination, resultingItemURL: nil)
+            try? Trash.move(destination)
             throw ParallexError("Couldn't import “\(name)”: \(error)")
         }
     }

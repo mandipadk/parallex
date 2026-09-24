@@ -44,6 +44,12 @@ public struct IsolationReport: Sendable {
     }
 
     public var isClean: Bool { findings(in: .leak).isEmpty }
+
+    /// macOS didn't load the library that keeps the copy's data its own
+    /// (reported as a leak named after the library, not a path).
+    public var separationInactive: Bool {
+        findings(in: .leak).contains { !$0.path.contains("/") }
+    }
 }
 
 public enum IsolationCheck {

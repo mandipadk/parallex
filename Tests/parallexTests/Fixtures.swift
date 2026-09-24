@@ -139,7 +139,21 @@ enum Fixtures {
         return app
     }
 
+    /// What tests remove goes here, never to the user's Trash.
+    static let isolatedTrash: URL = {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parallex-tests-trash-\(ProcessInfo.processInfo.processIdentifier)")
+        setenv("PARALLEX_TRASH", url.path, 1)
+        atexit {
+            if let path = getenv("PARALLEX_TRASH") {
+                try? FileManager.default.removeItem(atPath: String(cString: path))
+            }
+        }
+        return url
+    }()
+
     static func makeTempDirectory(_ testName: String) throws -> URL {
+        _ = isolatedTrash
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("parallex-tests-\(testName)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

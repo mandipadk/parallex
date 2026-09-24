@@ -323,7 +323,7 @@ public enum LinkRouting {
             Shell.runAllowingFailure(lsregister, ["-u", routerAppURL.path])
         }
         if FileManager.default.fileExists(atPath: routerAppURL.path) {
-            try? FileManager.default.trashItem(at: routerAppURL, resultingItemURL: nil)
+            try? Trash.move(routerAppURL)
         }
     }
 

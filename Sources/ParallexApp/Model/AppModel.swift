@@ -463,6 +463,9 @@ final class AppModel {
                 }
                 current = entries.first(where: { $0.id == id }) ?? current
             }
+            // The new launch gets checked afresh.
+            leaking.remove(id)
+            isolation[id] = nil
             launch(current)
         }
     }

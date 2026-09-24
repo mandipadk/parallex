@@ -141,7 +141,7 @@ public enum OriginalData {
             switch item.kind {
             case .folder:
                 if fm.fileExists(atPath: item.destination.path) {
-                    try fm.trashItem(at: item.destination, resultingItemURL: nil)
+                    try Trash.move(item.destination)
                 }
                 try fm.createDirectory(at: item.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try Shell.run("/bin/cp", ["-cRp", item.source.path, item.destination.path])
@@ -151,7 +151,7 @@ public enum OriginalData {
                 let previous = fm.temporaryDirectory.appendingPathComponent("\(to) (before copying).plist")
                 try? fm.removeItem(at: previous)
                 if (try? Shell.run("/usr/bin/defaults", ["export", to, previous.path])) != nil {
-                    try? fm.trashItem(at: previous, resultingItemURL: nil)
+                    try? Trash.move(previous)
                 }
                 let exported = fm.temporaryDirectory.appendingPathComponent("parallex-prefs-\(UUID().uuidString).plist")
                 defer { try? fm.removeItem(at: exported) }

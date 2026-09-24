@@ -94,7 +94,7 @@ public enum InstanceStorage {
                 )
             }
             guard FileManager.default.fileExists(atPath: path) else { continue }
-            try FileManager.default.trashItem(at: item, resultingItemURL: nil)
+            try Trash.move(item)
             moved += 1
         }
         return moved

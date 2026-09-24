@@ -73,10 +73,10 @@ enum CommandLineTool {
             if destination.contains("Parallex.app/Contents/") {
                 try fm.removeItem(at: link)
             } else {
-                try fm.trashItem(at: link, resultingItemURL: nil)
+                try Trash.move(link)
             }
         } else if fm.fileExists(atPath: link.path) {
-            try fm.trashItem(at: link, resultingItemURL: nil)
+            try Trash.move(link)
         }
         try fm.createSymbolicLink(at: link, withDestinationURL: bundled)
         return link

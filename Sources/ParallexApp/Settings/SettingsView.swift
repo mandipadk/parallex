@@ -39,7 +39,7 @@ private struct GeneralSettings: View {
             Section {
                 Toggle("Open Parallex at login", isOn: Binding(
                     get: { loginStatus == .enabled || loginStatus == .requiresApproval },
-                    set: setOpenAtLogin
+                    set: { setOpenAtLogin($0) }
                 ))
                 if loginStatus == .requiresApproval {
                     HStack {
@@ -164,7 +164,7 @@ private struct LinksSettings: View {
             Section {
                 Toggle("Send sign-in links to the right copy", isOn: Binding(
                     get: { config.enabled },
-                    set: setEnabled
+                    set: { setEnabled($0) }
                 ))
                 .disabled(working || (schemes.isEmpty && !config.enabled))
                 if config.enabled {

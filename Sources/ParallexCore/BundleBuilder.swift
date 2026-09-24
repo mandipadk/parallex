@@ -91,7 +91,8 @@ public struct BundleBuilder {
                     + "Pick a different name."
                 )
             }
-            try fm.trashItem(at: finalURL, resultingItemURL: nil)
+            Self.unregister(finalURL)
+            try Trash.move(finalURL)
         }
 
         // Same-volume staging so the final step is an atomic-ish rename.

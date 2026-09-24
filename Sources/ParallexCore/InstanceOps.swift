@@ -506,7 +506,7 @@ public enum InstanceCreator {
            !sameItem(result.wrapperURL, oldWrapper),
            BundleBuilder.isParallexWrapper(oldWrapper) {
             BundleBuilder.unregister(oldWrapper)
-            try? fm.trashItem(at: oldWrapper, resultingItemURL: nil)
+            try? Trash.move(oldWrapper)
         }
         return result
     }
@@ -963,7 +963,7 @@ public enum InstanceRemover {
         if fm.fileExists(atPath: wrapper.path) {
             if BundleBuilder.isParallexWrapper(wrapper) {
                 BundleBuilder.unregister(wrapper)
-                try fm.trashItem(at: wrapper, resultingItemURL: nil)
+                try Trash.move(wrapper)
                 wrapperTrashed = true
             } else {
                 wrapperSkippedForeign = true
@@ -981,7 +981,7 @@ public enum InstanceRemover {
             try? fm.removeItem(at: InstanceStore.manifestURL(slug: manifest.slug))
             dataKeptAt = instanceDir.path
         } else if fm.fileExists(atPath: instanceDir.path) {
-            try fm.trashItem(at: instanceDir, resultingItemURL: nil)
+            try Trash.move(instanceDir)
             dataTrashed = true
         }
 
@@ -991,7 +991,7 @@ public enum InstanceRemover {
             let groups = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Group Containers")
             for renamed in (manifest.separatedGroups ?? [:]).values.sorted() where renamed.hasPrefix("group.parallex.") {
                 let container = groups.appendingPathComponent(renamed)
-                if fm.fileExists(atPath: container.path), (try? fm.trashItem(at: container, resultingItemURL: nil)) == nil {
+                if fm.fileExists(atPath: container.path), (try? Trash.move(container)) == nil {
                     leftoverGroups.append(container.path)
                 }
             }

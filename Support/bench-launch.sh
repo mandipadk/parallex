@@ -13,6 +13,7 @@ export PARALLEX_HOME="$WORK/support"
 export PARALLEX_LAUNCHER="$BIN/parallex-launcher"
 export PARALLEX_HOME_LIBRARY="$BIN/libparallexhome.dylib"
 export PARALLEX_GROUPS_LIBRARY="$BIN/libparallexgroups.dylib"
+export PARALLEX_TRASH="$WORK/trash"
 
 LSR=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 cleanup() {
