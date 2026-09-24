@@ -311,6 +311,19 @@ private struct ProblemBanners: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
+        if model.leaking.contains(entry.id) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
+                Image(systemName: "exclamationmark.octagon.fill").foregroundStyle(Theme.failure)
+                Text("\(entry.name) has files of \(entry.targetName)'s own open — its data isn't fully separate. See Isolation below for which.")
+                    .font(Theme.Font.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: Theme.Space.m)
+                Button("Check Again") { model.verifyIsolation(entry) }.buttonStyle(.secondary)
+            }
+            .padding(Theme.Space.m)
+            .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.Radius.tile))
+            .padding(.bottom, Theme.Space.m)
+        }
         if model.quickExits.contains(entry.id) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.attention)

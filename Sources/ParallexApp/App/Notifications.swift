@@ -64,25 +64,25 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     private func track() {
         withObservationTracking {
-            evaluate(model.entries, failures: model.maintenanceFailures)
+            evaluate(model.entries, failures: model.maintenanceFailures, leaking: model.leaking)
         } onChange: { [weak self] in
             Task { @MainActor in self?.track() }
         }
     }
 
     /// The notification-worthy state of each instance, as a comparable key.
-    private func evaluate(_ entries: [InstanceEntry], failures: Set<String>) {
+    private func evaluate(_ entries: [InstanceEntry], failures: Set<String>, leaking: Set<String>) {
         var notified = UserDefaults.standard.dictionary(forKey: Self.notifiedKey) as? [String: String] ?? [:]
         var changed = false
         for entry in entries {
             let failed = failures.contains(entry.id)
             let key = "instance." + entry.id
-            guard let state = Self.state(of: entry, failed: failed) else {
+            guard let state = Self.state(of: entry, failed: failed, leaking: leaking.contains(entry.id)) else {
                 // Forget what was said only once the instance is healthy
                 // again — not merely because a copy stopped running or this
                 // is a new session (a repair that fails every launch should
                 // be reported once, not every launch).
-                if entry.status.problems.isEmpty, !failed, notified[key] != nil {
+                if entry.status.problems.isEmpty, !failed, !leaking.contains(entry.id), notified[key] != nil {
                     notified[key] = nil
                     changed = true
                 }
@@ -113,8 +113,16 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         var category: String
     }
 
-    static func state(of entry: InstanceEntry, failed: Bool) -> State? {
+    static func state(of entry: InstanceEntry, failed: Bool, leaking: Bool = false) -> State? {
         let problems = entry.status.problems
+        if leaking {
+            return State(
+                key: "leaking",
+                title: "\(entry.name) is using \(entry.targetName)'s data",
+                body: "Its isolation check found files it shouldn't share. Open it in Parallex to see which.",
+                category: Category.needsAttention
+            )
+        }
         if problems.contains(.targetMissing) {
             return State(
                 key: "missing",

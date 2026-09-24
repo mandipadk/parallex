@@ -105,6 +105,10 @@ final class AppModel {
     @ObservationIgnored private var maintaining = false
 
     @ObservationIgnored private var healthyCopies: Set<String> = []
+    /// Running processes already checked automatically (one check per launch).
+    @ObservationIgnored private var autoVerified: Set<pid_t> = []
+    /// Instances whose latest check found them writing to the original's data.
+    private(set) var leaking: Set<String> = []
     @ObservationIgnored private var refreshTimer: Timer?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
@@ -139,6 +143,7 @@ final class AppModel {
             workspaces = freshWorkspaces
         }
         noteHealthyCopies()
+        autoVerifyRunningInstances()
         if let selection, !entries.contains(where: { $0.id == selection }), selectedWorkspace == nil {
             self.selection = entries.first?.id
         }
@@ -585,19 +590,43 @@ final class AppModel {
     // MARK: - Verification
 
     func verifyIsolation(_ entry: InstanceEntry) {
+        runIsolationCheck(entry, priority: .userInitiated)
+    }
+
+    private func runIsolationCheck(_ entry: InstanceEntry, priority: TaskPriority) {
         let manifest = entry.manifest
-        isolation[entry.id] = .checking
+        let id = entry.id
+        isolation[id] = .checking
         Task {
             let result: IsolationResult
             do {
-                let report = try await Task.detached(priority: .userInitiated) {
+                let report = try await Task.detached(priority: priority) {
                     try IsolationCheck.run(manifest)
                 }.value
                 result = .report(report)
+                if report.isClean {
+                    leaking.remove(id)
+                } else {
+                    leaking.insert(id)
+                }
             } catch {
                 result = .failed("\(error)")
             }
-            isolation[entry.id] = result
+            isolation[id] = result
+        }
+    }
+
+    /// Once an instance has been running ~45 s (long enough to open its
+    /// data), check its isolation in the background — once per launch.
+    private func autoVerifyRunningInstances() {
+        guard UserDefaults.standard.object(forKey: PreferenceKey.autoVerify) as? Bool ?? true else { return }
+        for entry in entries {
+            guard let pid = entry.pid, !autoVerified.contains(pid),
+                  let launched = NSRunningApplication(processIdentifier: pid)?.launchDate,
+                  Date().timeIntervalSince(launched) > 45
+            else { continue }
+            autoVerified.insert(pid)
+            runIsolationCheck(entry, priority: .utility)
         }
     }
 

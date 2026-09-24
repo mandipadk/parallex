@@ -17,6 +17,8 @@ enum PreferenceKey {
     static let notifyProblems = "notifyInstanceProblems"
     /// Notify when a Parallex update is available (on by default).
     static let notifyUpdates = "notifyUpdates"
+    /// Check each instance's isolation once it's been running a little while.
+    static let autoVerify = "autoVerifyIsolation"
     /// The last version whose What's New the user has seen.
     static let lastSeenVersion = "lastSeenVersion"
 }

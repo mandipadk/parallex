@@ -26,6 +26,7 @@ private struct GeneralSettings: View {
     @AppStorage(PreferenceKey.tagShowsName) private var tagShowsName = true
     @AppStorage(PreferenceKey.switcherHotKey) private var switcherHotKey = true
     @AppStorage(PreferenceKey.autoMaintain) private var autoMaintain = true
+    @AppStorage(PreferenceKey.autoVerify) private var autoVerify = true
     @AppStorage(PreferenceKey.onboardingCompleted) private var onboardingCompleted = true
     @AppStorage(PreferenceKey.notifyProblems) private var notifyProblems = true
     @AppStorage(PreferenceKey.notifyUpdates) private var notifyUpdates = true
@@ -64,10 +65,11 @@ private struct GeneralSettings: View {
 
             Section {
                 Toggle("Keep instances up to date", isOn: $autoMaintain)
+                Toggle("Check isolation while instances run", isOn: $autoVerify)
             } header: {
                 Text("Maintenance")
             } footer: {
-                Text("When Parallex updates, an app moves, or an app with an own-identity copy updates, Parallex rebuilds the affected instances while they're not running. Their data is never touched.")
+                Text("When Parallex updates, an app moves, or an app with an own-identity copy updates, Parallex rebuilds the affected instances while they're not running. Their data is never touched. Shortly after an instance opens, Parallex also checks the files it has open and tells you if it's using the original app's data.")
                     .font(Theme.Font.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
