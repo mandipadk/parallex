@@ -15,6 +15,7 @@ export function Footer() {
           <a className={link} href={REPO_URL}>GitHub</a>
           <a className={link} href={SPONSOR_URL}>Sponsor</a>
           <a className={link} href={KOFI_URL}>Ko-fi</a>
+          <a className={link} href="/privacy">Privacy</a>
           <span>Made on a Mac</span>
         </div>
       </div>

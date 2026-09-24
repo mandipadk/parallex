@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What leaves your Mac · Parallex</title>
+<meta name="description" content="Everything Parallex sends anywhere, and what's kept.">
+<link rel="icon" href="/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono&display=swap">
+<style>
+:root { --background: oklch(0.1149 0 0); --card: oklch(0.155 0 0); --foreground: oklch(0.985 0 0); --muted: oklch(0.708 0 0); --subtle: oklch(0.52 0 0); --rule: oklch(1 0 0 / 0.08); --accent: #ff6a3d; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--background); color: var(--foreground); font: 16px/1.65 "Geist", -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+main { max-width: 680px; margin: 0 auto; padding: 72px 16px 96px; display: grid; gap: 36px; }
+a { color: var(--foreground); text-decoration-color: oklch(1 0 0 / 0.3); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--foreground); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.back { color: var(--muted); font-size: 14px; text-decoration: none; }
+h1 { font-size: clamp(32px, 6vw, 44px); line-height: 1.1; letter-spacing: -0.03em; margin: 0; font-weight: 650; }
+h2 { font-size: 20px; letter-spacing: -0.01em; margin: 0 0 8px; font-weight: 600; }
+p { margin: 0; color: var(--muted); }
+.lede { font-size: 18px; }
+section { display: grid; gap: 10px; }
+ul { margin: 0; padding-left: 20px; color: var(--muted); display: grid; gap: 6px; }
+code { font-family: "Geist Mono", ui-monospace, monospace; font-size: 0.86em; background: var(--card); padding: 2px 6px; border-radius: 6px; color: var(--foreground); }
+.example { background: var(--card); border: 1px solid var(--rule); border-radius: 14px; padding: 16px 18px; font-family: "Geist Mono", ui-monospace, monospace; font-size: 13.5px; line-height: 1.7; color: var(--foreground); overflow-x: auto; }
+.example span { color: var(--subtle); }
+footer { color: var(--subtle); font-size: 13px; border-top: 1px solid var(--rule); padding-top: 20px; }
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="/">← Parallex</a>
+
+  <header style="display:grid;gap:14px">
+    <h1>What leaves your Mac</h1>
+    <p class="lede">Parallex runs on your Mac and keeps your instances, their data and your settings there. This page lists everything it sends anywhere. It's short.</p>
+  </header>
+
+  <section>
+    <h2>The daily update check</h2>
+    <p>Once a day, and whenever you choose Check for Updates, Parallex asks <code>parallex.mandip.dev</code> whether there's a new version. The request says four things:</p>
+    <div class="example">X-Parallex-Version: 0.20.0 <span>(this Parallex)</span><br>X-Parallex-OS: 26.6 <span>(macOS version)</span><br>X-Parallex-Arch: arm64 <span>(Apple silicon or Intel)</span><br>X-Parallex-Active: day,week <span>(first check today, this week, this month, or ever)</span></div>
+    <p>That's how many Macs use Parallex gets counted, and which versions, without knowing whose they are. There's no identifier: the server can't tell one Mac's checks from another's. It stores a count per day, version, macOS, chip and kind of check, and nothing more. The request also names Parallex and its version in its <code>User-Agent</code>, as apps do.</p>
+    <p>Like any website, the server sees the address a request comes from while answering it. Parallex doesn't store it and keeps no request logs; for a minute it's used, in memory, to ignore a burst of checks from one place. Cloudflare, which runs the server, handles requests under <a href="https://www.cloudflare.com/privacypolicy/">its own privacy policy</a>.</p>
+    <p>If the server doesn't answer, Parallex asks GitHub directly instead, and GitHub is told only that a Parallex is checking (it sees the address too, as it does for any download from GitHub). Updates are verified against a signing key built into the app either way, so the server couldn't hand you a bad update even if it wanted to.</p>
+    <p>You can turn automatic checks off in Settings › About.</p>
+  </section>
+
+  <section>
+    <h2>The Terminal installer</h2>
+    <p><code>curl -fsSL https://parallex.mandip.dev/install | sh</code> asks the same server for the latest version and says it's an install, with the macOS version and chip. It's counted the same way.</p>
+  </section>
+
+  <section>
+    <h2>Things you do yourself</h2>
+    <ul>
+      <li><b>Report How It Works</b> opens a GitHub issue with the app's name, its version and how the instance was made filled in. Nothing is sent until you submit it on GitHub, and it never includes instance names or file paths.</li>
+      <li><b>Website instances</b> talk to the sites you add, like any browser.</li>
+      <li><b>Getting a site's icon</b> downloads it from that site when you create a website instance.</li>
+      <li><b>Sponsor and Ko-fi</b> buttons open those pages in your browser.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Nothing else</h2>
+    <p>No analytics inside the app, no crash reporter, no account. The apps you duplicate, your instances' names and anything inside them stay on your Mac. If Parallex ever offers to share more, such as which apps work well as copies, it will be off until you turn it on in Settings, and it will show you exactly what would be sent.</p>
+    <p>The server's code is <a href="https://github.com/mandipadk/parallex/tree/main/site/worker">public</a>, so you can check all of this.</p>
+  </section>
+
+  <footer>Questions? <a href="https://github.com/mandipadk/parallex/issues">Open an issue</a>.</footer>
+</main>
+</body>
+</html>

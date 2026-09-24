@@ -371,6 +371,17 @@ try with `--env`. Recipes live in `Presets.recipes`.
   it up on restart. An in-app "restart to update" may relaunch the app as the
   original rather than the instance — reopen the instance from Parallex.
 
+## Privacy
+
+Parallex keeps everything on your Mac. The one thing it sends is the daily
+update check, to `parallex.mandip.dev`: this Parallex's version, the macOS
+version, the chip, and whether it's the first check today, this week or this
+month, so active Macs can be counted without an identifier. Updates are
+verified against a key built into the app, and if the server doesn't answer,
+Parallex asks GitHub directly. The server's code is in
+[site/worker](site/worker), and [the privacy page](https://parallex.mandip.dev/privacy)
+lists everything.
+
 ## Support
 
 Parallex is free and made by a student. If it's useful to you, you can

@@ -38,6 +38,7 @@ final class Updater {
         static let automatic = "checkForUpdatesAutomatically"
         static let lastChecked = "lastUpdateCheck"
         static let skipped = "skippedUpdateVersion"
+        static let activity = "updateCheckActivity"
     }
 
     init() {
@@ -105,9 +106,19 @@ final class Updater {
         if userInitiated {
             phase = .checking
         }
+        // What this check is the first of (today, this week…), for the
+        // count on Parallex's server; kept once the server has it.
+        let stored = UserDefaults.standard.data(forKey: Keys.activity)
+            .flatMap { try? JSONDecoder().decode(CheckActivity.self, from: $0) } ?? CheckActivity()
+        let activity = stored.periods(at: Date(), checkedBefore: lastChecked != nil)
         Task {
             do {
-                let release = try await UpdateFeed.fetchLatest()
+                let next = activity.next
+                let (release, _) = try await UpdateFeed.fetchLatest(activity: activity.periods) {
+                    if let data = try? JSONEncoder().encode(next) {
+                        UserDefaults.standard.set(data, forKey: Keys.activity)
+                    }
+                }
                 record(checkedAt: Date())
                 let skipped = UserDefaults.standard.string(forKey: Keys.skipped)
                 if UpdateFeed.isNewer(release.version), userInitiated || release.version != skipped {

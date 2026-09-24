@@ -33,7 +33,13 @@ if pgrep -f "$dest/Parallex.app/Contents/MacOS/" >/dev/null 2>&1; then
 fi
 
 say "Finding the latest Parallex…"
-release=$(curl -fsSL -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/releases/latest") \
+# Asks parallex.mandip.dev first, which counts Terminal installs (macOS
+# version and chip only; see parallex.mandip.dev/privacy), then GitHub.
+chip=$(uname -m)
+release=$(curl -fsSL --connect-timeout 5 --max-time 15 -H "Accept: application/vnd.github+json" -H "X-Parallex-Installer: 1" \
+        -H "X-Parallex-OS: $(sw_vers -productVersion | cut -d. -f1-2)" -H "X-Parallex-Arch: $chip" \
+        "https://parallex.mandip.dev/api/v1/releases/latest" 2>/dev/null) \
+    || release=$(curl -fsSL -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/releases/latest") \
     || fail "couldn't reach GitHub."
 zip_url=$(printf '%s' "$release" | grep -o '"browser_download_url": *"[^"]*/Parallex-[0-9.]*\.zip"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')
 sum_url=$(printf '%s' "$release" | grep -o '"browser_download_url": *"[^"]*/Parallex-[0-9.]*\.zip\.sha256"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')

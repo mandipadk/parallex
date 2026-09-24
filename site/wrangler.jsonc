@@ -1,8 +1,26 @@
 {
   "name": "parallex-site",
   "compatibility_date": "2026-09-01",
+  // The site, plus Mission Control (worker/): update checks at /api and the
+  // dashboard at /admin. Everything else is served straight from the assets.
+  "main": "worker/index.ts",
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/admin", "/admin/*"]
   },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "parallex-mission-control", "database_id": "203d8528-5417-4888-a9dd-c460d8a9539c", "migrations_dir": "migrations" }
+  ],
+  // GitHub numbers, twice a day.
+  "triggers": { "crons": ["17 */12 * * *"] },
+  // A burst of checks from one address isn't Macs checking once a day, and
+  // sign-in attempts are few. Counters live a minute in memory.
+  "ratelimits": [
+    { "name": "CHECKS_LIMIT", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } },
+    { "name": "SIGN_IN_LIMIT", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } }
+  ],
+  // No request logs: the privacy page promises addresses aren't kept.
+  "observability": { "enabled": false },
   "routes": [{ "pattern": "parallex.mandip.dev", "custom_domain": true }]
 }

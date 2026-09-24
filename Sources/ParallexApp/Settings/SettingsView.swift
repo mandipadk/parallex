@@ -432,11 +432,15 @@ private struct AboutSettings: View {
             } header: {
                 Text("Updates")
             } footer: {
-                Text("Parallex looks for a new version once a day. Updates are verified against Parallex's signing key before they're installed.")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Parallex looks for a new version once a day. Updates are verified against Parallex's signing key before they're installed.")
+                    Text("The check goes to parallex.mandip.dev and says only which Parallex, macOS and chip this is, and whether it's the first check today, this week or this month, so active Macs can be counted. Nothing that identifies you or this Mac.")
+                    Link("What leaves your Mac", destination: URL(string: "https://parallex.mandip.dev/privacy")!)
+                }
+                .font(Theme.Font.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             if tool != .notBundled {

@@ -18,6 +18,13 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.20.0", highlights: [
+            Highlight(
+                symbol: "hand.raised",
+                title: "What leaves your Mac, in plain words",
+                detail: "Update checks now go to parallex.mandip.dev and count active Macs: just the version, macOS, chip and day, never who. Settings › About and parallex.mandip.dev/privacy say exactly what's sent."
+            ),
+        ]),
         Release(version: "0.19.0", highlights: [
             Highlight(
                 symbol: "moon.zzz",

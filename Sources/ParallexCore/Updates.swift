@@ -36,13 +36,21 @@ public struct ReleaseInfo: Sendable, Equatable, Codable {
 /// `Parallex.dmg` (for people downloading from the website).
 public enum UpdateFeed {
     public static let repository = "mandipadk/parallex"
-    /// GitHub's latest-release endpoint; `PARALLEX_UPDATE_FEED` points
-    /// elsewhere for testing the updater (signatures are still required).
-    public static var latestURL: URL {
+    /// GitHub's latest-release endpoint, asked directly when Parallex's own
+    /// server doesn't answer.
+    public static let githubURL = URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!
+    /// Parallex's server: GitHub's answer passed through, and the check
+    /// counted (see `CheckActivity` for what it's told). Archives are
+    /// verified against the key in the app either way.
+    public static let missionControlURL = URL(string: "https://parallex.mandip.dev/api/v1/releases/latest")!
+
+    /// Where to ask; `PARALLEX_UPDATE_FEED` points elsewhere for testing the
+    /// updater (signatures are still required).
+    public static var latestURLs: [URL] {
         if let override = ProcessInfo.processInfo.environment["PARALLEX_UPDATE_FEED"], let url = URL(string: override) {
-            return url
+            return [url]
         }
-        return URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!
+        return [missionControlURL, githubURL]
     }
 
     public static func archiveName(for version: String) -> String { "Parallex-\(version).zip" }
@@ -86,22 +94,95 @@ public enum UpdateFeed {
         )
     }
 
-    public static func fetchLatest(session: URLSession = .shared) async throws -> ReleaseInfo {
-        var request = URLRequest(url: latestURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("Parallex/\(ParallexConfig.version)", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await session.data(for: request)
-        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-            throw ParallexError(http.statusCode == 404
-                ? "No releases are published yet."
-                : "The update server answered \(http.statusCode).")
+    /// The latest release. `counted` hears as soon as Parallex's server has
+    /// taken the check (and the activity it was told), even when the rest
+    /// of the check then fails, so it's never told twice.
+    public static func fetchLatest(
+        activity: [String] = [], session: URLSession = .shared, counted: (@Sendable () -> Void)? = nil
+    ) async throws -> (release: ReleaseInfo, counted: Bool) {
+        var lastError: Error = ParallexError("The update server didn't answer.")
+        for url in latestURLs {
+            let ours = url == missionControlURL
+            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: ours ? 10 : 20)
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            request.setValue("Parallex/\(ParallexConfig.version)", forHTTPHeaderField: "User-Agent")
+            if ours {
+                for (field, value) in CheckActivity.headers(periods: activity) {
+                    request.setValue(value, forHTTPHeaderField: field)
+                }
+            }
+            do {
+                let (data, response) = try await session.data(for: request)
+                if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                    throw ParallexError(http.statusCode == 404
+                        ? "No releases are published yet."
+                        : "The update server answered \(http.statusCode).")
+                }
+                if ours { counted?() }
+                return (try parse(data), ours)
+            } catch {
+                lastError = error
+            }
         }
-        return try parse(data)
+        throw lastError
     }
 
     /// Whether `candidate` is a newer version than `current`.
     public static func isNewer(_ candidate: String, than current: String = ParallexConfig.version) -> Bool {
         InstanceStatus.compareVersions(candidate, current) == .orderedDescending
+    }
+}
+
+/// Everything an update check tells Parallex's server, and nothing else:
+/// this version, the macOS version, the chip, and which of "first check
+/// ever / today / this week / this month" it is. No identifier, so the
+/// server can count Macs without being able to tell them apart.
+public struct CheckActivity: Codable, Equatable, Sendable {
+    public var day: String?
+    public var week: String?
+    public var month: String?
+
+    public init(day: String? = nil, week: String? = nil, month: String? = nil) {
+        self.day = day
+        self.week = week
+        self.month = month
+    }
+
+    /// What this check is the first of, and the record to keep once the
+    /// server has it. `checkedBefore`: a Parallex from before these
+    /// records existed has checked already, so it isn't new. Days, weeks
+    /// and months are UTC ones, like the server's.
+    public func periods(at date: Date, checkedBefore: Bool) -> (periods: [String], next: CheckActivity) {
+        var iso = Calendar(identifier: .iso8601)
+        iso.timeZone = TimeZone(identifier: "UTC")!
+        let parts = iso.dateComponents([.year, .month, .day, .yearForWeekOfYear, .weekOfYear], from: date)
+        let next = CheckActivity(
+            day: String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0),
+            week: String(format: "%04d-W%02d", parts.yearForWeekOfYear ?? 0, parts.weekOfYear ?? 0),
+            month: String(format: "%04d-%02d", parts.year ?? 0, parts.month ?? 0)
+        )
+        var periods: [String] = []
+        if self == CheckActivity(), !checkedBefore { periods.append("new") }
+        if day != next.day { periods.append("day") }
+        if week != next.week { periods.append("week") }
+        if month != next.month { periods.append("month") }
+        return (periods, next)
+    }
+
+    /// The request headers that carry it.
+    public static func headers(periods: [String]) -> [(String, String)] {
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        #if arch(arm64)
+        let arch = "arm64"
+        #else
+        let arch = "x86_64"
+        #endif
+        return [
+            ("X-Parallex-Version", ParallexConfig.version),
+            ("X-Parallex-OS", "\(os.majorVersion).\(os.minorVersion)"),
+            ("X-Parallex-Arch", arch),
+            ("X-Parallex-Active", periods.joined(separator: ",")),
+        ]
     }
 }
 
