@@ -92,7 +92,7 @@ struct InstancesView: View {
             }
         }
         .sheet(item: $model.creating) { intent in
-            NewInstanceFlow(preselected: intent.app)
+            NewInstanceFlow(preselected: intent.app, webAddress: intent.website)
         }
         .sheet(isPresented: $model.makingWorkspace) {
             NewWorkspaceSheet()
@@ -182,7 +182,8 @@ struct Sidebar: View {
         .listStyle(.sidebar)
         .bottomBar {
             VStack(spacing: 0) {
-            SupportCard()
+            // A message from Parallex, else (once) the support card.
+            MessageCard()
                 .padding(.top, Theme.Space.m)
             HStack(spacing: Theme.Space.s) {
                 Button {

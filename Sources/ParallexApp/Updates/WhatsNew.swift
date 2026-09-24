@@ -18,6 +18,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.22.0", highlights: [
+            Highlight(
+                symbol: "checklist",
+                title: "How apps work for others",
+                detail: "parallex.mandip.dev/compatibility lists how apps do as instances, from people's reports and anonymous usage. It's linked from New Instance."
+            ),
+            Highlight(
+                symbol: "exclamationmark.bubble",
+                title: "Heads-ups from Parallex",
+                detail: "When an app update breaks copies, Parallex can say so where you make or open an instance of it, and suggest its website instead. The notices are signed, so only Parallex can send them."
+            ),
+        ]),
         Release(version: "0.21.0", highlights: [
             Highlight(
                 symbol: "chart.bar.xaxis",

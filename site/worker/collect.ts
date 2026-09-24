@@ -1,3 +1,4 @@
+import { fetchIssueReports } from "./compatibility"
 import type { Env } from "./env"
 
 const REPO = "mandipadk/parallex"
@@ -62,6 +63,13 @@ export async function collect(env: Env): Promise<Record<string, number>> {
       if (user?.sponsors) values.sponsors = user.sponsors.totalCount
       if (user?.monthlyEstimatedSponsorsIncomeInCents != null) values.sponsors_monthly_cents = user.monthlyEstimatedSponsorsIncomeInCents
     }
+  }
+
+  // Compatibility reports, kept for review on the dashboard.
+  const issues = await fetchIssueReports(env)
+  if (issues) {
+    await env.DB.prepare(`INSERT INTO feed (key, body, fetched) VALUES ('compat-issues', ?1, ?2)
+      ON CONFLICT (key) DO UPDATE SET body = ?1, fetched = ?2`).bind(JSON.stringify(issues), new Date().toISOString()).run()
   }
 
   const day = new Date().toISOString().slice(0, 10)

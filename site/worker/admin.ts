@@ -216,19 +216,41 @@ function usageSection(s: Summary): string {
       <p class="empty">No reports yet. They come from Macs on 0.21 or later that turn it on in Settings › About.</p></section>`
   }
   const pct = (part: number, whole: number) => (whole ? `${Math.round((part / whole) * 100)}%` : "–")
-  const apps = u.apps.map((a) => `<div><span>${escape(a.name)} <span class="muted" style="font-size:11px">${escape(a.bundle)}</span></span><span>${plural(Number(a.macs), "Mac")} · ${plural(Number(a.instances), "instance")} · ${
+  const listForm = (a: { name: string; bundle: string }) => s.listed.includes(a.bundle)
+    ? `<form method="post" action="/admin/list"><input type="hidden" name="action" value="remove"><input type="hidden" name="bundle" value="${escape(a.bundle)}"><button type="submit" title="Take it off the public list">Listed ✓</button></form>`
+    : `<form method="post" action="/admin/list" style="display:flex;gap:6px"><input type="hidden" name="action" value="add"><input type="hidden" name="bundle" value="${escape(a.bundle)}"><input name="name" value="${escape(a.name)}" aria-label="Name to show" style="font:inherit;font-size:12px;width:110px;padding:2px 8px;border-radius:8px;border:1px solid var(--rule);background:var(--ground);color:var(--ink)"><button type="submit">List</button></form>`
+  const apps = u.apps.map((a) => `<div style="align-items:center"><span>${escape(a.name)} <span class="muted" style="font-size:11px">${escape(a.bundle)}</span></span><span style="display:flex;gap:10px;align-items:center">${listForm(a)}</span></div><div style="margin-top:-6px"><span></span><span>${plural(Number(a.macs), "Mac")} · ${plural(Number(a.instances), "instance")} · ${
     Number(a.failing) ? `<span style="color:var(--accent)">${pct(Number(a.failing), Number(a.macs))} quit at launch</span>` : "working"}${
     Number(a.verified) ? ` · ${pct(Number(a.verified), Number(a.macs))} verified` : ""}</span></div>`).join("")
   const warnings = u.warnings.length
     ? u.warnings.map((w) => `<div><span><b style="color:var(--accent)">${escape(w.name)} ${escape(w.version)}</b></span><span>copies quit at launch on ${number(Number(w.failing))} of ${plural(Number(w.macs), "Mac")}</span></div>`).join("")
     : `<p class="empty">Nothing is going wrong that the reports show.</p>`
   return `<section class="grid2">
-    <div class="card"><h2>Apps people copy</h2><p class="sub">${plural(u.macs30, "report")} in the last 30 days, ${number(u.macs7)} this week</p>
+    <div class="card" id="apps"><h2>Apps people copy</h2><p class="sub">${plural(u.macs30, "report")} in the last 30 days, ${number(u.macs7)} this week</p>
       <div class="list">${apps || `<p class="empty">No apps yet.</p>`}</div></div>
     <div class="card"><h2>Early warnings</h2><p class="sub">An app version whose copies quit at launch on 2 or more Macs, last 7 days</p>
       <div class="list">${warnings}</div>
       <h2 style="margin-top:8px">Features</h2><p class="sub">Reporting Macs using each, last 30 days</p>
       ${bars(u.features.map((f) => ({ name: featureName(f.name), count: Number(f.macs) })), (n) => n, true)}</div>
+  </section>`
+}
+
+const VERDICTS: Record<string, string> = { works: "Works great", problems: "Works, with problems", broken: "Doesn't work" }
+
+function reportsCard(s: Summary): string {
+  const { issues, approved } = s.reports
+  const form = (label: string, action: string, issue: number) =>
+    `<form method="post" action="/admin/report"><input type="hidden" name="action" value="${action}"><input type="hidden" name="issue" value="${issue}"><button type="submit">${label}</button></form>`
+  const rows = issues.slice(0, 20).map((r) => {
+    const listed = approved.includes(r.issue)
+    const app = r.name ? `${escape(r.name)} ${escape(r.version ?? "")}` : "No app line"
+    const control = listed ? form("Remove", "remove", r.issue) : r.bundleID && r.verdict ? form("Add to list", "approve", r.issue) : `<span class="muted">Can't be listed</span>`
+    return `<div><span><a href="${escape(r.url)}" style="color:inherit">#${r.issue}</a> · ${app} · ${escape(VERDICTS[r.verdict ?? ""] ?? "No answer")}${listed ? ` · <b style="color:var(--good)">listed</b>` : ""}</span><span>${control}</span></div>`
+  }).join("")
+  return `<section class="card" id="reports">
+    <h2>Reports to review</h2>
+    <p class="sub">GitHub compatibility reports. Added ones appear on <a href="/compatibility" style="color:inherit">the public list</a>, along with the apps you list above.</p>
+    ${rows ? `<div class="list">${rows}</div>` : `<p class="empty">No reports yet. Refresh GitHub numbers to fetch them.</p>`}
   </section>`
 }
 
@@ -266,6 +288,8 @@ export function dashboardPage(s: Summary): string {
   ${releasesCard(s)}
 
   ${usageSection(s)}
+
+  ${reportsCard(s)}
 
   <section class="grid3">
     <div class="card"><h2>Version</h2><p class="sub">Share of checks, last 7 days</p>${bars(s.versions, (n) => (n === "other" ? "Other" : n))}</div>

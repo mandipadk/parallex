@@ -54,11 +54,11 @@ public enum CompatibilityReport {
         return URL(string: "https://github.com/\(repository)/issues/new?\(query)")!
     }
 
-    /// "2.7032.0 (2.7032.0)" → "2.7032.0"; "4.41 (105)" stays.
+    /// The version without its build: "2.7032.0 (2.7032.0)" and
+    /// "25.1 (25123.4567)" become "2.7032.0" and "25.1".
     static func shortVersion(_ version: String) -> String {
-        let parts = version.split(separator: " ", maxSplits: 1)
-        guard parts.count == 2, parts[1] == "(\(parts[0]))" else { return version }
-        return String(parts[0])
+        let short = version.components(separatedBy: " (").first ?? version
+        return short.trimmingCharacters(in: .whitespaces)
     }
 
     static func madeAs(_ manifest: InstanceManifest, settings: InstanceSettings) -> String {

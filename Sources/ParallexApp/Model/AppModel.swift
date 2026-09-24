@@ -76,6 +76,9 @@ final class AppModel {
     /// Memory each running instance uses, helpers included (bytes, rounded
     /// so the display doesn't flicker with every small change).
     private(set) var memory: [String: UInt64] = [:]
+    /// Signed notices from Parallex's maintainer (see `Advisories`).
+    private(set) var advisories: Advisories?
+    @ObservationIgnored private var advisoriesTimer: Timer?
     @ObservationIgnored private var measuringMemory = false
     private(set) var isolation: [String: IsolationResult] = [:]
     private(set) var catalog: [CatalogApp] = []
@@ -103,6 +106,8 @@ final class AppModel {
     struct CreateIntent: Identifiable {
         let id = UUID()
         var app: URL?
+        /// Start at the website step with this address.
+        var website: String?
     }
 
     enum IsolationResult {
@@ -130,6 +135,15 @@ final class AppModel {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
+        advisories = Advisories.cached()
+        // Fresh notices a little after launch, then twice a day.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(12))
+            self?.refreshAdvisories()
+        }
+        advisoriesTimer = Timer.scheduledTimer(withTimeInterval: 12 * 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshAdvisories() }
+        }
     }
 
     var selectedEntry: InstanceEntry? {
@@ -146,6 +160,7 @@ final class AppModel {
     // MARK: - Registry
 
     func refresh() {
+        appVersions = [:]
         let fresh = InstanceStore.loadAll().map { InstanceEntry(manifest: $0, status: InstanceStatus.check($0)) }
         if fresh != entries {
             entries = fresh
@@ -169,6 +184,40 @@ final class AppModel {
             self.selection = entries.first?.id
         }
         updateFrontmost()
+    }
+
+    // MARK: - Notices
+
+    func refreshAdvisories() {
+        Task {
+            if let fresh = await Advisories.fetch(), fresh != advisories {
+                advisories = fresh
+            }
+        }
+    }
+
+    /// Apps' versions, read once per refresh rather than on every redraw.
+    @ObservationIgnored private var appVersions: [String: String] = [:]
+
+    private func appVersion(_ path: String) -> String {
+        if let known = appVersions[path] { return known }
+        let version = AppCloner.version(of: URL(fileURLWithPath: path))
+        appVersions[path] = version
+        return version
+    }
+
+    /// What the notices say about an app, at its current version.
+    func notices(bundleID: String?, appPath: String, version: String? = nil) -> [Advisories.AppNotice] {
+        guard let advisories, let bundleID else { return [] }
+        let known = version.flatMap { $0.isEmpty ? nil : $0 }
+        return advisories.notices(bundleID: bundleID, version: known ?? appVersion(appPath))
+    }
+
+    /// For an instance: a copy runs the version it was made from (when
+    /// that's recorded; an imported one is rebuilt from the app).
+    func notices(for entry: InstanceEntry) -> [Advisories.AppNotice] {
+        guard !entry.manifest.isWeb else { return [] }
+        return notices(bundleID: entry.manifest.knownTargetBundleID, appPath: entry.manifest.targetApp, version: entry.manifest.clone?.sourceVersion)
     }
 
     // MARK: - Quitting unused instances

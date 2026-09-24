@@ -19,7 +19,7 @@ ZIP := dist/Parallex-$(VERSION).zip
 DMG := dist/Parallex.dmg
 NOTES ?= dist/release-notes.md
 
-.PHONY: build test bench release install uninstall app app-install dist publish icon clean
+.PHONY: advisories deploy-site build test bench release install uninstall app app-install dist publish icon clean
 
 build:
 	swift build $(LINK_FLAGS)
@@ -106,6 +106,20 @@ dist: app
 	@echo "Built $(ZIP), $(ZIP).sig, $(ZIP).sha256 and $(DMG)"
 
 # Publish a GitHub release for the current version with the notes in $(NOTES).
+# Sign the notices (advisories/advisories.json) for the site. The signature
+# covers the label "parallex advisories" and the file, so it can't be
+# mistaken for an update's.
+advisories:
+	@swift Support/check-advisories.swift advisories/advisories.json site/public/advisories.json
+	printf 'parallex advisories\n' | cat - advisories/advisories.json > "$(TMPDIR)parallex-advisories-signing"
+	swift Support/release-key.swift sign "$(TMPDIR)parallex-advisories-signing" > site/public/advisories.json.sig
+	rm -f "$(TMPDIR)parallex-advisories-signing"
+	cp advisories/advisories.json site/public/advisories.json
+	@echo "Signed site/public/advisories.json. Publish with: make deploy-site"
+
+deploy-site:
+	cd site && pnpm build && pnpm dlx wrangler deploy
+
 publish: dist
 	@test -s "$(NOTES)" || { echo "error: write the release notes to $(NOTES) first"; exit 1; }
 	@test -z "$$(git status --porcelain -- Sources launcher Package.swift)" || { echo "error: commit your changes first"; exit 1; }

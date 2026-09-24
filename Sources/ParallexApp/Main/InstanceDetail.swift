@@ -391,6 +391,10 @@ private struct ProblemBanners: View {
     }
 
     var body: some View {
+        ForEach(Array(model.notices(for: entry).enumerated()), id: \.offset) { _, notice in
+            AdvisoryBanner(notice: notice) { website in model.creating = .init(website: website) }
+                .padding(.bottom, Theme.Space.m)
+        }
         if model.leaking.contains(entry.id) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
                 Image(systemName: "exclamationmark.octagon.fill").foregroundStyle(Theme.failure)

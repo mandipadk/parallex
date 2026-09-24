@@ -34,7 +34,7 @@ struct NewInstanceFlow: View {
                 ChooseAppStep(pick: pick, website: startWebsite, cancel: { dismiss() })
                     .transition(stepTransition)
             case .configure:
-                ConfigureStep(setup: $setup, back: { go(.choose, forward: false) }, create: create)
+                ConfigureStep(setup: $setup, back: { go(.choose, forward: false) }, create: create, useWebsite: useWebsite)
                     .transition(stepTransition)
             case .website:
                 WebsiteStep(setup: $web, back: { go(.choose, forward: false) }, create: createWebsite)
@@ -122,6 +122,14 @@ struct NewInstanceFlow: View {
     }
 
     @State private var creatingWeb = false
+
+    /// From a notice about the app: its website, as an app instead.
+    private func useWebsite(_ address: String) {
+        web = WebSetup()
+        startWebsite()
+        web.address = address
+        web.name = WebShell.normalizedURL(address).map { WebShell.freeName(for: $0) } ?? ""
+    }
 
     private func startWebsite() {
         let usedColors = Set(model.entries.map { $0.manifest.colorHex.uppercased() })
@@ -242,6 +250,9 @@ private struct ChooseAppStep: View {
                 Button("Other App…", action: chooseOther).buttonStyle(.secondary)
                 Button("Website…", action: website).buttonStyle(.secondary)
                 Spacer()
+                Link("How apps work for others", destination: URL(string: "https://parallex.mandip.dev/compatibility")!)
+                    .font(Theme.Font.callout)
+                    .padding(.trailing, Theme.Space.s)
                 Button("Cancel", action: cancel)
                     .buttonStyle(.secondary)
                     .keyboardShortcut(.cancelAction)
@@ -378,7 +389,12 @@ private struct CatalogRow: View {
     let app: CatalogApp
     let instances: Int
     let action: () -> Void
+    @Environment(AppModel.self) private var model
     @State private var hovering = false
+
+    private var notices: [Advisories.AppNotice] {
+        model.notices(bundleID: app.bundleID, appPath: app.url.path, version: app.version)
+    }
 
     var body: some View {
         Button(action: action) {
@@ -407,7 +423,13 @@ private struct CatalogRow: View {
                         .font(Theme.Font.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    if !app.cautions.isEmpty {
+                    if let notice = notices.first {
+                        Label(notice.message, systemImage: notice.level == "unsupported" ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(notice.level == "unsupported" ? Theme.failure : Theme.attention)
+                            .lineLimit(1)
+                            .help(notice.message)
+                    } else if !app.cautions.isEmpty {
                         Text(app.cautions.joined(separator: " · "))
                             .font(Theme.Font.caption)
                             .foregroundStyle(.tertiary)
@@ -437,6 +459,8 @@ private struct ConfigureStep: View {
     @Binding var setup: SetupState
     let back: () -> Void
     let create: () -> Void
+    let useWebsite: (String) -> Void
+    @Environment(AppModel.self) private var model
     @State private var moreOptions = false
     @FocusState private var nameFocused: Bool
 
@@ -446,6 +470,9 @@ private struct ConfigureStep: View {
                 VStack(alignment: .leading, spacing: Theme.Space.xl) {
                     if let probe = setup.probe {
                         Transformation(probe: probe, setup: setup)
+                        ForEach(Array(model.notices(bundleID: probe.bundleIdentifier, appPath: probe.appPath).enumerated()), id: \.offset) { _, notice in
+                            AdvisoryBanner(notice: notice, useWebsite: useWebsite)
+                        }
                     }
                     if let error = setup.error {
                         Label(error, systemImage: "exclamationmark.triangle.fill")

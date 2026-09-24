@@ -1,6 +1,7 @@
 import { dashboardPage, signInPage } from "./admin"
 import { isSignedIn, signIn, signOutEverywhere } from "./auth"
 import { collect, kofi } from "./collect"
+import { compatibilityList, type IssueReport } from "./compatibility"
 import type { Env } from "./env"
 import { latestRelease, loadRollout, publishedReleases, versionOf, type Rollout } from "./feed"
 import { summarize } from "./summary"
@@ -76,6 +77,40 @@ async function changeRollout(env: Env, ctx: ExecutionContext, action: string, ve
     .bind(JSON.stringify(rollout)).run()
 }
 
+/** Adding a GitHub report to the public list, or taking it off. Only
+ *  reports collected from GitHub, with an app line, can be added. */
+async function reviewReport(env: Env, action: string, issue: number): Promise<void> {
+  if (!Number.isInteger(issue)) return
+  if (action === "remove") {
+    await env.DB.prepare(`DELETE FROM approved_reports WHERE issue = ?1`).bind(issue).run()
+    return
+  }
+  if (action !== "approve") return
+  const kept = await env.DB.prepare(`SELECT body FROM feed WHERE key = 'compat-issues'`).first<{ body: string }>()
+  let issues: IssueReport[] = []
+  try {
+    issues = JSON.parse(kept?.body ?? "[]") as IssueReport[]
+  } catch {
+    return
+  }
+  const report = issues.find((r) => r.issue === issue)
+  if (!report?.bundleID || !report.verdict) return
+  await env.DB.prepare(
+    `INSERT OR REPLACE INTO approved_reports (issue, bundle_id, name, app_version, verdict, url, approved_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+  ).bind(issue, report.bundleID, report.name ?? report.bundleID, report.version ?? "", report.verdict, report.url, new Date().toISOString()).run()
+}
+
+/** Putting an app on the public list under a name, or taking it off. */
+async function listApp(env: Env, action: string, bundle: string, name: string): Promise<void> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9.-]{1,99}$/.test(bundle)) return
+  if (action === "remove") {
+    await env.DB.prepare(`DELETE FROM listed_apps WHERE bundle_id = ?1`).bind(bundle).run()
+  } else if (action === "add" && name.trim() && name.length <= 60) {
+    await env.DB.prepare(`INSERT OR REPLACE INTO listed_apps (bundle_id, name, listed_at) VALUES (?1, ?2, ?3)`)
+      .bind(bundle, name.trim(), new Date().toISOString()).run()
+  }
+}
+
 async function admin(request: Request, env: Env, ctx: ExecutionContext, path: string): Promise<Response> {
   if (request.method === "POST" && !sameOrigin(request)) return new Response("Forbidden", { status: 403 })
   if (path === "/admin/sign-in" && request.method === "POST") {
@@ -98,6 +133,16 @@ async function admin(request: Request, env: Env, ctx: ExecutionContext, path: st
     await changeRollout(env, ctx, String(form?.get("action") ?? ""), String(form?.get("version") ?? ""), Number(form?.get("percent")))
     return redirect("/admin#releases")
   }
+  if (path === "/admin/list" && request.method === "POST") {
+    const form = await request.formData().catch(() => null)
+    await listApp(env, String(form?.get("action") ?? ""), String(form?.get("bundle") ?? ""), String(form?.get("name") ?? ""))
+    return redirect("/admin#apps")
+  }
+  if (path === "/admin/report" && request.method === "POST") {
+    const form = await request.formData().catch(() => null)
+    await reviewReport(env, String(form?.get("action") ?? ""), Number(form?.get("issue")))
+    return redirect("/admin#reports")
+  }
   if (path === "/admin/collect" && request.method === "POST") {
     await collect(env)
     return redirect("/admin")
@@ -117,6 +162,18 @@ export default {
     if (path === "/api/v1/releases/latest" && request.method === "GET") return latestRelease(request, env, ctx)
     if (path === "/api/v1/kofi" && request.method === "POST") return kofi(request, env)
     if (path === "/api/v1/usage" && request.method === "POST") return usage(request, env, ctx)
+    if (path === "/api/v1/compatibility" && request.method === "GET") {
+      // Worked out at most every ten minutes per data center.
+      const key = "https://parallex.mandip.dev/__cache/compatibility"
+      const cached = await caches.default.match(key)
+      if (cached) return cached
+      const response = Response.json(
+        { generated: new Date().toISOString(), apps: await compatibilityList(env, request) },
+        { headers: { "Cache-Control": "public, max-age=600", "Access-Control-Allow-Origin": "*" } },
+      )
+      ctx.waitUntil(caches.default.put(key, response.clone()))
+      return response
+    }
     if (path === "/admin" || path.startsWith("/admin/")) return admin(request, env, ctx, path)
     if (path.startsWith("/api/")) return new Response("Not found", { status: 404 })
     return env.ASSETS.fetch(request)

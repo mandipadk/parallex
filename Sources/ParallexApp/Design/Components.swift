@@ -1,4 +1,5 @@
 import AppKit
+import ParallexCore
 import SwiftUI
 
 // MARK: - Buttons
@@ -393,5 +394,36 @@ struct ParallelMark: View {
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Notices
+
+/// A notice from Parallex's maintainer about an app (signed; see
+/// `Advisories`), with a website to use instead when there is one.
+struct AdvisoryBanner: View {
+    let notice: Advisories.AppNotice
+    var useWebsite: ((String) -> Void)? = nil
+
+    var body: some View {
+        let unsupported = notice.level == "unsupported"
+        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
+            Image(systemName: unsupported ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(unsupported ? Theme.failure : Theme.attention)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(notice.message)
+                    .font(Theme.Font.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("A notice from Parallex")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: Theme.Space.m)
+            if let useWebsite, let website = notice.website {
+                Button("Make a Website Instead") { useWebsite(website) }.buttonStyle(.secondary)
+            }
+        }
+        .padding(Theme.Space.m)
+        .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.Radius.tile))
     }
 }

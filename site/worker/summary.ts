@@ -1,3 +1,4 @@
+import type { IssueReport } from "./compatibility"
 import type { Env } from "./env"
 import { loadRollout, publishedReleases, versionOf, type Rollout } from "./feed"
 
@@ -23,6 +24,10 @@ export interface Summary {
     warnings: { name: string; version: string; macs: number; failing: number }[]
     features: { name: string; macs: number }[]
   }
+  /** GitHub compatibility reports, and which are on the public list. */
+  reports: { issues: IssueReport[]; approved: number[] }
+  /** Apps on the public list. */
+  listed: string[]
   /** Today's active Macs by version (for adoption). */
   todayVersions: { name: string; count: number }[]
   donations: { kofiCents: number; kofiCount: number; otherCurrencies: string[]; recent: { kind: string; cents: number; currency: string; at: string }[] }
@@ -55,6 +60,17 @@ export async function summarize(env: Env, ctx: ExecutionContext, now = new Date(
     ).bind(since7)
 
   const [releases, rollout] = await Promise.all([publishedReleases(env, ctx), loadRollout(env)])
+  const [issuesRow, approvedRows, listedRows] = await db.batch<Record<string, unknown>>([
+    db.prepare(`SELECT body FROM feed WHERE key = 'compat-issues'`),
+    db.prepare(`SELECT issue FROM approved_reports`),
+    db.prepare(`SELECT bundle_id FROM listed_apps`),
+  ])
+  let issues: IssueReport[] = []
+  try {
+    issues = JSON.parse(String(issuesRow.results[0]?.body ?? "[]")) as IssueReport[]
+  } catch {
+    issues = []
+  }
   const [usage7, usage30, usageApps, warnings, features] = await db.batch<Record<string, unknown>>([
     db.prepare(`SELECT COALESCE(SUM(macs), 0) AS n FROM usage_reports WHERE day >= ?1`).bind(since7),
     db.prepare(`SELECT COALESCE(SUM(macs), 0) AS n FROM usage_reports WHERE day >= ?1`).bind(since30),
@@ -124,6 +140,8 @@ export async function summarize(env: Env, ctx: ExecutionContext, now = new Date(
     published: releases.slice(0, 5).map(versionOf),
     rollout,
     todayVersions: rows(todayVersions),
+    reports: { issues, approved: approvedRows.results.map((r) => Number(r.issue)) },
+    listed: listedRows.results.map((r) => String(r.bundle_id)),
     usage: {
       macs7: n(usage7),
       macs30: n(usage30),

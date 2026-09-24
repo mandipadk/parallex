@@ -272,6 +272,8 @@ parallex import <file.parallex> [--name <name>] [--out <dir>]
 parallex remove <name> [--keep-data]
 parallex doctor <app> [--json]
 parallex report <name> [--print]
+parallex usage                      # the anonymous usage report, as it would be sent
+parallex notices                    # notices from Parallex, signature checked
 ```
 
 `<app>` can be a path (`/Applications/Claude.app`), a name (`Claude`), or a
@@ -383,6 +385,13 @@ Parallex asks GitHub directly. The server's code is in
 lists everything. An anonymous weekly usage report (which apps you copy and how
 those copies do) is sent only if you turn it on in Settings › About;
 `parallex usage` prints it.
+
+**Notices.** When an app update breaks copies, Parallex can say so without
+an update of its own: a signed file (`advisories/advisories.json`, published
+with `make advisories deploy-site`) that Parallex checks against the key built
+into it before showing anything. **Compatibility:** how apps do as instances,
+from reports and anonymous usage, is at
+[parallex.mandip.dev/compatibility](https://parallex.mandip.dev/compatibility).
 
 ## Support
 
