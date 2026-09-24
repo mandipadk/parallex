@@ -54,9 +54,29 @@ struct InstancesView: View {
             Sidebar()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 320)
         } detail: {
+            // The same frosted material as the sidebar, so the window reads
+            // as one surface rather than three shades of gray.
+            // Clipped below the toolbar: with no toolbar band, content scrolling
+            // up would otherwise run under the title and the + button.
             detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                .background(WindowGlassBackground(material: .sidebar).ignoresSafeArea())
         }
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar {
+            // The window's title: a quiet wordmark rather than empty space.
+            ToolbarItem(placement: .navigation) {
+                HStack(spacing: 7) {
+                    ParallelMark(size: 17, split: 1)
+                    Text("Parallex")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.leading, 6)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Parallex")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     model.creating = .init()

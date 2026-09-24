@@ -14,6 +14,9 @@ let package = Package(
         .executable(name: "ParallexApp", targets: ["ParallexApp"]),
         // Loaded into own-identity copies so they keep their own ~/Library.
         .library(name: "parallexhome", type: .dynamic, targets: ["ParallexHome"]),
+        // Loaded into own-identity copies of sandboxed apps so they use their
+        // own app-group containers.
+        .library(name: "parallexgroups", type: .dynamic, targets: ["ParallexGroups"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
@@ -42,6 +45,13 @@ let package = Package(
         // The home-redirect library (C, no dependencies): answers account
         // lookups with the instance's home inside an instance's own copy.
         .target(name: "ParallexHome"),
+
+        // The app-group mapping library (Objective-C): translates a sandboxed
+        // copy's requests for its original app groups to its own.
+        .target(
+            name: "ParallexGroups",
+            linkerSettings: [.linkedFramework("Foundation")]
+        ),
 
         // "Parallex Links": receives sign-in links and passes each to the
         // right running copy of an app (see LinkRouting).
