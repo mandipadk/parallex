@@ -27,6 +27,12 @@ enum DebugRoute {
         return value.hasPrefix("createInline:") ? String(value.dropFirst("createInline:".count)) : ""
     }
 
+    /// `createWeb:<address>`: the create flow's website step, filled in.
+    static var webCreate: String? {
+        guard let value, value.hasPrefix("createWeb") else { return nil }
+        return value.hasPrefix("createWeb:") ? String(value.dropFirst("createWeb:".count)) : ""
+    }
+
     static var showsMenuPanel: Bool { value == "panel" }
     static var showsSettings: Bool { value == "settings" || value?.hasPrefix("settings:") == true }
     /// `settings:links` opens Settings on that tab.

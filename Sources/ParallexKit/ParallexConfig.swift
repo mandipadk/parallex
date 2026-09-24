@@ -4,7 +4,7 @@
 /// The CLI writes these when assembling a wrapper; the launcher reads them from
 /// `Bundle.main` at launch. Nothing else should hardcode these strings.
 public enum ParallexConfig {
-    public static let version = "0.15.2"
+    public static let version = "0.16.0"
 
     /// Top-level Info.plist key holding the launcher configuration dictionary.
     public static let rootKey = "Parallex"
@@ -64,6 +64,10 @@ public enum ParallexConfig {
         /// the target's after exec, and process env isn't readable on
         /// modern macOS). Format: see `PidFileRecord`.
         public static let pidFile = "PidFile"
+        /// The Parallex version that built this instance. A copy's
+        /// CFBundleShortVersionString is its app's, so this is what says
+        /// whether it has the current launcher.
+        public static let builtWith = "BuiltWith"
     }
 
     /// Own-Library separation needs macOS to load Parallex's library into the

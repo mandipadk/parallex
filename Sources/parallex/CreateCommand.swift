@@ -8,11 +8,24 @@ struct Create: ParsableCommand {
         discussion: """
         Arguments after `--` are passed through to the target binary:
           parallex create Claude --name "Claude Dev" -- --remote-debugging-port=9222
+
+        A website becomes an app of its own with --web (its own Dock icon,
+        notifications and sign-in):
+          parallex create --web web.whatsapp.com --name "WhatsApp Work"
         """
     )
 
     @Argument(help: "The target app: a path (/Applications/Claude.app), a name (Claude), or a bundle identifier.")
-    var app: String
+    var app: String?
+
+    @Option(help: ArgumentHelp("Make a web instance of this site instead of an app's.", valueName: "site"))
+    var web: String?
+
+    mutating func validate() throws {
+        if (app == nil) == (web == nil) {
+            throw ValidationError("Name an app, or a website with --web.")
+        }
+    }
 
     @Option(name: .shortAndLong, help: "Display name for the instance (default: \"<App> 2\", \"<App> 3\", …).")
     var name: String?
@@ -87,7 +100,7 @@ struct Create: ParsableCommand {
     mutating func run() throws {
         var enabledOptions: [String]?
         if !enableOptions.isEmpty || !disableOptions.isEmpty {
-            let target = try AppInspector.inspect(try AppResolver.resolve(app))
+            let target = try AppInspector.inspect(try AppResolver.resolve(app ?? ""))
             let available = Presets.recipe(for: target.bundleID)?.options ?? []
             try checkOptionIDs(enableOptions + disableOptions, available: available)
             var settings = InstanceSettings()
@@ -95,8 +108,8 @@ struct Create: ParsableCommand {
             for id in disableOptions { settings.setOption(id, enabled: false, available: available) }
             enabledOptions = settings.enabledOptions
         }
-        let request = CreateRequest(
-            appReference: app,
+        var request = CreateRequest(
+            appReference: app ?? "",
             name: name,
             mode: mode,
             outputDirectory: URL(fileURLWithPath: (out as NSString).expandingTildeInPath, isDirectory: true),
@@ -112,6 +125,14 @@ struct Create: ParsableCommand {
             cloneApp: clone,
             force: force
         )
+        request.webURL = web
+        // A web instance looks like its site: its own icon, or a letter tile.
+        if let web, icon == nil, let site = WebShell.normalizedURL(web) {
+            print(Term.dim("Getting \(site.host ?? "the site")'s icon…"))
+            let name = self.name ?? WebShell.suggestedName(for: site)
+            request.customIcon = WebIcon.fetch(for: site)
+                ?? WebIcon.monogram(for: name, colorHex: badgeColor ?? IconBuilder.defaultColorHex(for: Slug.make(name)))
+        }
 
         let result = try InstanceCreator.create(request)
         printResultSummary(result, verb: "Created")

@@ -140,9 +140,11 @@ public enum InstanceArchive {
         var manifest = imported
         removeLinks(leaving: folder)
 
-        guard let bundleID = manifest.knownTargetBundleID, OriginalData.isPlainName(bundleID),
-              !bundleID.hasPrefix("com.parallex."),
-              let app = locateApp(bundleID)
+        // A website's app is Parallex Web, which comes with Parallex.
+        let webTemplate = manifest.isWeb ? try WebShell.templateApp() : nil
+        guard let app = webTemplate ?? manifest.knownTargetBundleID.flatMap({ bundleID in
+            OriginalData.isPlainName(bundleID) && !bundleID.hasPrefix("com.parallex.") ? locateApp(bundleID) : nil
+        })
         else {
             let appName = URL(fileURLWithPath: manifest.targetApp).deletingPathExtension().lastPathComponent
             throw ParallexError("“\(manifest.name)” is an instance of \(appName), which isn't installed on this Mac.")
@@ -202,7 +204,7 @@ public enum InstanceArchive {
         manifest.bundleIdentifier = "com.parallex.instance.\(slug)"
         manifest.targetApp = target.url.path
         manifest.targetBinary = target.executableURL.path
-        manifest.targetBundleID = bundleID
+        manifest.targetBundleID = target.bundleID
         manifest.wrapperPath = outputDirectory.appendingPathComponent("\(name).app").path
         manifest.arguments = []
         manifest.environment = ["PARALLEX_INSTANCE": slug]

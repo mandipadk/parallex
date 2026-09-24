@@ -40,7 +40,11 @@ func printResultSummary(_ result: CreateResult, verb: String) {
     let manifest = result.manifest
     print("\(Term.green("✓")) \(verb) \(Term.bold("“\(manifest.name)”"))")
     print("  Wrapper  \(manifest.wrapperPath)")
-    print("  Target   \(manifest.targetApp)  \(Term.dim("(\(result.frameworkDisplayName))"))")
+    if let site = manifest.webURL {
+        print("  Site     \(site.absoluteString)")
+    } else {
+        print("  Target   \(manifest.targetApp)  \(Term.dim("(\(result.frameworkDisplayName))"))")
+    }
     print("  Mode     \(manifest.isolationSummary)")
     for directory in result.dataDirectories {
         print("  Data     \(Paths.abbreviate(directory))")

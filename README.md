@@ -125,6 +125,18 @@ rule goes where the rule says (`parallex links rule add northwind.com "Brave Bro
 and everything else opens in the browser you had before, as if Parallex weren't
 there. `parallex links web off` gives links back to that browser.
 
+### Websites as apps
+
+Some services are only a website on the Mac, or their app can't be copied:
+Teams, Outlook, a second WhatsApp or Gmail account. `parallex create --web
+teams.microsoft.com` (or **New Instance › A website**) makes the site an app
+of its own, with its own Dock icon (the site's icon, or a letter tile when it has
+none), its own sign-in and cookies, and its own notifications. An unread count in
+the page's title, like "(3) Inbox", becomes its Dock badge. Sign-in pop-ups stay
+in the app, and links to other sites open in your browser. Under the hood it is
+an own-identity copy of *Parallex Web*, a small WebKit app that ships with
+Parallex, so it is separate from Safari and from every other instance.
+
 `parallex check <name>` verifies a running instance: it lists the files the
 instance's processes have open and flags any that belong to the original app's
 data, so isolation is something you can see rather than assume.
@@ -235,6 +247,7 @@ open, and starts without a window at login.
 ```sh
 parallex apps [--all] [--json]
 parallex create <app> [options] [-- extra args for the target]
+parallex create --web <site> [--name <name>] [--badge-color <hex>]
 parallex list [--json]
 parallex open <name> [--original | --reveal]
 parallex edit <name> [options] [-- replacement extra args]
@@ -251,6 +264,7 @@ parallex export <name> [-o <file.parallex>]
 parallex import <file.parallex> [--name <name>] [--out <dir>]
 parallex remove <name> [--keep-data]
 parallex doctor <app> [--json]
+parallex report <name> [--print]
 ```
 
 `<app>` can be a path (`/Applications/Claude.app`), a name (`Claude`), or a
@@ -274,6 +288,7 @@ Useful `create` options:
 | `--option ID` / `--no-option ID` | turn a recipe option on or off (see `doctor`) |
 | `--adopt-data DIR` | move an existing profile folder in as the instance's data |
 | `--clone` | own identity: make the instance a re-signed copy of the app (see above) |
+| `--web SITE` | a website as an app of its own, instead of an app's instance (see above); `edit --web` changes its address |
 | `--force` | rebuild an existing instance (keeps its data) |
 | `--open` | launch right after creating |
 
@@ -287,10 +302,12 @@ parallex doctor Slack                    # what would Parallex do with Slack?
 parallex edit "Claude Work" --option separate-claude-code
 parallex check "Claude Work"             # any leaks into the original's data?
 parallex create WhatsApp --name "WhatsApp Work" --clone
+parallex create --web teams.microsoft.com --name "Teams Client"   # a website as an app
 parallex links enable                    # sign-in links go to the right copy
 parallex workspace browser Work "Chrome/Work"  # Work's links open in Chrome's Work profile
 parallex links web on                    # …once Parallex Links routes web links
 parallex repair --all                    # rebuild outdated or broken wrappers
+parallex report "Slack Work"             # tell others how Slack works (opens a prefilled GitHub report)
 parallex remove "Chrome Dev"             # wrapper + data → Trash
 ```
 
@@ -345,5 +362,5 @@ try with `--env`. Recipes live in `Presets.recipes`.
 
 ## Status
 
-v0.12 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
+v0.16 — see [PLAN.md](PLAN.md) for the design. Tell others how an app works with `parallex report` or the [compatibility form](https://github.com/mandipadk/parallex/issues/new?template=compatibility.yml). The original proof of concept is
 in [poc/](poc/).

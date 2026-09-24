@@ -54,6 +54,8 @@ public struct CreateRequest: Sendable {
     /// For a copy with its own Library: keep the app's hidden folders in the
     /// instance too (`nil` = the default, on).
     public var separateHiddenFolders: Bool?
+    /// A web instance of this site (`appReference` is then ignored).
+    public var webURL: String?
     /// Use this keychain name suffix instead of a new one (a duplicate with
     /// data needs its source's key to read what it copied).
     var keychainSuffix: String??
@@ -132,6 +134,7 @@ extension InstanceCreator {
         )
         request.separateLibrary = settings.separateLibrary
         request.separateHiddenFolders = settings.separateHiddenFolders
+        request.webURL = settings.webURL
         if includeData {
             // What's copied was encrypted with the source's key.
             request.keychainSuffix = .some(manifest.keychainSuffix)
@@ -287,7 +290,21 @@ public enum InstanceCreator {
         builderOptions: BundleBuilder.Options = BundleBuilder.Options()
     ) throws -> CreateResult {
         let fm = FileManager.default
-        let appURL = try AppResolver.resolve(request.appReference)
+        var request = request
+        if let web = request.webURL {
+            // A website: a copy of Parallex Web, with its own Library.
+            guard let url = WebShell.normalizedURL(web) else {
+                throw ParallexError("“\(web)” isn't a web address. Use one like https://web.whatsapp.com.")
+            }
+            request.webURL = url.absoluteString
+            request.cloneApp = true
+            request.mode = .launchOnly
+            request.separateLibrary = nil
+            if request.name?.trimmingCharacters(in: .whitespaces).isEmpty ?? true {
+                request.name = WebShell.freeName(for: url, outputDirectory: request.outputDirectory)
+            }
+        }
+        let appURL = try request.webURL != nil ? WebShell.templateApp() : AppResolver.resolve(request.appReference)
         let target = try AppInspector.inspect(appURL)
         guard !target.isParallexWrapper else {
             throw ParallexError(
@@ -351,6 +368,7 @@ public enum InstanceCreator {
         )
         settings.separateLibrary = request.separateLibrary
         settings.separateHiddenFolders = request.separateHiddenFolders
+        settings.webURL = request.webURL
         try validateBadge(settings)
         if let adopt = request.adoptData {
             try validateAdoptable(adopt, target: target, slug: slug)
@@ -564,6 +582,9 @@ public enum InstanceCreator {
     /// Where the instance's target app is now: its recorded path, or wherever
     /// Launch Services finds its bundle ID.
     public static func locateTarget(of manifest: InstanceManifest) throws -> URL {
+        if manifest.isWeb {
+            return try WebShell.templateApp()
+        }
         if FileManager.default.fileExists(atPath: manifest.targetApp) {
             return URL(fileURLWithPath: manifest.targetApp, isDirectory: true)
         }
@@ -626,6 +647,12 @@ public enum InstanceCreator {
         var environment = plan.environment
         environment.merge(settings.extraEnvironment) { _, user in user }
         environment["PARALLEX_INSTANCE"] = slug
+        if let web = settings.webURL {
+            guard let url = WebShell.normalizedURL(web) else {
+                throw ParallexError("“\(web)” isn't a web address.")
+            }
+            environment[WebShell.urlVariable] = url.absoluteString
+        }
         let arguments = plan.arguments + settings.extraArguments
 
         let customIcon = settings.customIconFile.map { instanceDir.appendingPathComponent($0) }
@@ -670,7 +697,8 @@ public enum InstanceCreator {
             output = built.output
             cloneRecord = built.record
             spec.targetBinaryPath = built.executable
-            notes += AppCloner.assess(target).notes
+            // A web instance is Parallex's own app: nothing to warn about.
+            notes = settings.webURL != nil ? [] : notes + AppCloner.assess(target).notes
             if !built.record.usesLauncher,
                !settings.extraEnvironment.isEmpty || !settings.extraArguments.isEmpty || settings.mode != .auto {
                 notes.append(
@@ -763,7 +791,7 @@ public enum InstanceCreator {
         }
         let config: [String: Any] = useLauncher
             ? BundleBuilder.launcherConfig(cloneSpec)
-            : [ParallexConfig.Key.slug: spec.slug]
+            : [ParallexConfig.Key.slug: spec.slug, ParallexConfig.Key.builtWith: ParallexConfig.version]
 
         // Only replace the app's icon when the user styled it.
         var warnings: [String] = []

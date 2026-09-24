@@ -48,8 +48,9 @@ struct List: ParsableCommand {
         let rows = entries.map { entry -> [String] in
             [
                 entry.manifest.name,
-                entry.manifest.clone == nil ? entry.manifest.mode.rawValue : "clone+\(entry.manifest.mode.rawValue)",
-                URL(fileURLWithPath: entry.manifest.targetApp).deletingPathExtension().lastPathComponent,
+                entry.manifest.isWeb ? "web"
+                    : entry.manifest.clone == nil ? entry.manifest.mode.rawValue : "clone+\(entry.manifest.mode.rawValue)",
+                entry.manifest.targetDisplayName,
                 Paths.abbreviate(entry.manifest.wrapperPath),
                 status(for: entry),
             ]

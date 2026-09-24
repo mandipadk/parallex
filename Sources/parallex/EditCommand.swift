@@ -71,6 +71,9 @@ struct Edit: ParsableCommand {
     @Flag(help: "Remove the instance's global shortcut.")
     var noShortcut = false
 
+    @Option(help: ArgumentHelp("A web instance's new address.", valueName: "url"))
+    var web: String?
+
     @Argument(parsing: .postTerminator, help: .hidden)
     var passthroughArguments: [String] = []
 
@@ -122,6 +125,15 @@ struct Edit: ParsableCommand {
         }
         if let separateHiddenFolders {
             settings.separateHiddenFolders = separateHiddenFolders
+        }
+        if let web {
+            guard manifest.isWeb else {
+                throw ValidationError("“\(manifest.name)” isn't a web instance.")
+            }
+            guard let url = WebShell.normalizedURL(web) else {
+                throw ValidationError("“\(web)” isn't a web address.")
+            }
+            settings.webURL = url.absoluteString
         }
         let available = manifest.recipe?.options ?? []
         try checkOptionIDs(enableOptions + disableOptions, available: available)

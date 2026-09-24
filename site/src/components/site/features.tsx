@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { AppWindow, Keyboard, Layers, RefreshCw } from "lucide-react"
+import { Globe, Keyboard, Layers, RefreshCw } from "lucide-react"
 import { Heading } from "./heading"
 import { Reveal, RevealGroup, RevealItem } from "./reveal"
 import { DockVisual } from "./visuals/dock-visual"
@@ -37,7 +37,7 @@ const beats: { title: string; serif: string; line: ReactNode; visual: ReactNode 
 const extras = [
   { icon: Layers, label: "Workspaces that open together" },
   { icon: Keyboard, label: "A shortcut for every copy" },
-  { icon: AppWindow, label: "Colored window outlines" },
+  { icon: Globe, label: "Any website as an app" },
   { icon: RefreshCw, label: "Updates itself, safely" },
 ]
 

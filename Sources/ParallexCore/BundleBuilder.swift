@@ -171,6 +171,7 @@ public struct BundleBuilder {
         var config: [String: Any] = [
             ParallexConfig.Key.targetBinary: spec.targetBinaryPath,
             ParallexConfig.Key.slug: spec.slug,
+            ParallexConfig.Key.builtWith: ParallexConfig.version,
         ]
         // A clone's launcher execs the binary inside its own bundle; the
         // bundle's CFBundleExecutable is the launcher itself, so it must not

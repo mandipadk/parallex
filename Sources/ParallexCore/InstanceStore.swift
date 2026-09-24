@@ -43,6 +43,8 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     public var shortcut: KeyShortcut?
     /// An icon in the menu bar that opens, brings forward or hides it.
     public var menuBarIcon: Bool?
+    /// A web instance: the website it shows (see `WebShell`).
+    public var webURL: String?
     /// Own-identity copies keep their data to themselves: a copy of an app
     /// that isn't sandboxed gets its own ~/Library (Application Support,
     /// caches, web storage…); a copy of a sandboxed app gets its own
@@ -287,10 +289,15 @@ public struct InstanceManifest: Codable, Sendable {
 
     /// One line describing how the instance is isolated.
     public var isolationSummary: String {
+        if let webURL {
+            return "website — \(webURL.absoluteString) as an app of its own, with its own sign-in and data"
+        }
         guard let clone else { return "\(mode.rawValue) — \(mode.summary)" }
         switch mode {
         case .launchOnly where clone.usesLauncher == false:
             return "own identity — a copy of the app with its own bundle ID and sandbox container"
+        case .launchOnly where redirectedHome != nil:
+            return "own identity — a copy of the app with its own bundle ID and its own ~/Library"
         case .launchOnly:
             return "own identity — a copy of the app with its own bundle ID (data not separated)"
         default:

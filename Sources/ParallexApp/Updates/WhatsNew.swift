@@ -18,6 +18,23 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.16.0", highlights: [
+            Highlight(
+                symbol: "globe",
+                title: "Websites as apps",
+                detail: "Teams, Outlook, a second Gmail: any site becomes an app with its own Dock icon, sign-in and notifications. New Instance › A website."
+            ),
+            Highlight(
+                symbol: "app.badge",
+                title: "Unread counts in the Dock",
+                detail: "A site's unread count shows on its Dock icon, its notifications arrive like any app's, and links to other sites open in your browser."
+            ),
+            Highlight(
+                symbol: "text.bubble",
+                title: "Say how an app works",
+                detail: "An instance's ⋯ menu › Report How It Works opens a GitHub report with the app and setup filled in, so the next person knows what to expect."
+            ),
+        ]),
         Release(version: "0.15.0", highlights: [
             Highlight(
                 symbol: "rectangle.stack.badge.plus",

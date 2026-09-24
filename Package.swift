@@ -63,6 +63,11 @@ let package = Package(
             dependencies: ["ParallexCore"]
         ),
 
+        // "Parallex Web": the small browser a web instance is a copy of
+        // (see WebShell). Dependency-free: it's copied into every web
+        // instance and only reads its launch environment.
+        .executableTarget(name: "parallex-web"),
+
         // The CLI over ParallexCore.
         .executableTarget(
             name: "parallex",

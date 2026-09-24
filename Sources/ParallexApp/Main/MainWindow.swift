@@ -19,6 +19,8 @@ struct MainWindow: View {
         } else if DebugRoute.value == "newWorkspace" {
             NewWorkspaceSheet()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let address = DebugRoute.webCreate {
+            NewInstanceFlow(webAddress: address)
         } else if let app = DebugRoute.inlineCreate {
             NewInstanceFlow(preselected: app.isEmpty ? nil : URL(fileURLWithPath: app))
         } else if DebugRoute.showsSettings {
@@ -209,7 +211,9 @@ struct Sidebar: View {
 
     @ViewBuilder private func rowMenu(_ entry: InstanceEntry) -> some View {
         Button(entry.running ? "Bring to Front" : "Open") { model.activate(entry) }
-        Button("Open Original \(entry.targetName)") { model.launchOriginal(entry) }
+        if !entry.manifest.isWeb {
+            Button("Open Original \(entry.targetName)") { model.launchOriginal(entry) }
+        }
         if !model.workspaces.isEmpty {
             Menu("Add to Workspace") {
                 ForEach(model.workspaces) { workspace in

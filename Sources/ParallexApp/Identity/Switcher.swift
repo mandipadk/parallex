@@ -197,7 +197,9 @@ struct SwitcherItem: Identifiable {
             items.append(SwitcherItem(
                 id: "instance-\(entry.id)",
                 title: entry.manifest.name,
-                subtitle: entry.running ? "\(entry.targetName) instance · running" : "\(entry.targetName) instance",
+                subtitle: entry.manifest.isWeb
+                    ? (entry.running ? "\(entry.targetName) · running" : entry.targetName)
+                    : entry.running ? "\(entry.targetName) instance · running" : "\(entry.targetName) instance",
                 color: entry.nsColor,
                 icon: IconCache.icon(for: entry.iconPath),
                 kind: .instance(entry),
@@ -208,7 +210,8 @@ struct SwitcherItem: Identifiable {
         // with the target's bundle ID that isn't one of our instances),
         // otherwise offer to open it alongside.
         var seenTargets = Set<String>()
-        for entry in model.entries where !seenTargets.contains(entry.manifest.targetApp) {
+        // (A web instance's "original" is a website, not an app.)
+        for entry in model.entries where !entry.manifest.isWeb && !seenTargets.contains(entry.manifest.targetApp) {
             seenTargets.insert(entry.manifest.targetApp)
             let icon = IconCache.icon(for: entry.manifest.targetApp)
             let running = entry.manifest.targetBundleID.map {

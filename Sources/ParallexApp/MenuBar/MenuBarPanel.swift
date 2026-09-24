@@ -203,7 +203,7 @@ private struct PanelInstanceRow: View {
             .buttonStyle(.plain)
             .disabled(!entry.status.canLaunch)
 
-            if hovering {
+            if hovering, !entry.manifest.isWeb {
                 Button(action: openOriginal) {
                     Image(systemName: "arrow.up.forward.app")
                         .font(.system(size: 12, weight: .medium))

@@ -198,6 +198,8 @@ public enum AppCloner {
         if let icon = spec.iconICNS {
             let iconName = "parallex-icon"
             try? fm.removeItem(at: contents.appendingPathComponent("Resources/\(iconName).icns"))
+            // Not every app has resources of its own (Parallex Web doesn't).
+            try fm.createDirectory(at: contents.appendingPathComponent("Resources"), withIntermediateDirectories: true)
             try fm.copyItem(at: icon, to: contents.appendingPathComponent("Resources/\(iconName).icns"))
             info["CFBundleIconFile"] = iconName
             // An asset-catalog icon name would win over the file.

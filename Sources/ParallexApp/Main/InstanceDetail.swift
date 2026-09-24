@@ -35,10 +35,14 @@ struct InstanceDetail: View {
                 DetailHeader(entry: entry)
                     .padding(.bottom, Theme.Space.xl)
                 ProblemBanners(entry: entry)
-                IsolationSection(
-                    entry: entry, draft: $draft, cloneAssessment: cloneAssessment,
-                    targetSandboxed: targetSandboxed, targetHasGroups: targetHasGroups
-                )
+                if entry.manifest.isWeb {
+                    WebsiteSection(entry: entry, draft: $draft)
+                } else {
+                    IsolationSection(
+                        entry: entry, draft: $draft, cloneAssessment: cloneAssessment,
+                        targetSandboxed: targetSandboxed, targetHasGroups: targetHasGroups
+                    )
+                }
                 AppearanceSection(entry: entry, draft: $draft)
                 LaunchSection(
                     entry: entry, openAtStart: $draft.settings.openAtLaunch.orFalse,
@@ -67,7 +71,8 @@ struct InstanceDetail: View {
                     error: applyError,
                     blockedMessage: blockedByRunningCopy
                         ? "Quit \(entry.name) to apply — its copy of the app is rebuilt."
-                        : draft.parsedEnvironment == nil ? "Fix the extra environment: each line needs KEY=VALUE." : nil,
+                        : draft.parsedEnvironment == nil ? "Fix the extra environment: each line needs KEY=VALUE."
+                        : draft.invalidWebAddress ? "Type a web address, like web.whatsapp.com." : nil,
                     revert: revert,
                     apply: apply
                 )
@@ -196,6 +201,11 @@ struct InstanceDraft: Equatable {
         return environment
     }
 
+    /// A web instance's address, typed but not (yet) a web address.
+    var invalidWebAddress: Bool {
+        settings.webURL.map { WebShell.normalizedURL($0) == nil } ?? false
+    }
+
     var parsedArguments: [String] {
         argumentsText.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -212,6 +222,9 @@ struct InstanceDraft: Equatable {
         if resetIcon {
             resolved.customIconFile = nil
         }
+        if let web = resolved.webURL, let url = WebShell.normalizedURL(web) {
+            resolved.webURL = url.absoluteString
+        }
         return resolved
     }
 
@@ -219,7 +232,7 @@ struct InstanceDraft: Equatable {
         name.trimmingCharacters(in: .whitespaces) != manifest.name
             || newIcon != nil || resetIcon
             // Unfinished environment text is a pending edit, not "no change".
-            || parsedEnvironment == nil
+            || parsedEnvironment == nil || invalidWebAddress
             || baseline.resolvedSettings.requiresRebuild(toReach: resolvedSettings)
     }
 
@@ -258,7 +271,8 @@ private struct DetailHeader: View {
                 HStack(spacing: 6) {
                     StatusPill(state: entry.runState)
                     Text("·").foregroundStyle(.tertiary)
-                    Text(entry.isClone ? "Own copy of \(entry.targetName)" : "Instance of \(entry.targetName)")
+                    Text(entry.manifest.isWeb ? "Website · \(entry.targetName)"
+                         : entry.isClone ? "Own copy of \(entry.targetName)" : "Instance of \(entry.targetName)")
                         .font(Theme.Font.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -272,7 +286,11 @@ private struct DetailHeader: View {
                 .disabled(!entry.status.canLaunch)
                 .keyboardShortcut("o", modifiers: .command)
             Menu {
-                Button("Open Original \(entry.targetName)") { model.launchOriginal(entry) }
+                if let site = entry.manifest.webURL {
+                    Button("Open \(entry.targetName) in Browser") { NSWorkspace.shared.open(site) }
+                } else {
+                    Button("Open Original \(entry.targetName)") { model.launchOriginal(entry) }
+                }
                 Divider()
                 Button("Export…") { model.export(entry) }
                     .disabled(entry.running)
@@ -291,6 +309,8 @@ private struct DetailHeader: View {
                     NSPasteboard.general.setString(ParallexLink.url(opening: entry.name).absoluteString, forType: .string)
                 }
                 .help("A parallex:// link that opens this instance from Shortcuts, launchers or scripts")
+                Button("Report How It Works…") { NSWorkspace.shared.open(CompatibilityReport.url(for: entry.manifest)) }
+                    .help("Opens a report on GitHub with the app, its version and how this instance was made filled in. Nothing is sent until you submit it.")
                 Divider()
                 Button("Repair") { model.repair(entry) }
             } label: {
@@ -421,6 +441,30 @@ private struct ProblemBanners: View {
         panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
         if panel.runModal() == .OK, let url = panel.url {
             model.repair(entry, targetApp: url)
+        }
+    }
+}
+
+// MARK: - Website
+
+private struct WebsiteSection: View {
+    let entry: InstanceEntry
+    @Binding var draft: InstanceDraft
+
+    var body: some View {
+        DetailSection(title: "Website", subtitle: "Its own sign-in, cookies, and notifications — separate from your browser and every other instance.") {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Address").font(Theme.Font.callout.weight(.medium))
+                TextField("web.whatsapp.com", text: Binding(
+                    get: { draft.settings.webURL ?? "" },
+                    set: { draft.settings.webURL = $0 }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 420)
+                Text(draft.invalidWebAddress ? "Type a web address, like web.whatsapp.com." : "Where it opens. Links to other sites open in your browser.")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(draft.invalidWebAddress ? Theme.failure : Color.secondary)
+            }
         }
     }
 }
@@ -684,6 +728,7 @@ private struct ReportDetails: View {
 private struct AppearanceSection: View {
     let entry: InstanceEntry
     @Binding var draft: InstanceDraft
+    @State private var fetchingSiteIcon = false
 
     var body: some View {
         DetailSection(title: "Appearance") {
@@ -722,7 +767,16 @@ private struct AppearanceSection: View {
                         label("Icon")
                         HStack(spacing: Theme.Space.s) {
                             Button("Choose…", action: chooseIcon).buttonStyle(.secondary)
-                            if hasCustomIcon {
+                            if entry.manifest.isWeb {
+                                // Parallex Web's own icon means nothing here.
+                                Button("Use Site Icon", action: useSiteIcon)
+                                    .buttonStyle(.secondary)
+                                    .disabled(fetchingSiteIcon || draft.invalidWebAddress)
+                                    .help("Get the icon of the site it opens again")
+                                if fetchingSiteIcon {
+                                    ProgressView().controlSize(.small)
+                                }
+                            } else if hasCustomIcon {
                                 Button("Use App Icon") {
                                     draft.newIcon = nil
                                     draft.resetIcon = true
@@ -741,6 +795,24 @@ private struct AppearanceSection: View {
             .font(Theme.Font.callout)
             .foregroundStyle(.secondary)
             .gridColumnAlignment(.trailing)
+    }
+
+    /// The site's icon (or its letter tile), for the address being edited.
+    private func useSiteIcon() {
+        guard let site = draft.settings.webURL.flatMap(WebShell.normalizedURL) else { return }
+        let name = draft.name
+        let color = draft.colorHex
+        fetchingSiteIcon = true
+        Task {
+            let icon = await Task.detached(priority: .userInitiated) {
+                WebIcon.fetch(for: site) ?? WebIcon.monogram(for: name, colorHex: color)
+            }.value
+            fetchingSiteIcon = false
+            if let icon {
+                draft.newIcon = icon
+                draft.resetIcon = false
+            }
+        }
     }
 
     private var colorBinding: Binding<String> {
@@ -937,13 +1009,15 @@ private struct AdvancedSection: View {
         DetailSection(title: "Advanced") {
             DisclosureGroup(isExpanded: $expanded) {
                 VStack(alignment: .leading, spacing: Theme.Space.l) {
-                    Picker("Isolation mode", selection: $draft.settings.mode) {
-                        Text("Automatic").tag(RequestedMode.auto)
-                        Text("App data folder").tag(RequestedMode.dataDir)
-                        Text("Home folder").tag(RequestedMode.home)
-                        Text("Launch only").tag(RequestedMode.launchOnly)
+                    if !entry.manifest.isWeb {
+                        Picker("Isolation mode", selection: $draft.settings.mode) {
+                            Text("Automatic").tag(RequestedMode.auto)
+                            Text("App data folder").tag(RequestedMode.dataDir)
+                            Text("Home folder").tag(RequestedMode.home)
+                            Text("Launch only").tag(RequestedMode.launchOnly)
+                        }
+                        .frame(maxWidth: 320)
                     }
-                    .frame(maxWidth: 320)
                     editor("Extra environment", "One KEY=VALUE per line.", text: $draft.environmentText,
                            invalid: draft.parsedEnvironment == nil)
                     editor("Extra launch arguments", "One per line, after Parallex's own.", text: $draft.argumentsText,

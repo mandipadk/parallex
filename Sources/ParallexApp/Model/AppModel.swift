@@ -15,7 +15,7 @@ struct InstanceEntry: Identifiable, Equatable {
     var pid: pid_t? { status.pid }
     var color: Color { Color(hex: manifest.colorHex) }
     var nsColor: NSColor { NSColor(hex: manifest.colorHex) ?? .systemBlue }
-    var targetName: String { URL(fileURLWithPath: manifest.targetApp).deletingPathExtension().lastPathComponent }
+    var targetName: String { manifest.targetDisplayName }
     var isClone: Bool { manifest.clone != nil }
 
     /// The wrapper's (possibly badged) icon, or the app's if the wrapper is gone.

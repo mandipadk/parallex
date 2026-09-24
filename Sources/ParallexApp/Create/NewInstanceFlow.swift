@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
 /// Choose an app → set it up → create. A sheet over the main window.
 struct NewInstanceFlow: View {
     var preselected: URL?
+    /// Start at the website step with this address.
+    var webAddress: String?
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -13,12 +15,14 @@ struct NewInstanceFlow: View {
     @State private var step: Step = .choose
     @State private var forward = true
     @State private var setup = SetupState()
+    @State private var web = WebSetup()
     /// The latest app picked; a slower earlier probe must not win.
     @State private var pendingPick: URL?
 
     enum Step: Equatable {
         case choose
         case configure
+        case website
         case creating
         case done(slug: String, name: String)
     }
@@ -27,13 +31,20 @@ struct NewInstanceFlow: View {
         ZStack {
             switch step {
             case .choose:
-                ChooseAppStep(pick: pick, cancel: { dismiss() })
+                ChooseAppStep(pick: pick, website: startWebsite, cancel: { dismiss() })
                     .transition(stepTransition)
             case .configure:
                 ConfigureStep(setup: $setup, back: { go(.choose, forward: false) }, create: create)
                     .transition(stepTransition)
+            case .website:
+                WebsiteStep(setup: $web, back: { go(.choose, forward: false) }, create: createWebsite)
+                    .transition(stepTransition)
             case .creating:
-                CreatingStep(name: setup.name, isClone: setup.cloneApp)
+                CreatingStep(
+                    name: creatingWeb ? web.name : setup.name,
+                    detail: creatingWeb ? "Making it an app of its own — a few seconds."
+                        : setup.cloneApp ? "Copying and signing the app — a few seconds." : "Building the instance."
+                )
                     .transition(stepTransition)
             case .done(let slug, let name):
                 DoneStep(name: name, open: { open(slug) }, finish: { dismiss() })
@@ -47,6 +58,10 @@ struct NewInstanceFlow: View {
             model.loadCatalog()
             if let preselected {
                 await pickURL(preselected)
+            } else if let webAddress {
+                startWebsite()
+                web.address = webAddress
+                web.name = WebShell.normalizedURL(webAddress).map { WebShell.freeName(for: $0) } ?? ""
             }
         }
     }
@@ -93,6 +108,7 @@ struct NewInstanceFlow: View {
 
     private func create() {
         let request = setup.request()
+        creatingWeb = false
         go(.creating)
         Task {
             do {
@@ -101,6 +117,32 @@ struct NewInstanceFlow: View {
             } catch {
                 setup.error = "\(error)"
                 go(.configure, forward: false)
+            }
+        }
+    }
+
+    @State private var creatingWeb = false
+
+    private func startWebsite() {
+        let usedColors = Set(model.entries.map { $0.manifest.colorHex.uppercased() })
+        if web.address.isEmpty {
+            web.colorHex = IconBuilder.palette.first { !usedColors.contains($0.uppercased()) } ?? IconBuilder.palette[0]
+        }
+        go(.website)
+    }
+
+    private func createWebsite() {
+        let setup = web
+        creatingWeb = true
+        go(.creating)
+        Task {
+            do {
+                let request = await Task.detached(priority: .userInitiated) { setup.request() }.value
+                let result = try await model.create(request)
+                go(.done(slug: result.manifest.slug, name: result.manifest.name))
+            } catch {
+                web.error = "\(error)"
+                go(.website, forward: false)
             }
         }
     }
@@ -166,6 +208,7 @@ extension AppCatalog {
 
 private struct ChooseAppStep: View {
     let pick: (CatalogApp) -> Void
+    let website: () -> Void
     let cancel: () -> Void
     @Environment(AppModel.self) private var model
     @State private var query = ""
@@ -195,6 +238,7 @@ private struct ChooseAppStep: View {
 
             HStack {
                 Button("Other App…", action: chooseOther).buttonStyle(.secondary)
+                Button("Website…", action: website).buttonStyle(.secondary)
                 Spacer()
                 Button("Cancel", action: cancel)
                     .buttonStyle(.secondary)
@@ -216,6 +260,9 @@ private struct ChooseAppStep: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
+                    if query.trimmingCharacters(in: .whitespaces).isEmpty {
+                        WebsiteRow(action: website)
+                    }
                     ForEach(sections, id: \.fit) { section in
                         Section {
                             ForEach(section.apps) { app in
@@ -284,6 +331,44 @@ private struct ChooseAppStep: View {
                 pick(AppCatalog.entry(for: info))
             }
         }
+    }
+}
+
+/// The way into web instances, above the apps.
+private struct WebsiteRow: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Theme.Space.m) {
+                Image(systemName: "globe")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 34, height: 34)
+                    .background(Theme.subtleFill, in: .rect(cornerRadius: 8, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("A website").font(Theme.Font.body.weight(.medium))
+                    Text("WhatsApp, Teams, Gmail, or any site — as an app with its own sign-in")
+                        .font(Theme.Font.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .opacity(hovering ? 1 : 0)
+            }
+            .padding(.horizontal, Theme.Space.s)
+            .padding(.vertical, 7)
+            .background(hovering ? Theme.subtleFill : .clear, in: .rect(cornerRadius: Theme.Radius.tile))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(Theme.Motion.fade, value: hovering)
+        .padding(.top, Theme.Space.s)
     }
 }
 
@@ -550,7 +635,7 @@ private struct Transformation: View {
 
 private struct CreatingStep: View {
     let name: String
-    let isClone: Bool
+    let detail: String
     @State private var split: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -559,7 +644,7 @@ private struct CreatingStep: View {
             ParallelMark(size: 84, split: split)
             VStack(spacing: 6) {
                 Text("Creating \(name)…").font(Theme.Font.title)
-                Text(isClone ? "Copying and signing the app — a few seconds." : "Building the instance.")
+                Text(detail)
                     .font(Theme.Font.callout)
                     .foregroundStyle(.secondary)
             }

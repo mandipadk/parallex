@@ -65,9 +65,14 @@ public struct InstanceStatus: Sendable {
         let wrapper = URL(fileURLWithPath: manifest.wrapperPath)
         if !fm.fileExists(atPath: wrapper.path) {
             problems.append(.wrapperMissing)
-        } else if let version = wrapperVersion(wrapper),
+        } else if let version = builtWith(wrapper, isCopy: manifest.clone != nil),
                   compareVersions(version, ParallexConfig.version) == .orderedAscending {
             problems.append(.wrapperOutdated(builtWith: version))
+        }
+        // A web instance's "app" is Parallex Web, which comes with Parallex:
+        // a new Parallex (recorded above) is what refreshes it.
+        if manifest.isWeb {
+            return InstanceStatus(pid: Running.processID(of: manifest), problems: problems)
         }
         if let clone = manifest.clone, fm.fileExists(atPath: manifest.targetApp) {
             let current = AppCloner.version(of: URL(fileURLWithPath: manifest.targetApp))
@@ -93,13 +98,21 @@ public struct InstanceStatus: Sendable {
         )
     }
 
-    static func wrapperVersion(_ wrapper: URL) -> String? {
+    /// Which Parallex built an instance: recorded in its launch config
+    /// since 0.16. Before that, a wrapper's own version said so, but a
+    /// copy's is its app's; a copy that doesn't say counts as older, so it
+    /// gets the current launcher once.
+    static func builtWith(_ wrapper: URL, isCopy: Bool) -> String? {
         guard let data = try? Data(contentsOf: wrapper.appendingPathComponent("Contents/Info.plist")),
               let plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any]
         else {
             return nil
         }
-        return plist["CFBundleShortVersionString"] as? String
+        if let config = plist[ParallexConfig.rootKey] as? [String: Any],
+           let version = config[ParallexConfig.Key.builtWith] as? String {
+            return version
+        }
+        return isCopy ? "0.15" : plist["CFBundleShortVersionString"] as? String
     }
 
     /// Numeric dotted-version comparison ("0.10.0" > "0.9.1").
