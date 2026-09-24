@@ -89,6 +89,16 @@ struct InstancesView: View {
         .sheet(item: $model.creating) { intent in
             NewInstanceFlow(preselected: intent.app)
         }
+        .alert(item: $model.notice) { notice in
+            Alert(
+                title: Text(notice.title),
+                message: Text(notice.message),
+                primaryButton: .default(Text("Show in Finder")) {
+                    NSWorkspace.shared.activateFileViewerSelecting(notice.reveal)
+                },
+                secondaryButton: .cancel(Text("Later"))
+            )
+        }
         .alert(
             "Something went wrong",
             isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } }),

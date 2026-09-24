@@ -45,6 +45,7 @@ public enum AppCatalog {
     /// bundles and anything that isn't a readable app bundle.
     public static func scan(directories: [URL] = defaultDirectories) -> [CatalogApp] {
         let fm = FileManager.default
+        let compatibility = Compatibility.load()
         var seen = Set<String>()
         var apps: [CatalogApp] = []
         for directory in directories {
@@ -59,7 +60,7 @@ public enum AppCatalog {
                 else {
                     continue
                 }
-                apps.append(entry(for: info))
+                apps.append(entry(for: info, compatibility: compatibility))
             }
         }
         // Best fit first; within a tier, apps with a tuned recipe lead.
@@ -73,7 +74,7 @@ public enum AppCatalog {
     }
 
     /// Classify one app.
-    public static func entry(for info: AppInfo) -> CatalogApp {
+    public static func entry(for info: AppInfo, compatibility: [String: Compatibility.Record] = [:]) -> CatalogApp {
         let version = info.infoPlist["CFBundleShortVersionString"] as? String
         func make(_ fit: CatalogApp.Fit, _ summary: String, clone: Bool) -> CatalogApp {
             CatalogApp(
@@ -84,6 +85,10 @@ public enum AppCatalog {
 
         if info.bundleID.hasPrefix("com.apple.") {
             return make(.unsupported, "Part of macOS — Apple's apps can't be duplicated.", clone: false)
+        }
+        // Learned on this Mac: its copy quit right after opening.
+        if Compatibility.refusesCopies(bundleID: info.bundleID, version: AppCloner.version(of: info.url), records: compatibility) {
+            return make(.limited, "Its copy quit right after opening here — it may check its App Store receipt.", clone: false)
         }
         if Presets.recipe(for: info.bundleID) != nil {
             return make(.great, "Separate sign-in and data, tuned for this app.", clone: false)

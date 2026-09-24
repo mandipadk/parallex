@@ -311,6 +311,24 @@ private struct ProblemBanners: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
+        if model.quickExits.contains(entry.id) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.attention)
+                Text("\(entry.name) quit right after it opened. Some App Store apps check their purchase receipt, "
+                     + "or refuse a changed signature, and won't run as their own copy — turn off Own identity below to run it as an instance instead.")
+                    .font(Theme.Font.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: Theme.Space.m)
+                Button("Open Again") {
+                    model.dismissQuickExit(entry)
+                    model.launch(entry)
+                }
+                .buttonStyle(.secondary)
+            }
+            .padding(Theme.Space.m)
+            .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.Radius.tile))
+            .padding(.bottom, Theme.Space.m)
+        }
         ForEach(Array(entry.status.problems.enumerated()), id: \.offset) { _, problem in
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
                 Image(systemName: problem.isBlocking ? "exclamationmark.octagon.fill" : "arrow.triangle.2.circlepath")

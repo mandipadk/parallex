@@ -74,6 +74,18 @@ final class AppModel {
     /// While a shortcut is being recorded, instance shortcuts stand down so
     /// pressing one records it instead of firing it.
     var recordingShortcut = false
+    /// Own-identity copies that quit right after opening this session.
+    private(set) var quickExits: Set<String> = []
+    /// Something worth telling after an action (not an error).
+    var notice: Notice?
+
+    struct Notice: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+        /// Files to show in Finder, if any.
+        var reveal: [URL] = []
+    }
 
     enum LoadState { case idle, loading, loaded }
 
@@ -92,6 +104,7 @@ final class AppModel {
     private(set) var maintenanceFailures: Set<String> = []
     @ObservationIgnored private var maintaining = false
 
+    @ObservationIgnored private var healthyCopies: Set<String> = []
     @ObservationIgnored private var refreshTimer: Timer?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
@@ -125,6 +138,7 @@ final class AppModel {
         if freshWorkspaces != workspaces {
             workspaces = freshWorkspaces
         }
+        noteHealthyCopies()
         if let selection, !entries.contains(where: { $0.id == selection }), selectedWorkspace == nil {
             self.selection = entries.first?.id
         }
@@ -225,11 +239,18 @@ final class AppModel {
                 Task { @MainActor in self?.refresh() }
             })
         }
-        // An instance quitting is the moment its upkeep can run.
+        // An instance quitting is the moment its upkeep can run — and the
+        // moment to notice a copy that quit right after opening.
         observers.append(center.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.maintainInstances() }
+        ) { [weak self] notification in
+            let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            let bundleID = app?.bundleIdentifier
+            let launched = app?.launchDate
+            Task { @MainActor in
+                self?.noteTermination(bundleID: bundleID, launched: launched)
+                self?.maintainInstances()
+            }
         })
         observers.append(center.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
@@ -256,6 +277,38 @@ final class AppModel {
                 }
             }
         })
+    }
+
+    // MARK: - Copies that won't run
+
+    private func noteTermination(bundleID: String?, launched: Date?) {
+        guard let bundleID, let launched,
+              let entry = entries.first(where: { $0.manifest.clone?.bundleIdentifier == bundleID })
+        else { return }
+        guard Date().timeIntervalSince(launched) < Compatibility.quickExitWindow else { return }
+        quickExits.insert(entry.id)
+        if let original = entry.manifest.knownTargetBundleID {
+            let version = AppCloner.version(of: URL(fileURLWithPath: entry.manifest.targetApp))
+            Compatibility.recordQuickExit(bundleID: original, version: version)
+        }
+    }
+
+    /// A copy that's been running a while is fine: clear earlier trouble.
+    private func noteHealthyCopies() {
+        for entry in entries where entry.isClone && !healthyCopies.contains(entry.id) {
+            guard let pid = entry.pid, let launched = NSRunningApplication(processIdentifier: pid)?.launchDate,
+                  Date().timeIntervalSince(launched) > 30
+            else { continue }
+            healthyCopies.insert(entry.id)
+            quickExits.remove(entry.id)
+            if let original = entry.manifest.knownTargetBundleID {
+                Compatibility.recordHealthyRun(bundleID: original)
+            }
+        }
+    }
+
+    func dismissQuickExit(_ entry: InstanceEntry) {
+        quickExits.remove(entry.id)
     }
 
     // MARK: - Launching
@@ -299,7 +352,27 @@ final class AppModel {
 
     func remove(_ entry: InstanceEntry, keepData: Bool) {
         let manifest = entry.manifest
-        perform(on: entry.id) { _ = try InstanceRemover.remove(manifest, keepData: keepData) }
+        busy.insert(entry.id)
+        Task {
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try InstanceRemover.remove(manifest, keepData: keepData)
+                }.value
+                if !result.leftoverContainers.isEmpty {
+                    notice = Notice(
+                        title: "One more step for “\(manifest.name)”",
+                        message: "macOS keeps an app's containers until you delete them yourself. "
+                            + "Drag \(result.leftoverContainers.count == 1 ? "this folder" : "these \(result.leftoverContainers.count) folders") "
+                            + "to the Trash in Finder to finish removing it.",
+                        reveal: result.leftoverContainers.map { URL(fileURLWithPath: $0) }
+                    )
+                }
+            } catch {
+                errorMessage = "\(error)"
+            }
+            busy.remove(entry.id)
+            refresh()
+        }
     }
 
     func repair(_ entry: InstanceEntry, targetApp: URL? = nil) {
