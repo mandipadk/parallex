@@ -148,14 +148,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if upgraded {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.showWhatsNew() }
         }
-        #if DEBUG
-        if DebugRoute.value != nil {
-            // Visual review: show windows as active, the way people see them.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                NSApp.activate(ignoringOtherApps: true)
-            }
-        }
-        #endif
         model.maintainInstances()
         model.openAutostartInstances()
         Task { await LinkRouting.reassert() }

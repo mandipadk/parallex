@@ -123,3 +123,20 @@ struct WindowGlassBackground: NSViewRepresentable {
         view.material = material
     }
 }
+
+extension View {
+    /// A bar pinned to the bottom of a scrolling view. On macOS 26 it's a
+    /// safe-area bar, so content scrolling beneath it softens away (the
+    /// system scroll-edge effect) instead of showing through; earlier, an
+    /// inset with a bar material.
+    @ViewBuilder
+    func bottomBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+        if #available(macOS 26.0, *) {
+            self.safeAreaBar(edge: .bottom, spacing: 0, content: bar)
+        } else {
+            self.safeAreaInset(edge: .bottom, spacing: 0) {
+                bar().background(.bar)
+            }
+        }
+    }
+}

@@ -3,6 +3,11 @@
 # needs `sudo make install`. Override with `make install PREFIX=~/.local`.
 PREFIX ?= $(shell [ -w /opt/homebrew/bin ] && echo /opt/homebrew || echo /usr/local)
 ARCH_FLAGS := --arch arm64 --arch x86_64
+# Record the SDK actually built against. SwiftPM otherwise stamps the
+# deployment target (14.0) as the SDK version, and macOS 26 then draws the
+# app in its compatibility style (no Liquid Glass sidebar or toolbar).
+SDK_VERSION := $(shell xcrun --show-sdk-version)
+LINK_FLAGS := -Xlinker -platform_version -Xlinker macos -Xlinker 14.0 -Xlinker $(SDK_VERSION)
 # Ask SwiftPM where universal products land — the location differs between
 # toolchain versions, and a hardcoded path silently packages stale binaries.
 RELEASE_DIR = $(shell swift build -c release $(ARCH_FLAGS) --show-bin-path)
@@ -18,7 +23,7 @@ NOTES ?= dist/release-notes.md
 .PHONY: build test release install uninstall app app-install dist publish icon clean
 
 build:
-	swift build
+	swift build $(LINK_FLAGS)
 
 test:
 	swift test
@@ -27,7 +32,7 @@ test:
 # one Parallex copies into every wrapper, so release wrappers run on both
 # architectures.
 release:
-	swift build -c release $(ARCH_FLAGS)
+	swift build -c release $(ARCH_FLAGS) $(LINK_FLAGS)
 
 install: release
 	@if [ ! -w "$(PREFIX)/bin" ] && { [ -e "$(PREFIX)/bin" ] || [ ! -w "$(PREFIX)" ]; }; then \

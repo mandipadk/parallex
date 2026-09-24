@@ -142,7 +142,7 @@ struct Sidebar: View {
             }
         }
         .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .bottomBar {
             HStack(spacing: Theme.Space.s) {
                 Button {
                     model.creating = .init()
