@@ -93,7 +93,7 @@ final class AppCatalogTests: XCTestCase {
             IsolationReport(processCount: 1, fileCount: findings.count, findings: findings)
         }
         let own = IsolationReport.Finding(path: "/x/instances/checked-work/data/db", category: .isolated, reason: "")
-        let leak = IsolationReport.Finding(path: "/Users/x/Library/Application Support/Checked/db", category: .leak, reason: "")
+        let leak = IsolationReport.Finding(path: tempDir.appendingPathComponent("elsewhere/Checked/db").path, category: .leak, reason: "")
 
         XCTAssertFalse(verified())
         Verification.record(manifest, report: report([]))

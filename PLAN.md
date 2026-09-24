@@ -145,7 +145,7 @@ Framework presets for tier 1:
   (note: marketplace URL must be set in the new profile for extension search — known Parall quirk)
 - Preset table is data (`Presets.swift` / future JSON), easy to extend per app.
 
-HOME override scaffolding (tier 2): create `~/Library/Application Support/Parallex/<instance>/home/`,
+HOME override scaffolding (tier 2): create a `home/` folder in the instance directory,
 pre-create `Library/Preferences`, `Library/Application Support`, `Library/Caches`, and symlink
 `Downloads` (and optionally `.gitconfig`, `.ssh`, shell rc files) back to the real home.
 

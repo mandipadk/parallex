@@ -59,7 +59,7 @@ final class PresetsTests: XCTestCase {
         XCTAssertEqual(short.arguments.first, "--user-data-dir=/p/i/code/data")
         XCTAssertTrue(short.links.isEmpty)
 
-        let longDir = URL(fileURLWithPath: "/Users/someone/Library/Application Support/Parallex/instances/visual-studio-code-side-project")
+        let longDir = URL(fileURLWithPath: "/Volumes/Data/Library/Application Support/Parallex/instances/visual-studio-code-side-project")
         let long = Presets.plan(for: info, requested: .auto, instanceDir: longDir, sharedItems: [])
         let alias = try XCTUnwrap(long.links.first?.key)
         XCTAssertEqual(long.links[alias], longDir.appendingPathComponent("data").path)
