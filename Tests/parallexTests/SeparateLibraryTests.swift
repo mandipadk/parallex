@@ -266,10 +266,15 @@ final class SeparateLibraryTests: XCTestCase {
     /// (native apps) and a dedicated home (apps run with framework flags).
     func testNodeBasedCopySeesAMirroredHome() throws {
         let node = try XCTUnwrap(
-            ((try? Shell.run("/bin/zsh", ["-lc", "command -v node"])) ?? "")
+            ((try? Shell.run("/usr/bin/which", ["node"])) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty,
             "needs node on PATH"
         )
+        // A copied binary has to run on its own (Homebrew's node loads
+        // libnode from next to itself; standalone builds don't).
+        let nodeBinary = URL(fileURLWithPath: node).resolvingSymlinksInPath().path
+        let linked = (try? Shell.run("/usr/bin/otool", ["-L", nodeBinary])) ?? ""
+        try XCTSkipIf(linked.contains("@rpath/"), "needs a standalone node build")
         let app = tempDir.appendingPathComponent("Nodey.app")
         let macOS = app.appendingPathComponent("Contents/MacOS")
         try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)

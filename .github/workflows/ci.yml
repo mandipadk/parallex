@@ -21,6 +21,10 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+      # A standalone node, for the test that runs Node inside a copy.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Toolchain
         run: sw_vers && swift --version
       - name: Build
