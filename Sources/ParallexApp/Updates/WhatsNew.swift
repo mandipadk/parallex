@@ -18,6 +18,23 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "1.0.0", highlights: [
+            Highlight(
+                symbol: "sparkles",
+                title: "Parallex 1.0",
+                detail: "Copies with their own identity, workspaces, link routing, websites as apps, throwaways, Shortcuts and Focus: all of it, tested and steady. Thank you for using it."
+            ),
+            Highlight(
+                symbol: "book",
+                title: "How Parallex works, in plain words",
+                detail: "What Parallex does to an app to run it twice, including the trade-offs: parallex.mandip.dev/how-it-works, also in Settings › About."
+            ),
+            Highlight(
+                symbol: "shippingbox",
+                title: "Install with Homebrew",
+                detail: "brew install --cask parallex, after brew tap mandipadk/parallex https://github.com/mandipadk/parallex. VoiceOver also reads Parallex better now."
+            ),
+        ]),
         Release(version: "0.22.0", highlights: [
             Highlight(
                 symbol: "checklist",

@@ -398,6 +398,7 @@ private struct ProblemBanners: View {
         if model.leaking.contains(entry.id) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
                 Image(systemName: "exclamationmark.octagon.fill").foregroundStyle(Theme.failure)
+                    .accessibilityLabel("Problem")
                 Text(leakMessage)
                     .font(Theme.Font.callout)
                     .fixedSize(horizontal: false, vertical: true)
@@ -415,6 +416,7 @@ private struct ProblemBanners: View {
         if model.quickExits.contains(entry.id) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.attention)
+                    .accessibilityLabel("Warning")
                 Text("\(entry.name) quit right after it opened. Some App Store apps check their purchase receipt, "
                      + "or refuse a changed signature, and won't run as their own copy — turn off Own identity below to run it as an instance instead.")
                     .font(Theme.Font.callout)
@@ -1180,6 +1182,8 @@ private struct ApplyBar: View {
         HStack(spacing: Theme.Space.m) {
             Image(systemName: error == nil ? "arrow.triangle.2.circlepath" : "exclamationmark.triangle.fill")
                 .foregroundStyle(error == nil ? Color.secondary : Theme.failure)
+                .accessibilityHidden(error == nil)
+                .accessibilityLabel("Problem")
             Text(error ?? blockedMessage ?? "Applying rebuilds the instance. It takes effect the next time it opens.")
                 .font(Theme.Font.callout)
                 .foregroundStyle(error == nil ? Color.secondary : Theme.failure)

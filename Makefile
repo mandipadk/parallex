@@ -19,7 +19,7 @@ ZIP := dist/Parallex-$(VERSION).zip
 DMG := dist/Parallex.dmg
 NOTES ?= dist/release-notes.md
 
-.PHONY: advisories deploy-site build test bench release install uninstall app app-install dist publish icon clean
+.PHONY: advisories deploy-site cask build test bench release install uninstall app app-install dist publish icon clean
 
 build:
 	swift build $(LINK_FLAGS)
@@ -117,6 +117,16 @@ advisories:
 	cp advisories/advisories.json site/public/advisories.json
 	@echo "Signed site/public/advisories.json. Publish with: make deploy-site"
 
+# Point the Homebrew cask at the release just published.
+cask:
+	@test -f "$(ZIP)" || { echo "error: $(ZIP) not built"; exit 1; }
+	@test -f "$(ZIP).sha256" || { echo "error: $(ZIP).sha256 missing"; exit 1; }
+	sed -i '' -e 's/^  version ".*"/  version "$(VERSION)"/' \
+		-e "s/^  sha256 \".*\"/  sha256 \"$$(cut -d' ' -f1 "$(ZIP).sha256")\"/" Casks/parallex.rb
+	@grep -q '^  version "$(VERSION)"' Casks/parallex.rb && grep -q "^  sha256 \"$$(cut -d' ' -f1 "$(ZIP).sha256")\"" Casks/parallex.rb \
+		|| { echo "error: Casks/parallex.rb wasn't updated"; exit 1; }
+	@grep -E '^  (version|sha256)' Casks/parallex.rb
+
 deploy-site:
 	cd site && pnpm build && pnpm dlx wrangler deploy
 
@@ -125,6 +135,8 @@ publish: dist
 	@test -z "$$(git status --porcelain -- Sources launcher Package.swift)" || { echo "error: commit your changes first"; exit 1; }
 	gh release create "v$(VERSION)" "$(ZIP)" "$(ZIP).sig" "$(ZIP).sha256" "$(DMG)" --target "$$(git rev-parse HEAD)" \
 		--title "Parallex $(VERSION)" --notes-file "$(NOTES)"
+	$(MAKE) cask
+	@echo "Casks/parallex.rb now points at $(VERSION): commit and push it."
 
 # Regenerate the app icon from its source (Support/make-app-icon.swift).
 icon:

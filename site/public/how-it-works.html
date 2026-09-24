@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Parallex works</title>
+<meta name="description" content="What Parallex does to an app to run it twice, in plain words: copies, signatures, the library it loads, and what it never touches.">
+<link rel="icon" href="/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono&display=swap">
+<style>
+:root { --background: oklch(0.1149 0 0); --card: oklch(0.155 0 0); --foreground: oklch(0.985 0 0); --muted: oklch(0.708 0 0); --subtle: oklch(0.52 0 0); --rule: oklch(1 0 0 / 0.08); --accent: #ff6a3d; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--background); color: var(--foreground); font: 16px/1.65 "Geist", -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+main { max-width: 720px; margin: 0 auto; padding: 72px 16px 96px; display: grid; gap: 40px; }
+a { color: var(--foreground); text-decoration-color: oklch(1 0 0 / 0.3); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--foreground); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.back { color: var(--muted); font-size: 14px; text-decoration: none; }
+h1 { font-size: clamp(34px, 6vw, 48px); line-height: 1.08; letter-spacing: -0.03em; margin: 0; font-weight: 650; }
+h2 { font-size: 21px; letter-spacing: -0.01em; margin: 0 0 6px; font-weight: 600; }
+p, li { color: var(--muted); }
+p { margin: 0; }
+.lede { font-size: 18px; }
+section { display: grid; gap: 12px; }
+ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+b { color: var(--foreground); font-weight: 600; }
+code { font-family: "Geist Mono", ui-monospace, monospace; font-size: 0.86em; background: var(--card); padding: 2px 6px; border-radius: 6px; color: var(--foreground); }
+figure { margin: 0; background: var(--card); border: 1px solid var(--rule); border-radius: 18px; padding: 20px; }
+figure svg { width: 100%; height: auto; display: block; }
+figcaption { color: var(--subtle); font-size: 13px; margin-top: 12px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pair div { background: var(--card); border: 1px solid var(--rule); border-radius: 14px; padding: 16px; display: grid; gap: 6px; align-content: start; }
+.pair h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.pair p { font-size: 14.5px; }
+.tradeoff { border-left: 2px solid var(--accent); padding-left: 16px; }
+footer { color: var(--subtle); font-size: 13px; border-top: 1px solid var(--rule); padding-top: 20px; }
+@media (max-width: 560px) { .pair { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="/">← Parallex</a>
+
+  <header style="display:grid;gap:14px">
+    <h1>How Parallex works</h1>
+    <p class="lede">Running an app twice means convincing macOS, and the app, that there are two of it. Here's exactly what Parallex does to get there, what it changes, and what it never touches.</p>
+  </header>
+
+  <section>
+    <h2>The short version</h2>
+    <ul>
+      <li><b>Your original app is never changed.</b> Everything Parallex makes lives beside it.</li>
+      <li>An instance is either a small <b>launcher app</b> that starts the original with its own data folder, or its <b>own copy</b> of the app with its own identity.</li>
+      <li>For copies, Parallex re-signs the copy and, for most apps, loads a small library into it so its files land in its own folder. That's the part that sounds alarming, so it's explained below, trade-offs included.</li>
+      <li>Removing an instance moves it and its data to the Trash (with two leftovers, listed below).</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Two kinds of instance</h2>
+    <div class="pair">
+      <div>
+        <h3>Instance</h3>
+        <p>A small app (under 2 MB) holding a launcher. It starts the original app with switches that point its data somewhere else, like <code>--user-data-dir</code> for Chrome and VS Code, or <code>CLAUDE_USER_DATA_DIR</code> for Claude. Nothing is loaded into the app. macOS still sees it as the original, so it shares the original's Dock icon.</p>
+      </div>
+      <div>
+        <h3>Own copy</h3>
+        <p>A copy of the app with an identity of its own: its own Dock icon, notifications, permissions and data. It's an APFS clone, so it shares most of its disk space with the original; its re-signed code is stored separately. It doesn't update itself: when the original updates, Parallex asks to refresh it. This is what makes App Store apps and most native apps separable.</p>
+      </div>
+    </div>
+  </section>
+
+  <figure>
+    <svg viewBox="0 0 680 250" role="img" aria-label="The original app is cloned into a copy with its own identity; at launch, the Parallex launcher starts the app with a small library that points its files at the instance's folder.">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="oklch(0.708 0 0)"/></marker>
+      </defs>
+      <g font-family="Geist, -apple-system, sans-serif" font-size="13">
+        <rect x="10" y="30" width="170" height="86" rx="14" fill="none" stroke="oklch(1 0 0 / 0.25)"/>
+        <text x="95" y="62" text-anchor="middle" fill="oklch(0.985 0 0)" font-weight="600">Slack.app</text>
+        <text x="95" y="84" text-anchor="middle" fill="oklch(0.708 0 0)">the original</text>
+        <text x="95" y="102" text-anchor="middle" fill="oklch(0.708 0 0)">never changed</text>
+
+        <line x1="184" y1="73" x2="258" y2="73" stroke="oklch(0.708 0 0)" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <text x="221" y="63" text-anchor="middle" fill="oklch(0.52 0 0)" font-size="12">APFS clone</text>
+
+        <rect x="262" y="14" width="200" height="120" rx="14" fill="oklch(0.155 0 0)" stroke="#ff6a3d"/>
+        <text x="362" y="42" text-anchor="middle" fill="oklch(0.985 0 0)" font-weight="600">Slack Work.app</text>
+        <text x="362" y="66" text-anchor="middle" fill="oklch(0.708 0 0)">its own bundle ID</text>
+        <text x="362" y="86" text-anchor="middle" fill="oklch(0.708 0 0)">re-signed on your Mac</text>
+        <text x="362" y="106" text-anchor="middle" fill="oklch(0.708 0 0)">launcher runs first</text>
+
+        <line x1="362" y1="138" x2="362" y2="170" stroke="oklch(0.708 0 0)" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <rect x="222" y="174" width="280" height="62" rx="14" fill="none" stroke="oklch(1 0 0 / 0.25)"/>
+        <text x="362" y="200" text-anchor="middle" fill="oklch(0.985 0 0)" font-weight="600">Slack, running as Slack Work</text>
+        <text x="362" y="221" text-anchor="middle" fill="oklch(0.708 0 0)">+ libparallexhome: ~/Library → its own</text>
+
+        <line x1="506" y1="205" x2="562" y2="205" stroke="oklch(0.708 0 0)" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <rect x="566" y="160" width="104" height="90" rx="14" fill="none" stroke="oklch(1 0 0 / 0.25)" stroke-dasharray="4 4"/>
+        <text x="618" y="190" text-anchor="middle" fill="oklch(0.985 0 0)" font-weight="600">Its folder</text>
+        <text x="618" y="210" text-anchor="middle" fill="oklch(0.708 0 0)">sign-ins,</text>
+        <text x="618" y="228" text-anchor="middle" fill="oklch(0.708 0 0)">caches, data</text>
+      </g>
+    </svg>
+    <figcaption>An own copy: cloned, given its own identity, and started through Parallex's launcher.</figcaption>
+  </figure>
+
+  <section>
+    <h2>Why a copy is re-signed</h2>
+    <p>macOS knows an app by its bundle ID and its code signature. Giving the copy its own bundle ID changes the app, which breaks the developer's signature, so Parallex signs the copy again on your Mac. It's an "ad hoc" signature: made by your Mac, not by Apple or the developer. The original keeps its signature.</p>
+    <p>What that costs: features tied to the developer's signature don't work in a copy. That means iCloud, push notifications that go through Apple, Sign in with Apple, keychain items shared between the developer's apps, website links that should open the app, and system extensions. A copy may also ask for access to keychain items the original created. Apple's own apps can't be copied at all.</p>
+  </section>
+
+  <section>
+    <h2>The library Parallex loads into a copy</h2>
+    <p>macOS apps find their <code>~/Library</code> folder (sign-ins, caches, cookies) by asking who you are, not by looking at <code>$HOME</code>. So to give a copy of an app that isn't sandboxed a Library of its own, the launcher loads a small library, <code>libparallexhome</code>, into it. It answers "where's my home folder?" (and <code>$HOME</code>) with the instance's folder:</p>
+    <ul>
+      <li>It's active only in processes that run from inside the copy. Tools the app starts, like a shell or <code>git</code>, get your real home back.</li>
+      <li>Your Documents, Desktop, Downloads and dotfiles stay shared through links, so files you open or save are where you expect. The app's own folders, like <code>~/.vscode</code>, stay with the copy.</li>
+      <li>Before a copy opens, the launcher checks that macOS loaded the library. If macOS refused it, the copy doesn't open, rather than quietly using your real data. If the check can't run at all, the copy opens, and Verify Isolation can check it while it runs.</li>
+      <li>The library is kept in Parallex's folder, <code>~/Library/Application Support/Parallex/lib</code>, and every copy loads it from there.</li>
+    </ul>
+    <p>App Store apps are sandboxed, so macOS already gives each one a container, and a copy with its own identity gets its own; no home library is loaded into them. Some keep their sign-in in containers shared by the developer's apps (WhatsApp does). For those, a second small library, <code>libparallexgroups</code>, shipped inside the copy, maps the app's requests for its shared containers to the copy's own.</p>
+    <p>One more change: Chromium and Electron apps keep an encryption key in your keychain named after the app ("Slack Safe Storage"). Each copy made since Parallex 0.13 gets its own key, rather than using the original's. Older copies keep using the original's key.</p>
+  </section>
+
+  <section class="tradeoff">
+    <h2>The trade-off, honestly</h2>
+    <p>Re-signing drops Apple's "hardened runtime" from the copy. That's what lets Parallex's library load into it. It also means other software already running on your Mac as you could start the copy with code of its own inside it (or change the library in Parallex's folder, which every copy loads), and that code would run with whatever you've allowed the copy: camera, microphone, screen recording, its keychain items. The original is protected as before, so software would have to go after the copy specifically. It changes nothing for your other apps or for anything on the internet.</p>
+    <p>If you'd rather avoid it, use a plain <b>instance</b> (turn off Own identity): nothing is loaded into the app, and it keeps its developer's signature.</p>
+  </section>
+
+  <section>
+    <h2>Checking it yourself</h2>
+    <ul>
+      <li><b>Verify Isolation</b> (or <code>parallex check &lt;name&gt;</code>) lists the files a running instance has open and flags any that belong to the original app's data.</li>
+      <li><code>parallex doctor &lt;app&gt;</code> says how an app would be separated before you make an instance.</li>
+      <li>An instance's Advanced section, in Parallex, shows where its app and its data are.</li>
+      <li>All of it is <a href="https://github.com/mandipadk/parallex">open source</a>: the <a href="https://github.com/mandipadk/parallex/tree/main/launcher">launcher</a>, the <a href="https://github.com/mandipadk/parallex/tree/main/Sources/ParallexHome">home library</a> and the <a href="https://github.com/mandipadk/parallex/tree/main/Sources/ParallexGroups">containers library</a>.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Other things Parallex installs</h2>
+    <ul>
+      <li><b>Parallex Links</b>, for link routing, which is on by default during setup (Settings › Links turns it off): a small helper that passes sign-in links to the right copy. If you also turn on web links, it becomes your default browser and hands everything it doesn't route to the browser you had.</li>
+      <li><b>Parallex Web</b>, for website instances: a small WebKit app, of which each website instance is its own copy.</li>
+      <li>The <code>parallex</code> command, if you install it from Settings › About.</li>
+    </ul>
+    <p>When you remove a copy, two things stay behind: macOS keeps an App Store copy's containers until you delete them yourself (Parallex shows you which), and the copy's keychain entries remain in your keychain.</p>
+  </section>
+
+  <footer><a href="/privacy">What leaves your Mac</a> · <a href="/compatibility">Compatibility</a> · <a href="https://github.com/mandipadk/parallex/issues">Questions</a></footer>
+</main>
+</body>
+</html>

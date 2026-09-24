@@ -358,6 +358,7 @@ private struct WebsiteRow: View {
                 Image(systemName: "globe")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(Theme.accent)
+                    .accessibilityHidden(true)
                     .frame(width: 34, height: 34)
                     .background(Theme.subtleFill, in: .rect(cornerRadius: 8, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
@@ -710,6 +711,7 @@ private struct DoneStep: View {
                 .font(.system(size: 56, weight: .regular))
                 .foregroundStyle(Theme.running)
                 .symbolEffect(.bounce, value: appeared)
+                .accessibilityHidden(true)
             VStack(spacing: 6) {
                 Text("\(name) is ready").font(Theme.Font.title)
                 Text("Find it in the sidebar, Spotlight, and the Parallex menu.")

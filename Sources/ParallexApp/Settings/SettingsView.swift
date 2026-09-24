@@ -515,6 +515,7 @@ private struct AboutSettings: View {
                     Text("Free and open source under the MIT License.")
                         .foregroundStyle(.secondary)
                     Spacer()
+                    Link("How It Works", destination: URL(string: "https://parallex.mandip.dev/how-it-works")!)
                     Link("GitHub", destination: URL(string: "https://github.com/mandipadk/parallex")!)
                 }
             }

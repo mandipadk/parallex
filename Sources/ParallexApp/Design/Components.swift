@@ -336,6 +336,14 @@ struct FactRow: View {
 
 /// The instance palette as swatches.
 struct ColorSwatchPicker: View {
+    /// What VoiceOver calls each swatch (the palette's order).
+    static let names = ["Blue", "Green", "Teal", "Amber", "Pink", "Brown", "Graphite"]
+
+    static func name(of hex: String) -> String {
+        IconBuilder.palette.firstIndex { $0.caseInsensitiveCompare(hex) == .orderedSame }
+            .flatMap { names.indices.contains($0) ? names[$0] : nil } ?? "Custom color"
+    }
+
     @Binding var selection: String
     let palette: [String]
 
@@ -362,7 +370,7 @@ struct ColorSwatchPicker: View {
                         .animation(Theme.Motion.snappy, value: selected)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(Text("Color \(hex)"))
+                .accessibilityLabel(Text(Self.name(of: hex)))
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
@@ -410,6 +418,7 @@ struct AdvisoryBanner: View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
             Image(systemName: unsupported ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
                 .foregroundStyle(unsupported ? Theme.failure : Theme.attention)
+                .accessibilityLabel(unsupported ? "Doesn't work" : "Warning")
             VStack(alignment: .leading, spacing: 2) {
                 Text(notice.message)
                     .font(Theme.Font.callout)

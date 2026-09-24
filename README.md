@@ -22,8 +22,10 @@ alongside the original with its own data.
 
 ## How it works
 
-`parallex create` emits a tiny wrapper `.app` (a few hundred KB — no copy of
-the target):
+In plain words, with the trade-offs: [parallex.mandip.dev/how-it-works](https://parallex.mandip.dev/how-it-works).
+
+`parallex create` emits a small wrapper `.app` (under 2 MB, mostly the icon and
+the launcher — no copy of the target):
 
 ```
 Claude Work.app/
@@ -149,7 +151,21 @@ Parallex to Applications. Releases aren't notarized yet, so the first time you
 open it macOS asks you to confirm: open **System Settings › Privacy & Security**
 and choose **Open Anyway**.
 
-After that, Parallex keeps itself up to date. It checks GitHub Releases once a
+Or from Terminal, with no "Open Anyway" step (the download is checked against
+the checksum published with each release):
+
+```sh
+curl -fsSL https://parallex.mandip.dev/install | sh
+```
+
+Or with Homebrew:
+
+```sh
+brew tap mandipadk/parallex https://github.com/mandipadk/parallex
+brew install --cask parallex
+```
+
+After that, Parallex keeps itself up to date. It checks for a new version once a
 day (Settings › About), shows what's new, and installs an update in one click.
 It installs only archives signed with the Parallex release key, which is built
 into the app. The `parallex` command ships inside the app: **Settings › About ›
@@ -403,5 +419,5 @@ $99 a year for Apple's Developer ID, so Parallex opens without the
 
 ## Status
 
-v0.16 — see [PLAN.md](PLAN.md) for the design. Tell others how an app works with `parallex report` or the [compatibility form](https://github.com/mandipadk/parallex/issues/new?template=compatibility.yml). The original proof of concept is
+v1.0 — see [PLAN.md](PLAN.md) for the design and [how it works](https://parallex.mandip.dev/how-it-works) for the plain-words version. Tell others how an app works with `parallex report` or the [compatibility form](https://github.com/mandipadk/parallex/issues/new?template=compatibility.yml). The original proof of concept is
 in [poc/](poc/).
