@@ -1,6 +1,8 @@
 export const DOWNLOAD_URL =
   "https://github.com/mandipadk/parallex/releases/latest/download/Parallex.dmg"
 export const REPO_URL = "https://github.com/mandipadk/parallex"
+export const SPONSOR_URL = "https://github.com/sponsors/mandipadk"
+export const KOFI_URL = "https://ko-fi.com/mandipadk"
 
 /** Shared motion curve and the Spell-style entrance (blur + rise + fade). */
 export const EASE = [0.22, 1, 0.36, 1] as const

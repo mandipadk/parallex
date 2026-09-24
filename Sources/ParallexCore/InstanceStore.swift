@@ -45,6 +45,9 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     public var menuBarIcon: Bool?
     /// A web instance: the website it shows (see `WebShell`).
     public var webURL: String?
+    /// An own-identity copy with no Dock icon or ⌘-Tab entry (it runs as
+    /// an agent: reach it from its menu bar icon or shortcut).
+    public var hideFromDock: Bool?
     /// Own-identity copies keep their data to themselves: a copy of an app
     /// that isn't sandboxed gets its own ~/Library (Application Support,
     /// caches, web storage…); a copy of a sandboxed app gets its own

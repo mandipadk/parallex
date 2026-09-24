@@ -150,6 +150,26 @@ final class CloneTests: XCTestCase {
         XCTAssertEqual(plain.manifest.targetBinary, target.appendingPathComponent("Contents/MacOS/Toggle").path)
     }
 
+    /// A copy can leave the Dock (an agent app) and come back.
+    func testHidingACopyFromTheDock() throws {
+        let target = try makeSignableElectronApp(named: "Quiet", bundleID: "com.fake.quiet")
+        var request = CreateRequest(appReference: target.path, name: "Quiet Copy", outputDirectory: outDir)
+        request.cloneApp = true
+        let created = try InstanceCreator.create(request, builderOptions: options)
+        XCTAssertNil(try info(created.wrapperURL)["LSUIElement"])
+
+        var settings = created.manifest.effectiveSettings
+        settings.hideFromDock = true
+        XCTAssertTrue(created.manifest.effectiveSettings.requiresRebuild(toReach: settings))
+        let hidden = try InstanceCreator.update(created.manifest, InstanceUpdate(settings: settings), builderOptions: options)
+        XCTAssertEqual(try info(hidden.wrapperURL)["LSUIElement"] as? Bool, true)
+        XCTAssertNoThrow(try Shell.run("/usr/bin/codesign", ["--verify", "--deep", hidden.wrapperURL.path]))
+
+        settings.hideFromDock = nil
+        let shown = try InstanceCreator.update(hidden.manifest, InstanceUpdate(settings: settings), builderOptions: options)
+        XCTAssertNil(try info(shown.wrapperURL)["LSUIElement"])
+    }
+
     func testCloningThroughASymlinkNeverTouchesTheOriginal() throws {
         let real = try makeSignableElectronApp(named: "Linked", bundleID: "com.fake.linked")
         let before = try Data(contentsOf: real.appendingPathComponent("Contents/Info.plist"))

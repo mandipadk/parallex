@@ -691,6 +691,7 @@ public enum InstanceCreator {
             let built = try buildClone(
                 spec: spec, target: target, previous: previous,
                 separateGroups: settings.separatesLibrary(for: target) && target.isSandboxed,
+                hideFromDock: settings.hideFromDock == true,
                 builderOptions: builderOptions
             )
             separatedGroups = built.groupMap.isEmpty ? nil : built.groupMap
@@ -754,6 +755,7 @@ public enum InstanceCreator {
         target: AppInfo,
         previous: InstanceManifest?,
         separateGroups: Bool,
+        hideFromDock: Bool = false,
         builderOptions: BundleBuilder.Options
     ) throws -> (
         output: BundleBuilder.BuildOutput, record: InstanceManifest.CloneRecord, executable: String,
@@ -839,6 +841,7 @@ public enum InstanceCreator {
         )
         buildSpec.groupMap = groupMap
         buildSpec.groupsLibrary = groupsLibrary
+        buildSpec.hideFromDock = hideFromDock
         let url = try AppCloner.build(buildSpec, sign: builderOptions.sign)
         if builderOptions.registerWithLaunchServices, let lsregister = BundleBuilder.lsregisterPath {
             Shell.runAllowingFailure(lsregister, ["-f", url.path])

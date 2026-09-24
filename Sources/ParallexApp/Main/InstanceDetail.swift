@@ -17,6 +17,8 @@ struct InstanceDetail: View {
     @State private var cloneAssessment: AppCloner.Assessment?
     @State private var targetSandboxed = false
     @State private var targetHasGroups = false
+    /// The app has no Dock icon of its own (a menu bar app).
+    @State private var targetIsAgent = false
 
     init(entry: InstanceEntry) {
         self.entry = entry
@@ -46,7 +48,8 @@ struct InstanceDetail: View {
                 AppearanceSection(entry: entry, draft: $draft)
                 LaunchSection(
                     entry: entry, openAtStart: $draft.settings.openAtLaunch.orFalse,
-                    menuBarIcon: $draft.settings.menuBarIcon.orFalse, shortcut: $draft.settings.shortcut
+                    menuBarIcon: $draft.settings.menuBarIcon.orFalse, shortcut: $draft.settings.shortcut,
+                    hideFromDock: draft.settings.isClone && !targetIsAgent ? hideFromDockBinding : nil
                 )
                 StorageSection(entry: entry)
                 AdvancedSection(entry: entry, draft: $draft)
@@ -81,6 +84,10 @@ struct InstanceDetail: View {
         }
         .animation(Theme.Motion.snappy, value: hasRebuildChanges)
         .onChange(of: draft.metadataSignature) { saveMetadataIfPossible() }
+        // Changes held back while a rebuild was pending save once it isn't.
+        .onChange(of: hasRebuildChanges) { _, pending in
+            if !pending { saveMetadataIfPossible() }
+        }
         .onChange(of: entry) { _, fresh in
             // Registry changed underneath (repair, CLI edit): reset unless
             // the user has pending rebuild edits.
@@ -98,6 +105,7 @@ struct InstanceDetail: View {
             cloneAssessment = inspected?.0
             targetSandboxed = inspected?.1 ?? false
             targetHasGroups = inspected?.2 ?? false
+            targetIsAgent = NSDictionary(contentsOfFile: targetPath + "/Contents/Info.plist")?["LSUIElement"] as? Bool ?? false
         }
         .confirmationDialog("Remove “\(entry.name)”?", isPresented: $confirmRemove, titleVisibility: .visible) {
             Button("Move Instance and Its Data to Trash", role: .destructive) { model.remove(entry, keepData: false) }
@@ -108,6 +116,23 @@ struct InstanceDetail: View {
                  ? "It's running — quit it first, or it keeps writing to data that's in the Trash."
                  : "Everything goes to the Trash, so you can still recover it.")
         }
+    }
+
+    /// Hiding a copy from the Dock leaves the menu bar icon or shortcut as
+    /// the way back to it, so turning it on shows the menu bar icon too.
+    private var hideFromDockBinding: Binding<Bool> {
+        Binding(
+            get: { draft.settings.hideFromDock == true },
+            set: { hidden in
+                draft.settings.hideFromDock = hidden ? true : nil
+                if hidden, draft.settings.shortcut == nil {
+                    draft.settings.menuBarIcon = true
+                } else if !hidden {
+                    // Undo what turning it on did, if that's all that changed.
+                    draft.settings.menuBarIcon = baseline.settings.menuBarIcon
+                }
+            }
+        )
     }
 
     private func revert() {
@@ -221,6 +246,10 @@ struct InstanceDraft: Equatable {
         resolved.badgeText = badge.isEmpty ? nil : String(badge.prefix(2))
         if resetIcon {
             resolved.customIconFile = nil
+        }
+        // Only a copy can leave the Dock; don't keep it for a plain instance.
+        if !resolved.isClone {
+            resolved.hideFromDock = nil
         }
         if let web = resolved.webURL, let url = WebShell.normalizedURL(web) {
             resolved.webURL = url.absoluteString
@@ -862,6 +891,9 @@ private struct LaunchSection: View {
     @Binding var openAtStart: Bool
     @Binding var menuBarIcon: Bool
     @Binding var shortcut: KeyShortcut?
+    /// Only for own-identity copies (a plain instance is the original app
+    /// as far as the Dock knows).
+    var hideFromDock: Binding<Bool>?
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -888,6 +920,13 @@ private struct LaunchSection: View {
                 ShortcutRecorder(shortcut: $shortcut) { candidate in
                     model.shortcutConflict(candidate, for: entry.id)
                 }
+            }
+            if let hideFromDock {
+                ExplainedToggle(
+                    title: "Hide from the Dock",
+                    detail: "No Dock icon or ⌘-Tab entry, and its menus don't show. Open it from its menu bar icon or shortcut. Takes effect the next time it opens.",
+                    isOn: hideFromDock
+                )
             }
         }
     }

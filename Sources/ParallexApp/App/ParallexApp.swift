@@ -127,6 +127,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // People upgrading with instances already set up skip the first-run
         // flow (it stays available from Settings › Show Welcome).
         let defaults = UserDefaults.standard
+        if defaults.object(forKey: PreferenceKey.firstUsed) == nil {
+            defaults.set(Date(), forKey: PreferenceKey.firstUsed)
+        }
         if defaults.object(forKey: PreferenceKey.onboardingCompleted) == nil, !model.entries.isEmpty {
             defaults.set(true, forKey: PreferenceKey.onboardingCompleted)
             defaults.set(true, forKey: PreferenceKey.onboardingSeen)

@@ -99,6 +99,8 @@ public enum AppCloner {
         /// translates the app's requests.
         var groupMap: [String: String] = [:]
         var groupsLibrary: URL? = nil
+        /// No Dock icon or ⌘-Tab entry (LSUIElement).
+        var hideFromDock = false
     }
 
     /// Where the mapping library lives inside a sandboxed copy.
@@ -195,6 +197,9 @@ public enum AppCloner {
         // vendor's build — that would restore the original identity.
         info["SUEnableAutomaticChecks"] = false
         info["SUAutomaticallyUpdate"] = false
+        if spec.hideFromDock {
+            info["LSUIElement"] = true
+        }
         if let icon = spec.iconICNS {
             let iconName = "parallex-icon"
             try? fm.removeItem(at: contents.appendingPathComponent("Resources/\(iconName).icns"))

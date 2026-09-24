@@ -288,6 +288,7 @@ Useful `create` options:
 | `--option ID` / `--no-option ID` | turn a recipe option on or off (see `doctor`) |
 | `--adopt-data DIR` | move an existing profile folder in as the instance's data |
 | `--clone` | own identity: make the instance a re-signed copy of the app (see above) |
+| `--hide-from-dock` | (`edit`) no Dock icon or ⌘-Tab entry for an own-identity copy; open it from its menu bar icon or shortcut |
 | `--web SITE` | a website as an app of its own, instead of an app's instance (see above); `edit --web` changes its address |
 | `--force` | rebuild an existing instance (keeps its data) |
 | `--open` | launch right after creating |
@@ -359,6 +360,14 @@ try with `--env`. Recipes live in `Presets.recipes`.
 - **Self-updating apps** update the shared original bundle; all instances pick
   it up on restart. An in-app "restart to update" may relaunch the app as the
   original rather than the instance — reopen the instance from Parallex.
+
+## Support
+
+Parallex is free and made by a student. If it's useful to you, you can
+[sponsor it on GitHub](https://github.com/sponsors/mandipadk) or
+[buy it a coffee on Ko-fi](https://ko-fi.com/mandipadk). The first goal is the
+$99 a year for Apple's Developer ID, so Parallex opens without the
+"Open Anyway" step.
 
 ## Status
 

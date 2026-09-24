@@ -472,6 +472,18 @@ private struct AboutSettings: View {
 
             Section {
                 HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Support Parallex")
+                        Text("Parallex is free and made by a student. Donations pay for its upkeep and, first, for signing it with Apple, so it opens without “Open Anyway”.")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: Theme.Space.l)
+                    Button("GitHub Sponsors") { NSWorkspace.shared.open(SupportLinks.sponsors) }
+                    Button("Ko-fi") { NSWorkspace.shared.open(SupportLinks.koFi) }
+                }
+                HStack {
                     Text("Free and open source under the MIT License.")
                         .foregroundStyle(.secondary)
                     Spacer()

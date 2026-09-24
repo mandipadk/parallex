@@ -635,5 +635,7 @@ else {
 let app = NSApplication.shared
 let delegate = MainActor.assumeIsolated { WebApp(home: home) }
 app.delegate = delegate
-app.setActivationPolicy(.regular)
+// Hidden from the Dock (Parallex's setting for the copy): no Dock icon.
+let hidden = Bundle.main.object(forInfoDictionaryKey: "LSUIElement") as? Bool ?? false
+app.setActivationPolicy(hidden ? .accessory : .regular)
 app.run()

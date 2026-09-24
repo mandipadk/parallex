@@ -1,3 +1,4 @@
+import { KOFI_URL, SPONSOR_URL } from "@/lib/site"
 import { DownloadButton } from "./download-button"
 import { Heading } from "./heading"
 import { ParallelMark } from "./parallel-mark"
@@ -25,6 +26,19 @@ export function FinalCta() {
           <RevealItem className="mt-9 flex flex-col items-center gap-4">
             <DownloadButton />
             <p className="text-[13px] text-subtle">Requires macOS 14 or later</p>
+          </RevealItem>
+          <RevealItem>
+            <p className="mt-10 max-w-md text-[14px] leading-relaxed text-pretty text-muted-foreground">
+              Parallex is free and made by a student. If it saves you a subscription,{" "}
+              <a className="text-foreground underline decoration-white/25 underline-offset-4 transition-colors hover:decoration-white/60" href={SPONSOR_URL}>
+                sponsor it
+              </a>{" "}
+              or{" "}
+              <a className="text-foreground underline decoration-white/25 underline-offset-4 transition-colors hover:decoration-white/60" href={KOFI_URL}>
+                buy it a coffee
+              </a>
+              . First goal: signing it with Apple, so it opens without “Open Anyway”.
+            </p>
           </RevealItem>
         </RevealGroup>
       </Reveal>

@@ -17,18 +17,24 @@ struct List: ParsableCommand {
         var wrapperExists: Bool
         var targetExists: Bool
         var problems: [String]
+        /// Memory in use (bytes) while running: the app and its helpers.
+        var memory: UInt64?
     }
 
     mutating func run() throws {
-        let entries = InstanceStore.loadAll().map { manifest in
-            let status = InstanceStatus.check(manifest)
-            return Entry(
+        let checked = InstanceStore.loadAll().map { ($0, InstanceStatus.check($0)) }
+        let memory = InstanceMemory.measure(checked.compactMap { manifest, status in
+            status.pid.map { InstanceMemory.Target(slug: manifest.slug, pid: $0, bundlePath: manifest.clone != nil ? manifest.wrapperPath : nil) }
+        })
+        let entries = checked.map { manifest, status in
+            Entry(
                 manifest: manifest,
                 running: status.running,
                 pid: status.pid,
                 wrapperExists: !status.problems.contains(.wrapperMissing),
                 targetExists: !status.problems.contains(.targetMissing),
-                problems: status.problems.map(\.summary)
+                problems: status.problems.map(\.summary),
+                memory: memory[manifest.slug]
             )
         }
 
@@ -67,7 +73,7 @@ struct List: ParsableCommand {
         }
         var parts: [String] = []
         if entry.running {
-            parts.append(Term.green("● running"))
+            parts.append(Term.green("● running") + (entry.memory.map { " " + InstanceMemory.format($0) } ?? ""))
         }
         parts += entry.problems.map { Term.yellow($0) }
         return parts.isEmpty ? Term.dim("—") : parts.joined(separator: "  ")

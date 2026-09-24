@@ -18,6 +18,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.16.1", highlights: [
+            Highlight(
+                symbol: "dock.rectangle",
+                title: "Hide a copy from the Dock",
+                detail: "For copies you keep running in the background: no Dock icon or ⌘-Tab entry. Open it from its menu bar icon or shortcut. In the instance's Launch section."
+            ),
+            Highlight(
+                symbol: "heart",
+                title: "Support Parallex",
+                detail: "Parallex is free and made by a student. If it helps you, Settings › About has GitHub Sponsors and Ko-fi. First goal: signing it with Apple."
+            ),
+        ]),
         Release(version: "0.16.0", highlights: [
             Highlight(
                 symbol: "globe",

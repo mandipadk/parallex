@@ -311,7 +311,7 @@ final class AppModel {
 
     func activate(_ entry: InstanceEntry) {
         if let pid = entry.pid {
-            InstanceLauncher.activate(pid: pid)
+            InstanceLauncher.bringForward(entry.manifest, pid: pid)
         } else {
             launch(entry)
         }

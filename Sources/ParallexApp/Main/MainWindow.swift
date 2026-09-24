@@ -181,6 +181,9 @@ struct Sidebar: View {
         }
         .listStyle(.sidebar)
         .bottomBar {
+            VStack(spacing: 0) {
+            SupportCard()
+                .padding(.top, Theme.Space.m)
             HStack(spacing: Theme.Space.s) {
                 Button {
                     model.creating = .init()
@@ -206,6 +209,7 @@ struct Sidebar: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, Theme.Space.l)
             .padding(.vertical, Theme.Space.m)
+            }
         }
     }
 

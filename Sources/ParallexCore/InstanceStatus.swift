@@ -177,4 +177,19 @@ public enum InstanceLauncher {
             _ = NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows])
         }
     }
+
+    /// Bring a running instance forward the way a Dock click does. A copy
+    /// is its own app, so it's also sent "reopen": an app whose window you
+    /// closed (Slack, Discord) opens one again. That matters most for a copy
+    /// hidden from the Dock, which has no Dock icon to click.
+    public static func bringForward(_ manifest: InstanceManifest, pid: pid_t) {
+        activate(pid: pid)
+        guard manifest.clone != nil, FileManager.default.fileExists(atPath: manifest.wrapperPath) else { return }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.addsToRecentItems = false
+        onMainThread {
+            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: manifest.wrapperPath), configuration: configuration)
+        }
+    }
 }

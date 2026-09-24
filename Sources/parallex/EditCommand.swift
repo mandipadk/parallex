@@ -74,6 +74,12 @@ struct Edit: ParsableCommand {
     @Option(help: ArgumentHelp("A web instance's new address.", valueName: "url"))
     var web: String?
 
+    @Flag(inversion: .prefixedNo, help: "Hide an own-identity copy from the Dock and ⌘-Tab (open it from its menu bar icon or shortcut).")
+    var hideFromDock: Bool?
+
+    @Flag(inversion: .prefixedNo, help: "Show an icon in the menu bar that opens the instance (needs the Parallex app running).")
+    var menuBarIcon: Bool?
+
     @Argument(parsing: .postTerminator, help: .hidden)
     var passthroughArguments: [String] = []
 
@@ -125,6 +131,23 @@ struct Edit: ParsableCommand {
         }
         if let separateHiddenFolders {
             settings.separateHiddenFolders = separateHiddenFolders
+        }
+        if let menuBarIcon {
+            settings.menuBarIcon = menuBarIcon ? true : nil
+        }
+        if let hideFromDock {
+            guard settings.isClone || !hideFromDock else {
+                throw ValidationError("Only an own-identity copy can leave the Dock: turn on --clone first.")
+            }
+            settings.hideFromDock = hideFromDock ? true : nil
+            // Its way back, unless it has a shortcut or you said otherwise.
+            if hideFromDock, menuBarIcon == nil, settings.shortcut == nil {
+                settings.menuBarIcon = true
+                print(Term.dim("It gets a menu bar icon to open it with (--no-menu-bar-icon to leave it out)."))
+            }
+        }
+        if !settings.isClone {
+            settings.hideFromDock = nil
         }
         if let web {
             guard manifest.isWeb else {
