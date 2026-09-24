@@ -10,4 +10,5 @@ export interface Env {
   /** Rate limits by address (kept in memory for a minute, never stored). */
   CHECKS_LIMIT?: RateLimit
   SIGN_IN_LIMIT?: RateLimit
+  USAGE_LIMIT?: RateLimit
 }

@@ -29,7 +29,7 @@ struct Parallex: AsyncParsableCommand {
         subcommands: [
             Create.self, Apps.self, List.self, Open.self, Edit.self, Duplicate.self, CopyData.self,
             WorkspaceCommand.self, Links.self, Check.self, Storage.self, Export.self, Import.self,
-            Repair.self, Remove.self, Doctor.self, Report.self,
+            Repair.self, Remove.self, Doctor.self, Report.self, Usage.self,
         ]
     )
 }

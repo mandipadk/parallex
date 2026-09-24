@@ -37,6 +37,11 @@ final class MissionControlTests: XCTestCase {
         XCTAssertTrue(headers[1].1.range(of: #"^\d+\.\d+$"#, options: .regularExpression) != nil)
         XCTAssertTrue(["arm64", "x86_64"].contains(headers[2].1))
         XCTAssertEqual(headers[3].1, "day,week")
+
+        let withBucket = CheckActivity.headers(periods: [], bucket: 42)
+        XCTAssertEqual(withBucket.last?.0, "X-Parallex-Bucket")
+        XCTAssertEqual(withBucket.last?.1, "42")
+        XCTAssertTrue((0..<100).contains(CheckActivity.pickBucket()))
     }
 
     /// Parallex's server first; GitHub when it doesn't answer. Only the
@@ -75,6 +80,17 @@ final class MissionControlTests: XCTestCase {
             XCTFail("nothing readable")
         } catch {}
         XCTAssertEqual(heard.count, 2)
+
+        // Every release pulled: the server offers nothing, and GitHub (which
+        // pulls don't reach) isn't asked instead.
+        StubProtocol.answers["parallex.mandip.dev"] = (204, Data())
+        StubProtocol.answers["api.github.com"] = (200, releaseJSON)
+        StubProtocol.seen = []
+        do {
+            _ = try await UpdateFeed.fetchLatest(activity: [], session: session)
+            XCTFail("nothing is offered")
+        } catch {}
+        XCTAssertEqual(StubProtocol.seen.map(\.host), ["parallex.mandip.dev"])
     }
 
     private var releaseJSON: Data {

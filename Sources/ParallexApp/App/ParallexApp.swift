@@ -21,6 +21,9 @@ enum PreferenceKey {
     static let autoVerify = "autoVerifyIsolation"
     /// The last version whose What's New the user has seen.
     static let lastSeenVersion = "lastSeenVersion"
+    /// Opt-in: send the weekly usage report (off unless turned on).
+    static let shareUsage = "shareUsage"
+    static let usageLastSent = "usageLastSent"
 }
 
 extension Notification.Name {

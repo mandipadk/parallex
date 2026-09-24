@@ -18,6 +18,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.21.0", highlights: [
+            Highlight(
+                symbol: "chart.bar.xaxis",
+                title: "Help spot broken apps early",
+                detail: "Turn on Share anonymous usage in Settings › About and Parallex tells its server which apps you copy and how those copies do, once a week. See What's Sent shows every word first. Off unless you turn it on."
+            ),
+            Highlight(
+                symbol: "arrow.triangle.2.circlepath",
+                title: "Safer updates",
+                detail: "New versions can reach a few Macs first, and a bad one can be pulled before most people get it."
+            ),
+        ]),
         Release(version: "0.20.0", highlights: [
             Highlight(
                 symbol: "hand.raised",

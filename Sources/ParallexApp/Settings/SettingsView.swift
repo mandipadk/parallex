@@ -388,6 +388,8 @@ private struct LinksSettings: View {
 
 private struct AboutSettings: View {
     @Environment(Updater.self) private var updater
+    @AppStorage(PreferenceKey.shareUsage) private var shareUsage = false
+    @State private var showingUsage = false
     @Environment(\.showWhatsNew) private var showWhatsNew
     @Environment(\.checkForUpdates) private var checkForUpdates
     @State private var tool = CommandLineTool.status()
@@ -434,7 +436,7 @@ private struct AboutSettings: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Parallex looks for a new version once a day. Updates are verified against Parallex's signing key before they're installed.")
-                    Text("The check goes to parallex.mandip.dev and says only which Parallex, macOS and chip this is, and whether it's the first check today, this week or this month, so active Macs can be counted. Nothing that identifies you or this Mac.")
+                    Text("The check goes to parallex.mandip.dev and says only which Parallex, macOS and chip this is, whether it's the first check today, this week or this month, and a random number from 0 to 99 for staged releases. Active Macs can be counted, but nothing identifies you or this Mac.")
                     Link("What leaves your Mac", destination: URL(string: "https://parallex.mandip.dev/privacy")!)
                 }
                 .font(Theme.Font.caption)
@@ -475,6 +477,28 @@ private struct AboutSettings: View {
             }
 
             Section {
+                // Sent with the next daily update check, not the moment it's
+                // turned on, so there's time to look at it first.
+                Toggle("Share anonymous usage", isOn: $shareUsage)
+                HStack {
+                    Text("Which apps you copy and how those copies do, and which features you use. It helps spot an app update that breaks copies before the bug reports come in.")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: Theme.Space.l)
+                    Button("See What's Sent") { showingUsage = true }
+                }
+            } header: {
+                Text("Help improve Parallex")
+            } footer: {
+                Text("Off unless you turn it on. Once a week, with the next update check. No instance names, paths or identifier; apps are named only if they're well-known or from the App Store.")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Section {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Support Parallex")
@@ -497,6 +521,7 @@ private struct AboutSettings: View {
         }
         .formStyle(.grouped)
         .onAppear { tool = CommandLineTool.status() }
+        .sheet(isPresented: $showingUsage) { UsagePreview() }
     }
 
     private var updateStatus: String {
@@ -541,5 +566,43 @@ private struct AboutSettings: View {
             toolError = "Couldn't install the command: \(error.localizedDescription)"
         }
         tool = CommandLineTool.status()
+    }
+}
+
+// MARK: - Usage preview
+
+/// Exactly what the weekly usage report would send, from this Mac, now.
+private struct UsagePreview: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            Text("What's sent").font(Theme.Font.title)
+            Text("This is the whole report, as it would go to parallex.mandip.dev today. It's added into counts there; nothing ties it to you.")
+                .font(Theme.Font.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ScrollView {
+                Text(text)
+                    .font(Theme.Font.mono)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Theme.Space.m)
+            }
+            .background(Color(nsColor: .textBackgroundColor), in: .rect(cornerRadius: Theme.Radius.control))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control).strokeBorder(Theme.hairline))
+            HStack {
+                Link("What leaves your Mac", destination: URL(string: "https://parallex.mandip.dev/privacy")!)
+                    .font(Theme.Font.callout)
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(Theme.Space.xl)
+        .frame(width: 520, height: 520)
+        .task {
+            text = await Task.detached { String(decoding: UsageReport.make().json(), as: UTF8.self) }.value
+        }
     }
 }

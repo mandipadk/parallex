@@ -98,7 +98,7 @@ public enum UpdateFeed {
     /// taken the check (and the activity it was told), even when the rest
     /// of the check then fails, so it's never told twice.
     public static func fetchLatest(
-        activity: [String] = [], session: URLSession = .shared, counted: (@Sendable () -> Void)? = nil
+        activity: [String] = [], bucket: Int? = nil, session: URLSession = .shared, counted: (@Sendable () -> Void)? = nil
     ) async throws -> (release: ReleaseInfo, counted: Bool) {
         var lastError: Error = ParallexError("The update server didn't answer.")
         for url in latestURLs {
@@ -107,12 +107,18 @@ public enum UpdateFeed {
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             request.setValue("Parallex/\(ParallexConfig.version)", forHTTPHeaderField: "User-Agent")
             if ours {
-                for (field, value) in CheckActivity.headers(periods: activity) {
+                for (field, value) in CheckActivity.headers(periods: activity, bucket: bucket) {
                     request.setValue(value, forHTTPHeaderField: field)
                 }
             }
             do {
                 let (data, response) = try await session.data(for: request)
+                // Parallex's server offering nothing on purpose (every
+                // release pulled): not a reason to ask GitHub instead.
+                if ours, (response as? HTTPURLResponse)?.statusCode == 204 {
+                    counted?()
+                    throw NothingOffered()
+                }
                 if let http = response as? HTTPURLResponse, http.statusCode != 200 {
                     throw ParallexError(http.statusCode == 404
                         ? "No releases are published yet."
@@ -120,11 +126,17 @@ public enum UpdateFeed {
                 }
                 if ours { counted?() }
                 return (try parse(data), ours)
+            } catch let error as NothingOffered {
+                throw ParallexError(error.description)
             } catch {
                 lastError = error
             }
         }
         throw lastError
+    }
+
+    struct NothingOffered: Error, CustomStringConvertible {
+        var description: String { "No update is offered right now." }
     }
 
     /// Whether `candidate` is a newer version than `current`.
@@ -134,9 +146,11 @@ public enum UpdateFeed {
 }
 
 /// Everything an update check tells Parallex's server, and nothing else:
-/// this version, the macOS version, the chip, and which of "first check
-/// ever / today / this week / this month" it is. No identifier, so the
-/// server can count Macs without being able to tell them apart.
+/// this version, the macOS version, the chip, which of "first check
+/// ever / today / this week / this month" it is, and a number from 0 to 99
+/// this Mac picked at random once (a release can go out to the Macs under
+/// a number first; about one Mac in a hundred shares each). No identifier,
+/// so the server can count Macs without being able to tell them apart.
 public struct CheckActivity: Codable, Equatable, Sendable {
     public var day: String?
     public var week: String?
@@ -169,8 +183,11 @@ public struct CheckActivity: Codable, Equatable, Sendable {
         return (periods, next)
     }
 
+    /// A new Mac's rollout number.
+    public static func pickBucket() -> Int { Int.random(in: 0..<100) }
+
     /// The request headers that carry it.
-    public static func headers(periods: [String]) -> [(String, String)] {
+    public static func headers(periods: [String], bucket: Int? = nil) -> [(String, String)] {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         #if arch(arm64)
         let arch = "arm64"
@@ -182,7 +199,7 @@ public struct CheckActivity: Codable, Equatable, Sendable {
             ("X-Parallex-OS", "\(os.majorVersion).\(os.minorVersion)"),
             ("X-Parallex-Arch", arch),
             ("X-Parallex-Active", periods.joined(separator: ",")),
-        ]
+        ] + (bucket.map { [("X-Parallex-Bucket", String($0))] } ?? [])
     }
 }
 

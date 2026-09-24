@@ -1,4 +1,5 @@
 import type { Env } from "./env"
+import { loadRollout, publishedReleases, versionOf, type Rollout } from "./feed"
 
 export interface Summary {
   generated: string
@@ -11,6 +12,19 @@ export interface Summary {
   arch: { name: string; count: number }[]
   stats: Record<string, number>
   releases: { tag: string; downloads: number }[]
+  /** The newest few releases, newest first, and how the newest is going out. */
+  published: string[]
+  rollout: Rollout
+  /** Opt-in usage: Macs that reported in the last 7 and 30 days. */
+  usage: {
+    macs7: number
+    macs30: number
+    apps: { name: string; bundle: string; macs: number; instances: number; failing: number; verified: number }[]
+    warnings: { name: string; version: string; macs: number; failing: number }[]
+    features: { name: string; macs: number }[]
+  }
+  /** Today's active Macs by version (for adoption). */
+  todayVersions: { name: string; count: number }[]
   donations: { kofiCents: number; kofiCount: number; otherCurrencies: string[]; recent: { kind: string; cents: number; currency: string; at: string }[] }
 }
 
@@ -27,7 +41,7 @@ function periodStarts(now: Date): { week: string; month: string } {
   return { week: iso(monday), month: iso(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))) }
 }
 
-export async function summarize(env: Env, now = new Date()): Promise<Summary> {
+export async function summarize(env: Env, ctx: ExecutionContext, now = new Date()): Promise<Summary> {
   const today = iso(now)
   const starts = periodStarts(now)
   const since30 = daysAgo(now, 29)
@@ -40,7 +54,26 @@ export async function summarize(env: Env, now = new Date()): Promise<Summary> {
       `SELECT ${column} AS name, SUM(count) AS count FROM checks WHERE period = 'day' AND day >= ?1 GROUP BY ${column} ORDER BY count DESC LIMIT 12`,
     ).bind(since7)
 
-  const [day, week, month, fresh, installs, series, versions, os, arch, stats, kofi, recent] = await db.batch<Record<string, unknown>>([
+  const [releases, rollout] = await Promise.all([publishedReleases(env, ctx), loadRollout(env)])
+  const [usage7, usage30, usageApps, warnings, features] = await db.batch<Record<string, unknown>>([
+    db.prepare(`SELECT COALESCE(SUM(macs), 0) AS n FROM usage_reports WHERE day >= ?1`).bind(since7),
+    db.prepare(`SELECT COALESCE(SUM(macs), 0) AS n FROM usage_reports WHERE day >= ?1`).bind(since30),
+    db.prepare(
+      `SELECT MAX(name) AS name, bundle_id AS bundle, SUM(macs) AS macs, SUM(instances) AS instances,
+              SUM(failing_macs) AS failing, SUM(verified_macs) AS verified
+       FROM usage_apps WHERE day >= ?1 GROUP BY bundle_id ORDER BY macs DESC LIMIT 15`,
+    ).bind(since30),
+    // Early warnings: an app version whose copies quit at launch on two or
+    // more Macs, and on at least a third of those that have it.
+    db.prepare(
+      `SELECT MAX(name) AS name, app_version AS version, SUM(macs) AS macs, SUM(failing_macs) AS failing
+       FROM usage_apps WHERE day >= ?1 GROUP BY bundle_id, app_version
+       HAVING SUM(failing_macs) >= 2 AND SUM(failing_macs) * 3 >= SUM(macs) ORDER BY failing DESC LIMIT 10`,
+    ).bind(since7),
+    db.prepare(`SELECT feature AS name, SUM(macs) AS macs FROM usage_features WHERE day >= ?1 GROUP BY feature ORDER BY macs DESC`)
+      .bind(since30),
+  ])
+  const [day, week, month, fresh, installs, series, versions, os, arch, stats, kofi, recent, todayVersions] = await db.batch<Record<string, unknown>>([
     sum("day", today),
     sum("week", starts.week),
     sum("month", starts.month),
@@ -61,6 +94,8 @@ export async function summarize(env: Env, now = new Date()): Promise<Summary> {
        FROM donations WHERE at >= ?1`,
     ).bind(daysAgo(now, 365)),
     db.prepare(`SELECT kind, amount_cents AS cents, currency, at FROM donations ORDER BY at DESC LIMIT 8`),
+    db.prepare(`SELECT version AS name, SUM(count) AS count FROM checks WHERE period = 'day' AND day = ?1 GROUP BY version ORDER BY count DESC`)
+      .bind(today),
   ])
 
   const n = (result: D1Result<Record<string, unknown>>) => Number(result.results[0]?.n ?? 0)
@@ -86,6 +121,16 @@ export async function summarize(env: Env, now = new Date()): Promise<Summary> {
       .map(([key, downloads]) => ({ tag: key.slice("downloads:".length), downloads }))
       .sort((a, b) => b.tag.localeCompare(a.tag, undefined, { numeric: true }))
       .slice(0, 10),
+    published: releases.slice(0, 5).map(versionOf),
+    rollout,
+    todayVersions: rows(todayVersions),
+    usage: {
+      macs7: n(usage7),
+      macs30: n(usage30),
+      apps: rows(usageApps),
+      warnings: rows(warnings),
+      features: rows(features),
+    },
     donations: {
       kofiCents: Number(kofi.results[0]?.cents ?? 0),
       kofiCount: Number(kofi.results[0]?.n ?? 0),

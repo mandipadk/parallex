@@ -34,26 +34,87 @@ async function fromGitHub(path: string, key: string, env: Env, ctx: ExecutionCon
   return kept?.body ?? null
 }
 
-/** Released versions ("0.19.0"), for telling real versions from made-up ones. */
-async function releasedVersions(env: Env, ctx: ExecutionContext): Promise<Set<string>> {
-  const body = await fromGitHub(`/repos/${REPO}/releases?per_page=100`, "releases", env, ctx, 3600)
+type GitHubRelease = { tag_name?: string; draft?: boolean; prerelease?: boolean; [key: string]: unknown }
+
+/** Published releases, newest first (GitHub lists them that way). */
+export async function publishedReleases(env: Env, ctx: ExecutionContext): Promise<GitHubRelease[]> {
+  // (A new key: the 0.20 server cached this list for an hour.)
+  const body = await fromGitHub(`/repos/${REPO}/releases?per_page=100`, "releases-v2", env, ctx, 300)
   try {
-    const releases = JSON.parse(body ?? "[]") as { tag_name?: string }[]
-    return new Set(releases.map((r) => (r.tag_name ?? "").replace(/^v/, "")).filter(Boolean))
+    return (JSON.parse(body ?? "[]") as GitHubRelease[]).filter((r) => r.tag_name && !r.draft && !r.prerelease)
   } catch {
-    return new Set()
+    return []
+  }
+}
+
+export const versionOf = (release: GitHubRelease) => String(release.tag_name ?? "").replace(/^v/, "")
+
+/** How a release is going out: to what share of Macs, paused, or pulled. */
+export interface Rollout {
+  /** The version the share applies to (older releases are out to everyone). */
+  version?: string
+  percent: number
+  paused: boolean
+  /** Releases no one gets any more. */
+  pulled: string[]
+  /** The share a new release starts at, until it's given one of its own. */
+  startPercent: number
+}
+
+/** The stored rollout; when it can't be read, releases go out as usual. */
+export async function loadRollout(env: Env): Promise<Rollout> {
+  try {
+    const row = await env.DB.prepare(`SELECT value FROM settings WHERE key = 'rollout'`).first<{ value: string }>()
+    const stored = JSON.parse(row?.value ?? "{}") as Partial<Rollout>
+    return {
+      version: stored.version, percent: stored.percent ?? 100, paused: stored.paused ?? false,
+      pulled: stored.pulled ?? [], startPercent: stored.startPercent ?? 100,
+    }
+  } catch {
+    return { percent: 100, paused: false, pulled: [], startPercent: 100 }
   }
 }
 
 /**
- * The update check: GitHub's latest release, passed through unchanged (the
- * app verifies every update's signature itself, so this server can't hand
- * out a bad one), and one count per check.
+ * The release a Mac should be offered: the newest that isn't pulled, unless
+ * it's being rolled out and this Mac isn't in the share yet (or it's
+ * paused), in which case the one before it. `bucket` is the 0–99 number the
+ * Mac picked at random once; without one (older Parallex, the installer) a
+ * Mac waits for the full rollout.
+ */
+export function choose(releases: GitHubRelease[], rollout: Rollout, bucket: number | null): GitHubRelease | undefined {
+  const available = releases.filter((r) => !rollout.pulled.includes(versionOf(r)))
+  const [newest, previous] = available
+  if (!newest) return undefined
+  // A release the rollout doesn't name yet starts at the starting share.
+  const steered = versionOf(newest) === rollout.version
+  const percent = steered ? rollout.percent : rollout.startPercent
+  if (steered && rollout.paused) return previous ?? newest
+  if (percent >= 100) return newest
+  const included = bucket !== null && bucket < percent
+  return included ? newest : previous ?? newest
+}
+
+/**
+ * The update check: the release this Mac should get, in GitHub's own format
+ * (the app verifies every update's signature itself, so this server can't
+ * hand out a bad one), and one count per check.
  */
 export async function latestRelease(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  const body = await fromGitHub(`/repos/${REPO}/releases/latest`, "latest", env, ctx, 300)
+  const [releases, rollout] = await Promise.all([publishedReleases(env, ctx), loadRollout(env)])
+  const bucketHeader = request.headers.get("X-Parallex-Bucket")
+  const bucket = bucketHeader !== null && /^\d{1,2}$/.test(bucketHeader) ? Number(bucketHeader) : null
+  const chosen = choose(releases, rollout, bucket)
+  // Every release pulled: nothing is offered (the app doesn't ask GitHub
+  // instead). No release list at all (GitHub down, nothing kept yet):
+  // GitHub's latest as is.
+  if (releases.length && !chosen) {
+    ctx.waitUntil(record(request, env, new Set(releases.map(versionOf))))
+    return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } })
+  }
+  const body = chosen ? JSON.stringify(chosen) : await fromGitHub(`/repos/${REPO}/releases/latest`, "latest", env, ctx, 300)
   if (!body) return new Response("GitHub didn't answer", { status: 502 })
-  ctx.waitUntil(record(request, env, ctx))
+  ctx.waitUntil(record(request, env, new Set(releases.map(versionOf))))
   return new Response(body, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } })
 }
 
@@ -81,12 +142,12 @@ export function describe(
   }
 }
 
-async function record(request: Request, env: Env, ctx: ExecutionContext): Promise<void> {
+async function record(request: Request, env: Env, released: Set<string>): Promise<void> {
   // A burst from one address isn't a Mac checking once a day. The address
   // is used for this and never stored.
   const address = request.headers.get("CF-Connecting-IP") ?? "unknown"
   if (env.CHECKS_LIMIT && !(await env.CHECKS_LIMIT.limit({ key: address })).success) return
-  const { version, os, arch, periods } = describe(request.headers, await releasedVersions(env, ctx))
+  const { version, os, arch, periods } = describe(request.headers, released)
   const day = new Date().toISOString().slice(0, 10)
   const statement = env.DB.prepare(
     `INSERT INTO checks (day, version, os, arch, period, count) VALUES (?1, ?2, ?3, ?4, ?5, 1)

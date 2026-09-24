@@ -39,6 +39,7 @@ final class Updater {
         static let lastChecked = "lastUpdateCheck"
         static let skipped = "skippedUpdateVersion"
         static let activity = "updateCheckActivity"
+        static let bucket = "updateRolloutNumber"
     }
 
     init() {
@@ -98,6 +99,35 @@ final class Updater {
         check(userInitiated: false)
     }
 
+    /// The opt-in usage report, at most once a week, after an update check
+    /// got through (so it goes out when the network is up).
+    static func sendUsageIfDue() {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: PreferenceKey.shareUsage) else { return }
+        let last = defaults.object(forKey: PreferenceKey.usageLastSent) as? Date
+        if let last, Date().timeIntervalSince(last) < 7 * 86_400 {
+            return
+        }
+        // Marked sent before it goes, so two checks can't both send it; a
+        // failed send is tried again with the next check.
+        defaults.set(Date(), forKey: PreferenceKey.usageLastSent)
+        Task.detached(priority: .utility) {
+            if (try? await UsageReport.make().send()) == nil {
+                UserDefaults.standard.set(last, forKey: PreferenceKey.usageLastSent)
+            }
+        }
+    }
+
+    /// This Mac's number for staged rollouts, picked at random once.
+    static var rolloutNumber: Int {
+        if let stored = UserDefaults.standard.object(forKey: Keys.bucket) as? Int, (0..<100).contains(stored) {
+            return stored
+        }
+        let picked = CheckActivity.pickBucket()
+        UserDefaults.standard.set(picked, forKey: Keys.bucket)
+        return picked
+    }
+
     func check(userInitiated: Bool) {
         switch phase {
         case .checking, .downloading, .installing: return
@@ -114,12 +144,13 @@ final class Updater {
         Task {
             do {
                 let next = activity.next
-                let (release, _) = try await UpdateFeed.fetchLatest(activity: activity.periods) {
+                let (release, _) = try await UpdateFeed.fetchLatest(activity: activity.periods, bucket: Self.rolloutNumber) {
                     if let data = try? JSONEncoder().encode(next) {
                         UserDefaults.standard.set(data, forKey: Keys.activity)
                     }
                 }
                 record(checkedAt: Date())
+                Self.sendUsageIfDue()
                 let skipped = UserDefaults.standard.string(forKey: Keys.skipped)
                 if UpdateFeed.isNewer(release.version), userInitiated || release.version != skipped {
                     phase = .available(release)

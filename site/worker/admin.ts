@@ -3,6 +3,8 @@ import type { Summary } from "./summary"
 const escape = (text: string) =>
   text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c)
 const number = (n: number) => n.toLocaleString("en-US")
+/** "1 Mac", "3 Macs". */
+const plural = (n: number, one: string, many = `${one}s`) => `${number(n)} ${n === 1 ? one : many}`
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { maximumFractionDigits: cents % 100 ? 2 : 0 })}`
 
 const REPO = "https://github.com/mandipadk/parallex"
@@ -66,6 +68,16 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .list div { display: flex; justify-content: space-between; gap: 12px; }
 .list div span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
 .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.release-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.release-head b { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; margin-right: 6px; }
+.muted { color: var(--muted); font-size: 13px; }
+.chip { display: inline-block; font-size: 12px; font-weight: 500; padding: 2px 9px; border-radius: 999px; background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); vertical-align: 3px; }
+.chip.warn { background: var(--accent-soft); color: var(--accent); }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; }
+.controls form, .list form { margin: 0; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.current { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.list button { padding: 2px 10px; font-size: 12px; }
 .stats a { color: inherit; text-decoration: none; display: grid; gap: 2px; padding: 12px; border-radius: 12px; background: var(--fill); }
 .stats a:hover { outline: 1px solid var(--rule); }
 .stats b { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
@@ -143,6 +155,83 @@ function chart(series: Summary["series"]): string {
     <div class="axis"><span>${short(series[0].day)}</span><span>Today</span></div></div>`
 }
 
+/** A one-button form that posts a release action. */
+function action(label: string, fields: Record<string, string>, options: { primary?: boolean; confirm?: string; current?: boolean } = {}): string {
+  const inputs = Object.entries(fields).map(([k, v]) => `<input type="hidden" name="${k}" value="${escape(v)}">`).join("")
+  // A JavaScript string (JSON), then escaped for the attribute it sits in.
+  const confirm = options.confirm ? ` onsubmit="return confirm(${escape(JSON.stringify(options.confirm))})"` : ""
+  const style = options.current ? ` class="current" aria-pressed="true"` : options.primary ? ` class="primary"` : ""
+  return `<form method="post" action="/admin/release"${confirm}>${inputs}<button type="submit"${style}>${escape(label)}</button></form>`
+}
+
+function releasesCard(s: Summary): string {
+  const [newest, ...earlier] = s.published
+  if (!newest) return `<section class="card" id="releases"><h2>Releases</h2><p class="empty">No releases found.</p></section>`
+  const r = s.rollout
+  const pulled = (v: string) => r.pulled.includes(v)
+  const steered = r.version === newest
+  const share = steered ? r.percent : 100
+  const paused = steered && r.paused
+  const status = pulled(newest) ? "Pulled: no one gets it" : paused ? `Paused at ${share}%` : share >= 100 ? "Out to everyone" : `Out to ${share}% of Macs`
+  const today = s.todayVersions.reduce((sum, v) => sum + Number(v.count), 0)
+  const onNewest = Number(s.todayVersions.find((v) => v.name === newest)?.count ?? 0)
+  const shares = [10, 50, 100]
+    .map((p) => action(p === 100 ? "Everyone" : `${p}%`, { action: "share", version: newest, percent: String(p) }, { current: !paused && !pulled(newest) && share === p }))
+    .join("")
+  return `<section class="card" id="releases">
+    <h2>Releases</h2>
+    <p class="sub">Macs on 0.20 or later follow this (the share needs 0.21). A pulled release is skipped: they're offered the one before it.</p>
+    <div class="release-head">
+      <div><b>${escape(newest)}</b> <span class="chip${pulled(newest) || paused ? " warn" : ""}">${escape(status)}</span></div>
+      <span class="muted">${today ? `On it today: ${Math.round((onNewest / today) * 100)}% of ${number(today)} Macs` : "No checks yet today"}</span>
+    </div>
+    <div class="controls">
+      ${pulled(newest) ? action("Put back", { action: "restore", version: newest }, { primary: true }) : `${shares}
+      ${paused ? action("Resume", { action: "resume", version: newest }, { primary: true }) : action("Pause", { action: "pause", version: newest })}
+      ${action("Pull", { action: "pull", version: newest }, { confirm: `Pull ${newest}? Macs on 0.20 or later won't be offered it and get the release before it instead. Macs already on it keep it, and older Parallex versions or Macs that can't reach this server ask GitHub, which a pull doesn't change: to stop it everywhere, also make it a draft on GitHub.` })}`}
+    </div>
+    <div class="release-head"><span class="muted">New releases start at</span><div class="controls">
+      ${action("10%", { action: "start", version: newest, percent: "10" }, { current: r.startPercent === 10 })}
+      ${action("Everyone", { action: "start", version: newest, percent: "100" }, { current: r.startPercent >= 100 })}
+    </div></div>
+    ${earlier.length ? `<div class="list">${earlier
+      .map((v) => `<div><span>${escape(v)}${pulled(v) ? " · pulled" : ""}</span><span>${pulled(v)
+        ? action("Put back", { action: "restore", version: v })
+        : action("Pull", { action: "pull", version: v }, { confirm: `Pull ${v}? No one will be offered it.` })}</span></div>`)
+      .join("")}</div>` : ""}
+  </section>`
+}
+
+const FEATURE_NAMES: Record<string, string> = {
+  workspaces: "Workspaces", throwaway: "Throwaways", hideFromDock: "Hidden from the Dock", menuBarIcon: "Menu bar icons",
+  shortcut: "Shortcuts", quitWhenUnused: "Quit when unused", openAtLaunch: "Open at launch", shareMCPServers: "Shared MCP servers",
+  signInLinks: "Sign-in link routing", webLinks: "Web link routing", "website:other": "Other websites",
+}
+const featureName = (key: string) => FEATURE_NAMES[key] ?? (key.startsWith("website:") ? key.slice(8) : key)
+
+function usageSection(s: Summary): string {
+  const u = s.usage
+  if (!u.macs30) {
+    return `<section class="card"><h2>Opt-in usage</h2><p class="sub">Macs that turned on Share anonymous usage</p>
+      <p class="empty">No reports yet. They come from Macs on 0.21 or later that turn it on in Settings › About.</p></section>`
+  }
+  const pct = (part: number, whole: number) => (whole ? `${Math.round((part / whole) * 100)}%` : "–")
+  const apps = u.apps.map((a) => `<div><span>${escape(a.name)} <span class="muted" style="font-size:11px">${escape(a.bundle)}</span></span><span>${plural(Number(a.macs), "Mac")} · ${plural(Number(a.instances), "instance")} · ${
+    Number(a.failing) ? `<span style="color:var(--accent)">${pct(Number(a.failing), Number(a.macs))} quit at launch</span>` : "working"}${
+    Number(a.verified) ? ` · ${pct(Number(a.verified), Number(a.macs))} verified` : ""}</span></div>`).join("")
+  const warnings = u.warnings.length
+    ? u.warnings.map((w) => `<div><span><b style="color:var(--accent)">${escape(w.name)} ${escape(w.version)}</b></span><span>copies quit at launch on ${number(Number(w.failing))} of ${plural(Number(w.macs), "Mac")}</span></div>`).join("")
+    : `<p class="empty">Nothing is going wrong that the reports show.</p>`
+  return `<section class="grid2">
+    <div class="card"><h2>Apps people copy</h2><p class="sub">${plural(u.macs30, "report")} in the last 30 days, ${number(u.macs7)} this week</p>
+      <div class="list">${apps || `<p class="empty">No apps yet.</p>`}</div></div>
+    <div class="card"><h2>Early warnings</h2><p class="sub">An app version whose copies quit at launch on 2 or more Macs, last 7 days</p>
+      <div class="list">${warnings}</div>
+      <h2 style="margin-top:8px">Features</h2><p class="sub">Reporting Macs using each, last 30 days</p>
+      ${bars(u.features.map((f) => ({ name: featureName(f.name), count: Number(f.macs) })), (n) => n, true)}</div>
+  </section>`
+}
+
 export function dashboardPage(s: Summary): string {
   const sponsorsMonthly = s.stats.sponsors_monthly_cents ?? 0
   const yearly = s.donations.kofiCents + sponsorsMonthly * 12
@@ -174,8 +263,12 @@ export function dashboardPage(s: Summary): string {
     <div class="legend"><span><i style="background:var(--accent)"></i>Active</span><span><i style="background:var(--ink)"></i>New</span></div>
   </section>
 
+  ${releasesCard(s)}
+
+  ${usageSection(s)}
+
   <section class="grid3">
-    <div class="card"><h2>Version</h2><p class="sub">Share of checks, last 7 days</p>${bars(s.versions)}</div>
+    <div class="card"><h2>Version</h2><p class="sub">Share of checks, last 7 days</p>${bars(s.versions, (n) => (n === "other" ? "Other" : n))}</div>
     <div class="card"><h2>macOS</h2><p class="sub">Last 7 days</p>${bars(s.os, (n) => (n === "other" ? "Other" : `macOS ${n}`))}</div>
     <div class="card"><h2>Chip</h2><p class="sub">Last 7 days</p>${bars(s.arch, (n) => (n === "arm64" ? "Apple silicon" : n === "x86_64" ? "Intel" : "Other"))}</div>
   </section>
