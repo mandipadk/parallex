@@ -77,6 +77,7 @@ app: release
 	cp "$(RELEASE_DIR)/libparallexgroups.dylib" "$(APP_DIST)/Contents/Resources/libparallexgroups.dylib"
 	cp "$(RELEASE_DIR)/parallex-web" "$(APP_DIST)/Contents/Resources/parallex-web"
 	cp Sources/ParallexApp/Resources/AppIcon.icns "$(APP_DIST)/Contents/Resources/AppIcon.icns"
+	Support/make-intents-metadata.sh "$(APP_DIST)" "$(RELEASE_DIR)"
 	codesign --force --sign - "$(APP_DIST)/Contents/Resources/parallex-launcher"
 	codesign --force --sign - "$(APP_DIST)/Contents/Resources/parallex-router"
 	codesign --force --sign - "$(APP_DIST)/Contents/Resources/parallex"

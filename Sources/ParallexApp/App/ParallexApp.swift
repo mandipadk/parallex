@@ -43,6 +43,19 @@ extension EnvironmentValues {
 struct ParallexApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
+    init() {
+        // Overlay scroll bars, the modern way: thin, no track, shown while
+        // you scroll. With a mouse connected, macOS's "Automatic" otherwise
+        // gives every scroll area a permanent bar on a tinted track. Set for
+        // this run only (the argument domain), so nothing is saved and it
+        // doesn't touch other apps.
+        var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        if arguments["AppleShowScrollBars"] == nil {
+            arguments["AppleShowScrollBars"] = "WhenScrolling"
+            UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+        }
+    }
+
     var body: some Scene {
         Window("Parallex", id: SceneID.main) {
             MainWindow()

@@ -121,6 +121,7 @@ final class AppModel {
     /// Instances whose latest check found them writing to the original's data.
     private(set) var leaking: Set<String> = []
     @ObservationIgnored private var refreshTimer: Timer?
+    @ObservationIgnored private var shortcutNames: [String]?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
     init() {
@@ -152,6 +153,12 @@ final class AppModel {
         let freshWorkspaces = WorkspaceStore.load()
         if freshWorkspaces != workspaces {
             workspaces = freshWorkspaces
+        }
+        // Siri learns names for "Open <name> in Parallex" when they change.
+        let names = entries.map(\.name) + workspaces.map(\.name)
+        if names != shortcutNames {
+            shortcutNames = names
+            ParallexShortcuts.updateAppShortcutParameters()
         }
         noteHealthyCopies()
         autoVerifyRunningInstances()

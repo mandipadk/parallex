@@ -18,6 +18,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.18.0", highlights: [
+            Highlight(
+                symbol: "square.stack.3d.up",
+                title: "Parallex in Shortcuts",
+                detail: "Open or quit an instance or a whole workspace, or check if one is running, from Shortcuts and Siri: \"Open a workspace in Parallex\"."
+            ),
+            Highlight(
+                symbol: "moon",
+                title: "A workspace for each Focus",
+                detail: "In System Settings › Focus, add Parallex as a Focus filter: turning on Work opens your Work workspace, and can quit the others."
+            ),
+        ]),
         Release(version: "0.17.0", highlights: [
             Highlight(
                 symbol: "trash",

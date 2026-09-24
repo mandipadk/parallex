@@ -230,6 +230,13 @@ parallex://show/Claude%20Work     show the instance in Parallex
 parallex://new?app=Obsidian       start a new instance of an app
 ```
 
+**Shortcuts and Focus.** Parallex's actions are in the Shortcuts app: Open
+Instance, Quit Instance, Is Instance Running, Open Workspace and Quit
+Workspace, with your instances and workspaces to pick from. Siri knows
+"Open a workspace in Parallex". A **Focus filter** (System Settings › Focus ›
+a Focus › Focus Filters › Parallex) opens a workspace when that Focus turns
+on, and can quit the instances of your other workspaces.
+
 **Notifications** are kept to the few that need you:
 - a running own-identity copy whose app has updated (with **Restart Now**)
 - an instance whose app is gone
