@@ -134,7 +134,51 @@ func execTarget(_ path: String, arguments: [String]) -> Never {
     fail("Could not execute \(path): \(String(cString: strerror(errno)))")
 }
 
+/// Whether macOS actually loads the home-redirect library into code signed
+/// like this copy: the launcher is signed the same way as the app, so it
+/// runs itself as the test (see the probe mode at the top of Main). The
+/// environment must already request the library.
+enum SeparationProbe {
+    case loaded, notLoaded, unknown
+
+    static func run() -> SeparationProbe {
+        guard let executable = Bundle.main.executablePath else { return .unknown }
+        var pid: pid_t = 0
+        let argv: [UnsafeMutablePointer<CChar>?] = [
+            strdup(executable), strdup(ParallexConfig.separationProbeArgument), nil,
+        ]
+        defer { argv.forEach { free($0) } }
+        guard posix_spawn(&pid, executable, nil, nil, argv, environ) == 0 else { return .unknown }
+        var status: Int32 = 0
+        while waitpid(pid, &status, 0) == -1 {
+            guard errno == EINTR else { return .unknown }
+        }
+        // Exited normally (not signalled): 0 = loaded, 3 = not loaded.
+        guard status & 0x7f == 0 else { return .unknown }
+        switch (status >> 8) & 0xff {
+        case 0: return .loaded
+        case 3: return .notLoaded
+        default: return .unknown
+        }
+    }
+
+    /// In the probe process: is the library among the loaded images?
+    static func libraryIsLoaded() -> Bool {
+        for index in 0..<_dyld_image_count() {
+            if let name = _dyld_get_image_name(index), String(cString: name).hasSuffix("/libparallexhome.dylib") {
+                return true
+            }
+        }
+        return false
+    }
+}
+
 // MARK: - Main
+
+// Probe mode: report whether the redirect library was loaded, and nothing else.
+if CommandLine.arguments.count == 2, CommandLine.arguments[1] == ParallexConfig.separationProbeArgument {
+    exit(SeparationProbe.libraryIsLoaded() ? 0 : 3)
+}
 
 guard let config = Bundle.main.object(forInfoDictionaryKey: ParallexConfig.rootKey) as? [String: Any] else {
     fail("""
@@ -251,6 +295,29 @@ if let redirectHome = config[ParallexConfig.Key.redirectHome] as? String,
         .split(separator: ":").map(String.init)
         .filter { !$0.isEmpty && !$0.hasSuffix("/libparallexhome.dylib") }
     setenv("DYLD_INSERT_LIBRARIES", ([library] + existing).joined(separator: ":"), 1)
+
+    // Opening it without the library would put its data in the original's
+    // folders, so don't — say why, and leave a note for Parallex to explain.
+    let marker = URL(fileURLWithPath: redirectHome).deletingLastPathComponent()
+        .appendingPathComponent(ParallexConfig.separationUnavailableMarker)
+    switch SeparationProbe.run() {
+    case .loaded:
+        try? FileManager.default.removeItem(at: marker)
+    case .notLoaded:
+        let version = ProcessInfo.processInfo.operatingSystemVersionString
+        try? Data(version.utf8).write(to: marker, options: .atomic)
+        let app = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "This instance"
+        fail("""
+            macOS didn't let Parallex give “\(app)” a Library of its own, so it wasn't opened: \
+            it would have used the original app's settings and sign-ins.
+
+            Open Parallex to use it as a plain copy, sharing the original's data, \
+            or try again after updating Parallex or macOS.
+            """)
+    case .unknown:
+        // Couldn't tell; the isolation check will look once it's running.
+        break
+    }
 }
 
 // 4. Record our PID and the executable we're about to become. execv keeps

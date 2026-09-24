@@ -49,6 +49,16 @@ public enum ParallexConfig {
         /// modern macOS). Format: see `PidFileRecord`.
         public static let pidFile = "PidFile"
     }
+
+    /// Own-Library separation needs macOS to load Parallex's library into the
+    /// copy. Before opening one, the launcher runs itself with this argument
+    /// and the library requested, to see whether macOS still allows that.
+    public static let separationProbeArgument = "--parallex-separation-probe"
+
+    /// Written into the instance folder (next to its home) when the probe
+    /// found separation unavailable, so the app can explain and offer a way
+    /// out; removed as soon as a probe succeeds.
+    public static let separationUnavailableMarker = "separation-unavailable"
 }
 
 /// The pid file's contents: the PID on the first line and, since 0.5, the

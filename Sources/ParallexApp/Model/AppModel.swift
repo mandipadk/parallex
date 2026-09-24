@@ -25,8 +25,10 @@ struct InstanceEntry: Identifiable, Equatable {
 
     var needsRepair: Bool {
         status.problems.contains {
-            if case .targetMissing = $0 { return false }
-            return true
+            switch $0 {
+            case .targetMissing, .separationUnavailable: false
+            default: true
+            }
         }
     }
 
@@ -36,6 +38,9 @@ struct InstanceEntry: Identifiable, Equatable {
         }
         if running {
             return .running
+        }
+        if status.problems.contains(.separationUnavailable) {
+            return .attention("Can't separate")
         }
         if !status.problems.isEmpty {
             return .attention("Update available")
@@ -385,6 +390,28 @@ final class AppModel {
         IconCache.invalidate(entry.manifest.wrapperPath)
         perform(on: entry.id, then: { [weak self] in self?.measureStorage() }) {
             _ = try InstanceCreator.update(manifest, InstanceUpdate(targetApp: targetApp))
+        }
+    }
+
+    /// macOS won't give this copy a Library of its own: after confirming,
+    /// turn Separate Library off so it opens as a plain copy that shares the
+    /// original's data. What it kept in its own Library stays in its folder.
+    func useAsPlainCopy(_ entry: InstanceEntry) {
+        let alert = NSAlert()
+        alert.messageText = "Use “\(entry.name)” as a plain copy?"
+        alert.informativeText = "It keeps its own name, icon and Dock tile, but shares \(entry.targetName)'s settings, "
+            + "data and sign-ins. What it saved on its own stays in its folder, so turning Separate Library back on "
+            + "later brings it back."
+        alert.addButton(withTitle: "Use as Plain Copy")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        var changed = entry.manifest.effectiveSettings
+        changed.separateLibrary = false
+        let settings = changed
+        let manifest = entry.manifest
+        IconCache.invalidate(manifest.wrapperPath)
+        perform(on: entry.id, then: { [weak self] in self?.measureStorage() }) {
+            _ = try InstanceCreator.update(manifest, InstanceUpdate(settings: settings))
         }
     }
 

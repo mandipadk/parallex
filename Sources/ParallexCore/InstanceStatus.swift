@@ -18,19 +18,24 @@ public struct InstanceStatus: Sendable {
         case wrapperOutdated(builtWith: String)
         /// Clone mode: the original app updated since the copy was made.
         case cloneOutdated(copyOf: String, original: String)
+        /// macOS wouldn't load the library that gives this copy its own
+        /// Library, so the launcher didn't open it (it would have used the
+        /// original's data). Retrying may work after an update; turning off
+        /// Separate Library makes it a plain copy.
+        case separationUnavailable
 
         /// Problems a rebuild fixes without asking anything of the user.
         public var isMaintainable: Bool {
             switch self {
             case .wrapperOutdated, .targetMoved, .cloneOutdated: true
-            case .wrapperMissing, .targetMissing: false
+            case .wrapperMissing, .targetMissing, .separationUnavailable: false
             }
         }
 
         public var isBlocking: Bool {
             switch self {
             case .wrapperMissing, .targetMissing: true
-            case .targetMoved, .wrapperOutdated, .cloneOutdated: false
+            case .targetMoved, .wrapperOutdated, .cloneOutdated, .separationUnavailable: false
             }
         }
 
@@ -42,6 +47,8 @@ public struct InstanceStatus: Sendable {
             case .wrapperOutdated(let version): "built with Parallex \(version) — repair to update"
             case .cloneOutdated(let copy, let original):
                 "copy is of \(copy); the app is now \(original) — repair to refresh the copy"
+            case .separationUnavailable:
+                "macOS won't give it a Library of its own — turn off Separate Library to use it as a plain copy"
             }
         }
     }
@@ -67,6 +74,11 @@ public struct InstanceStatus: Sendable {
             if current != clone.sourceVersion {
                 problems.append(.cloneOutdated(copyOf: clone.sourceVersion, original: current))
             }
+        }
+        if let home = manifest.redirectedHome,
+           fm.fileExists(atPath: URL(fileURLWithPath: home).deletingLastPathComponent()
+               .appendingPathComponent(ParallexConfig.separationUnavailableMarker).path) {
+            problems.append(.separationUnavailable)
         }
         if !fm.fileExists(atPath: manifest.targetApp) {
             if let bundleID = manifest.knownTargetBundleID, let moved = AppResolver.locate(bundleID: bundleID) {

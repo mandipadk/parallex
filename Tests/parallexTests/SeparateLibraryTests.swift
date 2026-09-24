@@ -175,6 +175,51 @@ final class SeparateLibraryTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: out.path), "the app never ran with the real Library")
     }
 
+    /// If macOS stops loading the library into copies, the launcher notices
+    /// before the app runs (it would have used the real Library), leaves a
+    /// note the app explains, and clears it once separation works again.
+    func testACopyMacOSWontSeparateDoesntOpen() throws {
+        let target = try Fixtures.makeHomeReportingApp(named: "Stricty", bundleID: "com.fake.stricty", in: tempDir)
+        var request = CreateRequest(appReference: target.path, name: "Stricty Work", outputDirectory: outDir)
+        request.cloneApp = true
+        let result = try InstanceCreator.create(request, builderOptions: options)
+        let launcher = result.wrapperURL.appendingPathComponent("Contents/MacOS/parallex-launcher")
+        let marker = Paths.instanceDir(slug: "stricty-work").appendingPathComponent(ParallexConfig.separationUnavailableMarker)
+
+        func launch() throws -> (status: Int32, ran: Bool) {
+            let out = tempDir.appendingPathComponent("report-\(UUID().uuidString).txt")
+            let process = Process()
+            process.executableURL = launcher
+            var environment = ProcessInfo.processInfo.environment
+            environment["FIXTURE_OUT"] = out.path
+            environment["PARALLEX_LAUNCHER_NO_UI"] = "1"
+            process.environment = environment
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            process.waitUntilExit()
+            for _ in 0..<40 where !FileManager.default.fileExists(atPath: out.path) {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            return (process.terminationStatus, FileManager.default.fileExists(atPath: out.path))
+        }
+
+        // The hardened runtime makes dyld ignore inserted libraries: what a
+        // stricter macOS would do to every copy.
+        try Shell.run("/usr/bin/codesign", ["--force", "--sign", "-", "--options", "runtime", launcher.path])
+        let refused = try launch()
+        XCTAssertNotEqual(refused.status, 0)
+        XCTAssertFalse(refused.ran, "the app never ran with the real Library")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+        XCTAssertTrue(InstanceStatus.check(result.manifest).problems.contains(.separationUnavailable))
+
+        try Shell.run("/usr/bin/codesign", ["--force", "--sign", "-", launcher.path])
+        let opened = try launch()
+        XCTAssertEqual(opened.status, 0)
+        XCTAssertTrue(opened.ran)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "the note goes once separation works")
+        XCTAssertFalse(InstanceStatus.check(result.manifest).problems.contains(.separationUnavailable))
+    }
+
     func testToolsStartedByTheCopyDontInheritTheLibrary() throws {
         // A process outside the copy's bundle that inherits the variables
         // takes them out of its environment, so its children are clean.

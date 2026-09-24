@@ -359,8 +359,8 @@ private struct ProblemBanners: View {
         }
         ForEach(Array(entry.status.problems.enumerated()), id: \.offset) { _, problem in
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
-                Image(systemName: problem.isBlocking ? "exclamationmark.octagon.fill" : "arrow.triangle.2.circlepath")
-                    .foregroundStyle(problem.isBlocking ? Theme.failure : Theme.attention)
+                Image(systemName: icon(for: problem))
+                    .foregroundStyle(problem.isBlocking || problem == .separationUnavailable ? Theme.failure : Theme.attention)
                 Text(message(for: problem))
                     .font(Theme.Font.callout)
                     .fixedSize(horizontal: false, vertical: true)
@@ -373,6 +373,11 @@ private struct ProblemBanners: View {
         }
     }
 
+    private func icon(for problem: InstanceStatus.Problem) -> String {
+        if problem.isBlocking || problem == .separationUnavailable { return "exclamationmark.octagon.fill" }
+        return "arrow.triangle.2.circlepath"
+    }
+
     private func message(for problem: InstanceStatus.Problem) -> String {
         switch problem {
         case .wrapperMissing: "The instance app is missing. Repair rebuilds it — its data is safe."
@@ -382,12 +387,20 @@ private struct ProblemBanners: View {
         case .cloneOutdated(_, let original) where entry.running:
             "\(entry.targetName) updated to \(original). This copy catches up when it restarts."
         case .cloneOutdated(_, let original): "\(entry.targetName) updated to \(original). Repair refreshes this copy."
+        case .separationUnavailable:
+            "macOS didn't let Parallex give \(entry.name) a Library of its own, so it didn't open — it would have used \(entry.targetName)'s data. "
+                + "Try again after a macOS or Parallex update, or use it as a plain copy that shares \(entry.targetName)'s data."
         }
     }
 
     @ViewBuilder private func action(for problem: InstanceStatus.Problem) -> some View {
         if case .targetMissing = problem {
             Button("Locate…") { locate() }.buttonStyle(.secondary)
+        } else if case .separationUnavailable = problem {
+            HStack(spacing: Theme.Space.s) {
+                Button("Try Again") { model.launch(entry) }.buttonStyle(.secondary)
+                Button("Use as Plain Copy") { model.useAsPlainCopy(entry) }.buttonStyle(.secondary)
+            }
         } else if entry.running, entry.isClone, problem.isMaintainable {
             // A running copy can't be rebuilt underneath itself.
             Button("Restart to Update") { model.restart(entry) }.buttonStyle(.secondary)
