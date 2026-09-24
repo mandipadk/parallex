@@ -61,9 +61,9 @@ struct ParallexApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("New Instance…") { delegate.model.creating = .init() }
                     .keyboardShortcut("n", modifiers: .command)
-                Button("New Workspace") {
+                Button("New Workspace…") {
                     delegate.windows.showMain()
-                    delegate.model.createWorkspace()
+                    delegate.model.makingWorkspace = true
                 }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 Divider()

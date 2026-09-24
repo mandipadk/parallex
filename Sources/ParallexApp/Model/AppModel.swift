@@ -69,6 +69,8 @@ final class AppModel {
     var errorMessage: String?
     /// Presents the New Instance flow (optionally preselecting an app).
     var creating: CreateIntent?
+    /// Presents the New Workspace sheet.
+    var makingWorkspace = false
     private(set) var busy: Set<String> = []
     private(set) var storage: [String: StorageReport] = [:]
     private(set) var isolation: [String: IsolationResult] = [:]
@@ -176,22 +178,6 @@ final class AppModel {
     }
 
     /// A new workspace (named "Workspace", "Workspace 2", …), selected.
-    func createWorkspace(members: [String] = []) {
-        var index = 1
-        var name = "Workspace"
-        while workspaces.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
-            index += 1
-            name = "Workspace \(index)"
-        }
-        do {
-            let created = try WorkspaceStore.create(name: name, members: members)
-            refresh()
-            selection = Self.tag(for: created)
-        } catch {
-            errorMessage = "\(error)"
-        }
-    }
-
     /// Change a workspace (applied to its stored state); returns an error
     /// message to show in place.
     @discardableResult
@@ -448,14 +434,101 @@ final class AppModel {
         }
     }
 
-    func create(_ request: CreateRequest) async throws -> CreateResult {
+    func create(_ request: CreateRequest, select: Bool = true) async throws -> CreateResult {
         let result = try await Task.detached(priority: .userInitiated) {
             try InstanceCreator.create(request)
         }.value
         refresh()
-        selection = result.manifest.slug
+        if select {
+            selection = result.manifest.slug
+        }
         measureStorage()
         return result
+    }
+
+    /// A workspace in one go: instances you have, plus new copies of the
+    /// chosen apps, each made the way the catalog recommends and in the
+    /// workspace's color. The workspace comes first and each copy joins it
+    /// as it's made, so nothing made is left outside it. `progress` hears
+    /// which app is being made; apps that fail are reported and the rest
+    /// carry on.
+    func makeWorkspace(
+        name: String,
+        colorHex: String,
+        existing: [String],
+        newApps: [CatalogApp],
+        progress: @escaping @MainActor (_ app: String, _ index: Int) -> Void
+    ) async -> (workspace: Workspace?, failures: [String]) {
+        let workspace: Workspace
+        do {
+            workspace = try WorkspaceStore.create(name: name, members: existing, colorHex: colorHex)
+            refresh()
+        } catch {
+            return (nil, ["\(error)"])
+        }
+        var failures: [String] = []
+        for (index, app) in newApps.enumerated() {
+            progress(app.name, index)
+            var request = CreateRequest(appReference: app.url.path)
+            request.name = Self.freeName("\(app.name) \(name)", taken: Set(entries.map(\.name)))
+            request.badgeColorHex = colorHex
+            request.cloneApp = app.recommendsClone
+            do {
+                let result = try await create(request, select: false)
+                try WorkspaceStore.update(id: workspace.id) { $0.members.append(result.manifest.slug) }
+            } catch {
+                failures.append("\(app.name): \(error)")
+            }
+        }
+        refresh()
+        selection = Self.tag(for: workspace)
+        return (workspaces.first { $0.id == workspace.id } ?? workspace, failures)
+    }
+
+    /// Give instances a color (a workspace's). Instances without a badge
+    /// change in place; badged ones are rebuilt to repaint their icon,
+    /// except while they run (a copy can't be rebuilt underneath itself).
+    func recolor(_ members: [InstanceEntry], to hex: String) {
+        var waiting: [String] = []
+        for entry in members where entry.manifest.colorHex.caseInsensitiveCompare(hex) != .orderedSame && !busy.contains(entry.id) {
+            var settings = entry.manifest.effectiveSettings
+            settings.badgeColorHex = hex
+            if entry.manifest.effectiveSettings.requiresRebuild(toReach: settings) {
+                if entry.running {
+                    waiting.append(entry.name)
+                    continue
+                }
+                Task {
+                    do {
+                        try await update(entry, InstanceUpdate(settings: settings))
+                    } catch {
+                        errorMessage = "Couldn't recolor \(entry.name): \(error)"
+                    }
+                }
+            } else {
+                saveSettings(settings, for: entry)
+            }
+        }
+        if !waiting.isEmpty {
+            errorMessage = "Quit \(waiting.joined(separator: ", ")) to give \(waiting.count == 1 ? "it" : "them") the color; "
+                + "badged icons are repainted when the app isn't running."
+        }
+    }
+
+    /// "Slack Work", or "Slack Work 2" when that's taken (by an instance,
+    /// or by an app already in /Applications).
+    static func freeName(_ base: String, taken: Set<String>) -> String {
+        let lowered = Set(taken.map { $0.lowercased() })
+        func free(_ name: String) -> Bool {
+            !lowered.contains(name.lowercased())
+                && !FileManager.default.fileExists(atPath: "/Applications/\(name).app")
+        }
+        guard !free(base) else { return base }
+        var index = 2
+        while !free("\(base) \(index)") {
+            index += 1
+        }
+        return "\(base) \(index)"
     }
 
     /// Quit a running instance, bring it up to date, and open it again —

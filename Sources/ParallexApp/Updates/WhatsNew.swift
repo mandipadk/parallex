@@ -18,6 +18,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.15.0", highlights: [
+            Highlight(
+                symbol: "rectangle.stack.badge.plus",
+                title: "A whole workspace at once",
+                detail: "Name it, pick a color, tick the apps. Parallex makes every copy, each the right way, in that workspace's color."
+            ),
+            Highlight(
+                symbol: "paintpalette",
+                title: "Workspaces have a color",
+                detail: "Give one to a workspace and its instances, so Work looks like Work: in the sidebar, the window outlines and the icons."
+            ),
+        ]),
         Release(version: "0.14.0", highlights: [
             Highlight(
                 symbol: "arrow.triangle.branch",

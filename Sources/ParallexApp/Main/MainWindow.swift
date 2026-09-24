@@ -16,6 +16,9 @@ struct MainWindow: View {
             WhatsNewView {}
         } else if let phase = DebugRoute.updatePhase {
             UpdateView {}.onAppear { updater.debugShow(phase) }
+        } else if DebugRoute.value == "newWorkspace" {
+            NewWorkspaceSheet()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let app = DebugRoute.inlineCreate {
             NewInstanceFlow(preselected: app.isEmpty ? nil : URL(fileURLWithPath: app))
         } else if DebugRoute.showsSettings {
@@ -88,6 +91,9 @@ struct InstancesView: View {
         }
         .sheet(item: $model.creating) { intent in
             NewInstanceFlow(preselected: intent.app)
+        }
+        .sheet(isPresented: $model.makingWorkspace) {
+            NewWorkspaceSheet()
         }
         .alert(item: $model.notice) { notice in
             Alert(
@@ -185,7 +191,7 @@ struct Sidebar: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut("n", modifiers: .command)
                 Button {
-                    model.createWorkspace()
+                    model.makingWorkspace = true
                 } label: {
                     Image(systemName: "rectangle.stack.badge.plus")
                         .font(.system(size: 13, weight: .medium))
@@ -194,7 +200,6 @@ struct Sidebar: View {
                 }
                 .buttonStyle(.plain)
                 .help("New Workspace (⇧⌘N)")
-                .disabled(model.entries.isEmpty)
             }
             .foregroundStyle(.secondary)
             .padding(.horizontal, Theme.Space.l)

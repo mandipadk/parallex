@@ -39,9 +39,14 @@ struct WorkspaceRow: View {
         HStack(spacing: 10) {
             WorkspaceGlyph(members: members, size: 26)
             VStack(alignment: .leading, spacing: 1) {
-                Text(workspace.name)
-                    .font(Theme.Font.body.weight(.medium))
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(workspace.name)
+                        .font(Theme.Font.body.weight(.medium))
+                        .lineLimit(1)
+                    if let hex = workspace.colorHex {
+                        Circle().fill(Color(hex: hex)).frame(width: 7, height: 7)
+                    }
+                }
                 Text(detail)
                     .font(Theme.Font.caption)
                     .foregroundStyle(.secondary)
@@ -98,6 +103,7 @@ struct WorkspaceDetail: View {
                 }
                 membersSection
                 openingSection
+                lookSection
                 footer
             }
             .padding(.horizontal, Theme.Space.xxl)
@@ -238,13 +244,35 @@ struct WorkspaceDetail: View {
         }
     }
 
-    private var footer: some View {
-        HStack {
-            Text("Also opens with parallex workspace open \"\(workspace.name)\" or \(ParallexLink.url(openingWorkspace: workspace.name).absoluteString)")
-                .font(Theme.Font.caption)
-                .foregroundStyle(.tertiary)
-                .textSelection(.enabled)
+    private var lookSection: some View {
+        DetailSection(title: "Color") {
+            HStack(alignment: .center, spacing: Theme.Space.l) {
+                ColorSwatchPicker(
+                    selection: Binding(
+                        get: { workspace.colorHex ?? "" },
+                        set: { hex in update { $0.colorHex = hex } }
+                    ),
+                    palette: IconBuilder.palette
+                )
+                Spacer(minLength: Theme.Space.l)
+                if let hex = workspace.colorHex, members.contains(where: { $0.manifest.colorHex.caseInsensitiveCompare(hex) != .orderedSame }) {
+                    Button("Color Its Instances") { model.recolor(members, to: hex) }
+                        .buttonStyle(.secondary)
+                        .disabled(members.contains { model.busy.contains($0.id) })
+                        .help("Give \(workspace.name)'s instances this color: their window outlines and badges.")
+                }
+            }
         }
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            Text("Also opens with parallex workspace open \"\(workspace.name)\" or \(ParallexLink.url(openingWorkspace: workspace.name).absoluteString)")
+            Text("To open it with a Focus: in Shortcuts, add an automation for that Focus that opens this link.")
+        }
+        .font(Theme.Font.caption)
+        .foregroundStyle(.tertiary)
+        .textSelection(.enabled)
         .padding(.top, Theme.Space.xl)
     }
 

@@ -38,6 +38,19 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertThrowsError(try WorkspaceStore.create(name: "   "))
     }
 
+    /// A workspace's color is stored with it, changes like anything else,
+    /// and files from before it existed still load.
+    func testWorkspacesHaveAColor() throws {
+        let work = try WorkspaceStore.create(name: "Work", colorHex: "#0A84FF")
+        XCTAssertEqual(WorkspaceStore.find("work")?.colorHex, "#0A84FF")
+        try WorkspaceStore.update(id: work.id) { $0.colorHex = "#30D158" }
+        XCTAssertEqual(WorkspaceStore.find("Work")?.colorHex, "#30D158")
+        XCTAssertNil(try WorkspaceStore.create(name: "Plain").colorHex)
+        let old = #"{"version":1,"workspaces":[{"id":"6F1E8C2A-0A7B-4C1E-9E4B-2D2C8E1A9B10","name":"Old","members":[],"hidesOthers":false}]}"#
+        try Data(old.utf8).write(to: WorkspaceStore.fileURL)
+        XCTAssertNil(WorkspaceStore.find("Old")?.colorHex)
+    }
+
     func testUpdateRenameAndConflicts() throws {
         let work = try WorkspaceStore.create(name: "Work")
         _ = try WorkspaceStore.create(name: "Personal")

@@ -15,10 +15,13 @@ public struct Workspace: Codable, Sendable, Identifiable, Equatable {
     /// Where web links opened by its instances go (with web routing on);
     /// nil: your usual browser.
     public var webLinks: WebLinkTarget?
+    /// Its color (one of the instance palette's), shared by the instances
+    /// made for it, so a workspace is recognizable everywhere.
+    public var colorHex: String?
 
     public init(
         id: UUID = UUID(), name: String, members: [String] = [], shortcut: KeyShortcut? = nil,
-        hidesOthers: Bool = false, webLinks: WebLinkTarget? = nil
+        hidesOthers: Bool = false, webLinks: WebLinkTarget? = nil, colorHex: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -26,6 +29,7 @@ public struct Workspace: Codable, Sendable, Identifiable, Equatable {
         self.shortcut = shortcut
         self.hidesOthers = hidesOthers
         self.webLinks = webLinks
+        self.colorHex = colorHex
     }
 
     /// Its members that still exist, as manifests, in order.
@@ -90,7 +94,7 @@ public enum WorkspaceStore {
 
     /// Create a workspace; names are unique (ignoring case).
     @discardableResult
-    public static func create(name: String, members: [String] = []) throws -> Workspace {
+    public static func create(name: String, members: [String] = [], colorHex: String? = nil) throws -> Workspace {
         let trimmed = name.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
         guard !trimmed.isEmpty else { throw ParallexError("A workspace needs a name.") }
         return try modify { workspaces in
@@ -101,7 +105,7 @@ public enum WorkspaceStore {
             for slug in members where !unique.contains(slug) {
                 unique.append(slug)
             }
-            let workspace = Workspace(name: trimmed, members: unique)
+            let workspace = Workspace(name: trimmed, members: unique, colorHex: colorHex)
             workspaces.append(workspace)
             return workspace
         }

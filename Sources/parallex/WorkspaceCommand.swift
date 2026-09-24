@@ -66,9 +66,16 @@ struct WorkspaceCommand: ParsableCommand {
         @Flag(help: "Opening the workspace hides running instances that aren't in it.")
         var hideOthers = false
 
+        @Option(help: ArgumentHelp("Its color, as #RRGGBB.", valueName: "hex"))
+        var color: String?
+
         mutating func run() throws {
+            if let color, color.count != 7 || !color.hasPrefix("#")
+                || !color.dropFirst().allSatisfy({ $0.isASCII && $0.isHexDigit }) {
+                throw ValidationError("Give a color like #0A84FF.")
+            }
             let slugs = try instances.map { try lookupInstance($0).slug }
-            var workspace = try WorkspaceStore.create(name: name, members: slugs)
+            var workspace = try WorkspaceStore.create(name: name, members: slugs, colorHex: color?.uppercased())
             if hideOthers {
                 workspace = try WorkspaceStore.update(id: workspace.id) { $0.hidesOthers = true }
             }
