@@ -288,6 +288,7 @@ Useful `create` options:
 | `--option ID` / `--no-option ID` | turn a recipe option on or off (see `doctor`) |
 | `--adopt-data DIR` | move an existing profile folder in as the instance's data |
 | `--clone` | own identity: make the instance a re-signed copy of the app (see above) |
+| `--throwaway` | once it has run and quit, the Parallex app moves it and its data to the Trash (also `edit --throwaway`) |
 | `--hide-from-dock` | (`edit`) no Dock icon or ⌘-Tab entry for an own-identity copy; open it from its menu bar icon or shortcut |
 | `--web SITE` | a website as an app of its own, instead of an app's instance (see above); `edit --web` changes its address |
 | `--force` | rebuild an existing instance (keeps its data) |

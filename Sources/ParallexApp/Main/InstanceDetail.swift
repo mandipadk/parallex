@@ -49,7 +49,8 @@ struct InstanceDetail: View {
                 LaunchSection(
                     entry: entry, openAtStart: $draft.settings.openAtLaunch.orFalse,
                     menuBarIcon: $draft.settings.menuBarIcon.orFalse, shortcut: $draft.settings.shortcut,
-                    hideFromDock: draft.settings.isClone && !targetIsAgent ? hideFromDockBinding : nil
+                    hideFromDock: draft.settings.isClone && !targetIsAgent ? hideFromDockBinding : nil,
+                    throwaway: Throwaway.isPossible(for: entry.manifest) ? $draft.settings.throwaway.orFalse : nil
                 )
                 StorageSection(entry: entry)
                 AdvancedSection(entry: entry, draft: $draft)
@@ -171,6 +172,7 @@ struct InstanceDetail: View {
         settings.badgeColorHex = draft.settings.badgeColorHex
         settings.shortcut = draft.settings.shortcut
         settings.menuBarIcon = draft.settings.menuBarIcon
+        settings.throwaway = draft.settings.throwaway
         guard settings != stored || entry.manifest.settings == nil else { return }
         if let saved = model.saveSettings(settings, for: entry) {
             var fresh = InstanceDraft(saved)
@@ -210,7 +212,7 @@ struct InstanceDraft: Equatable {
     /// Changes to fields that never need a rebuild on their own.
     var metadataSignature: [String] {
         [settings.openAtLaunch == true ? "1" : "0", settings.badgeColorHex ?? "", settings.shortcut?.displayString ?? "",
-         settings.menuBarIcon == true ? "1" : "0"]
+         settings.menuBarIcon == true ? "1" : "0", settings.throwaway == true ? "1" : "0"]
     }
 
     var parsedEnvironment: [String: String]? {
@@ -298,7 +300,14 @@ private struct DetailHeader: View {
                     .font(Theme.Font.display)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    StatusPill(state: entry.runState)
+                    StatusPill(state: entry.runState, detail: model.memoryText(entry))
+                    if entry.manifest.effectiveSettings.throwaway == true {
+                        Text("·").foregroundStyle(.tertiary)
+                        Label("Throwaway", systemImage: "trash")
+                            .font(Theme.Font.caption.weight(.medium))
+                            .foregroundStyle(Theme.attention)
+                            .help("When it quits, Parallex moves it and its data to the Trash")
+                    }
                     Text("·").foregroundStyle(.tertiary)
                     Text(entry.manifest.isWeb ? "Website · \(entry.targetName)"
                          : entry.isClone ? "Own copy of \(entry.targetName)" : "Instance of \(entry.targetName)")
@@ -324,6 +333,9 @@ private struct DetailHeader: View {
                 Button("Export…") { model.export(entry) }
                     .disabled(entry.running)
                 Button("Duplicate") { model.duplicate(entry, includeData: false) }
+                Button("New Throwaway Copy") { model.duplicate(entry, includeData: false, throwaway: true) }
+                    .disabled(!Throwaway.isPossible(for: entry.manifest))
+                    .help("A fresh copy set up like this one that opens now and goes to the Trash when it quits")
                 Button("Duplicate with Data") { model.duplicate(entry, includeData: true) }
                     .disabled(entry.running || entry.manifest.clone?.usesLauncher == false)
                     .help(entry.manifest.clone?.usesLauncher == false
@@ -894,6 +906,8 @@ private struct LaunchSection: View {
     /// Only for own-identity copies (a plain instance is the original app
     /// as far as the Dock knows).
     var hideFromDock: Binding<Bool>?
+    /// Nil where it can't work (copies of sandboxed apps).
+    var throwaway: Binding<Bool>?
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -920,6 +934,13 @@ private struct LaunchSection: View {
                 ShortcutRecorder(shortcut: $shortcut) { candidate in
                     model.shortcutConflict(candidate, for: entry.id)
                 }
+            }
+            if let throwaway {
+                ExplainedToggle(
+                    title: "Throwaway",
+                    detail: "The next time it's opened and quits, Parallex moves it and its data to the Trash. For a one-off sign-in or a quick test.",
+                    isOn: throwaway
+                )
             }
             if let hideFromDock {
                 ExplainedToggle(

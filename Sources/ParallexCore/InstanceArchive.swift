@@ -196,6 +196,8 @@ public enum InstanceArchive {
         }
         // A shortcut could collide with one on this Mac.
         settings.shortcut = nil
+        // A throwaway starts over here: only launches on this Mac count.
+        Throwaway.normalize(&settings, was: nil)
         settings.openAtLaunch = nil
         manifest.settings = settings
         manifest.schemaVersion = 2

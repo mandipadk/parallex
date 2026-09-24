@@ -165,6 +165,7 @@ private struct PanelInstanceRow: View {
     let isFront: Bool
     let open: () -> Void
     let openOriginal: () -> Void
+    @Environment(AppModel.self) private var model
     @State private var hovering = false
     /// Over the arrow: the row says what it does (menu bar panels don't
     /// show tooltips).
@@ -179,7 +180,8 @@ private struct PanelInstanceRow: View {
                         Text(entry.name)
                             .font(Theme.Font.body.weight(isFront ? .semibold : .regular))
                             .lineLimit(1)
-                        Text(hoveringOriginal ? "Opens the original \(entry.targetName)" : entry.targetName)
+                        Text(hoveringOriginal ? "Opens the original \(entry.targetName)"
+                             : model.memoryText(entry).map { "\(entry.targetName) · \($0)" } ?? entry.targetName)
                             .font(Theme.Font.caption)
                             .foregroundStyle(hoveringOriginal ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
                             .contentTransition(.opacity)

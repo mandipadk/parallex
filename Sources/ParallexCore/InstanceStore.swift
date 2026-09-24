@@ -48,6 +48,11 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     /// An own-identity copy with no Dock icon or ⌘-Tab entry (it runs as
     /// an agent: reach it from its menu bar icon or shortcut).
     public var hideFromDock: Bool?
+    /// A throwaway: once it has run and quit, Parallex moves it and its data
+    /// to the Trash (see `Throwaway`).
+    public var throwaway: Bool?
+    /// When it became one: only launches after this count.
+    public var throwawaySince: Date?
     /// Own-identity copies keep their data to themselves: a copy of an app
     /// that isn't sandboxed gets its own ~/Library (Application Support,
     /// caches, web storage…); a copy of a sandboxed app gets its own
@@ -106,6 +111,10 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
         rhs.shortcut = nil
         lhs.menuBarIcon = nil
         rhs.menuBarIcon = nil
+        lhs.throwaway = nil
+        rhs.throwaway = nil
+        lhs.throwawaySince = nil
+        rhs.throwawaySince = nil
         if lhs.badgeText == nil && rhs.badgeText == nil {
             lhs.badgeColorHex = nil
             rhs.badgeColorHex = nil

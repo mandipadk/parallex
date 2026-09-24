@@ -166,6 +166,7 @@ struct SetupState {
     var activeOptions: Set<String> = []
     var mode: RequestedMode = .auto
     var adoptFolder: URL?
+    var throwaway = false
     var error: String?
 
     init() {}
@@ -190,6 +191,7 @@ struct SetupState {
         request.badgeText = badgeText.isEmpty ? nil : badgeText
         request.cloneApp = cloneApp
         request.adoptData = adoptFolder
+        request.throwaway = throwaway && !(cloneApp && probe?.sandboxed == true)
         if let options = probe?.recipeOptions, !options.isEmpty {
             request.enabledOptions = options.map(\.id).filter(activeOptions.contains)
         }
@@ -552,6 +554,15 @@ private struct ConfigureStep: View {
                 Text("Launch only").tag(RequestedMode.launchOnly)
             }
             .frame(maxWidth: 360)
+            // A copy of a sandboxed app starts without Parallex's launcher,
+            // so there's no telling when it has run.
+            if !(setup.cloneApp && setup.probe?.sandboxed == true) {
+                ExplainedToggle(
+                    title: "Throwaway",
+                    detail: "Once it has been opened and quits, Parallex moves it and its data to the Trash. For a one-off sign-in or a quick test.",
+                    isOn: $setup.throwaway
+                )
+            }
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Start from existing data").font(Theme.Font.body)

@@ -189,6 +189,8 @@ enum RunState: Equatable {
 /// jump as instances start and stop.
 struct StatusPill: View {
     let state: RunState
+    /// Shown after the state, like the memory a running instance uses.
+    var detail: String? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -198,6 +200,14 @@ struct StatusPill: View {
                 .font(Theme.Font.caption.weight(.medium))
                 .foregroundStyle(textColor)
                 .lineLimit(1)
+            if let detail {
+                Text("· \(detail)")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .contentTransition(.numericText())
+            }
         }
         .animation(Theme.Motion.fade, value: state)
         .accessibilityElement(children: .combine)

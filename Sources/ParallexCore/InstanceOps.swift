@@ -56,6 +56,8 @@ public struct CreateRequest: Sendable {
     public var separateHiddenFolders: Bool?
     /// A web instance of this site (`appReference` is then ignored).
     public var webURL: String?
+    /// Moved to the Trash, with its data, once it has run and quit.
+    public var throwaway = false
     /// Use this keychain name suffix instead of a new one (a duplicate with
     /// data needs its source's key to read what it copied).
     var keychainSuffix: String??
@@ -103,6 +105,7 @@ extension InstanceCreator {
         _ manifest: InstanceManifest,
         name: String? = nil,
         includeData: Bool = false,
+        throwaway: Bool = false,
         builderOptions: BundleBuilder.Options = BundleBuilder.Options()
     ) throws -> CreateResult {
         if includeData, Running.isRunning(manifest) {
@@ -119,7 +122,7 @@ extension InstanceCreator {
         let sourceDir = Paths.instanceDir(slug: manifest.slug)
         var request = CreateRequest(
             appReference: target.path,
-            name: name ?? duplicateName(for: manifest.name),
+            name: name ?? duplicateName(for: manifest.name, suffix: throwaway ? "Throwaway" : "Copy"),
             mode: settings.mode,
             outputDirectory: URL(fileURLWithPath: manifest.wrapperPath).deletingLastPathComponent(),
             badgeText: settings.badgeText,
@@ -135,6 +138,7 @@ extension InstanceCreator {
         request.separateLibrary = settings.separateLibrary
         request.separateHiddenFolders = settings.separateHiddenFolders
         request.webURL = settings.webURL
+        request.throwaway = throwaway
         if includeData {
             // What's copied was encrypted with the source's key.
             request.keychainSuffix = .some(manifest.keychainSuffix)
@@ -179,12 +183,12 @@ extension InstanceCreator {
     }
 
     /// "Claude Work Copy", then "Claude Work Copy 2", …
-    static func duplicateName(for name: String) -> String {
+    static func duplicateName(for name: String, suffix: String = "Copy") -> String {
         let names = Set(InstanceStore.loadAll().map { $0.name.lowercased() })
-        var candidate = "\(name) Copy"
+        var candidate = "\(name) \(suffix)"
         var index = 2
         while names.contains(candidate.lowercased()) {
-            candidate = "\(name) Copy \(index)"
+            candidate = "\(name) \(suffix) \(index)"
             index += 1
         }
         return candidate
@@ -306,6 +310,9 @@ public enum InstanceCreator {
         }
         let appURL = try request.webURL != nil ? WebShell.templateApp() : AppResolver.resolve(request.appReference)
         let target = try AppInspector.inspect(appURL)
+        if request.throwaway, request.cloneApp, target.isSandboxed {
+            throw ParallexError("A copy of a sandboxed app can't be a throwaway: it starts without Parallex's launcher, so Parallex can't tell when it has run.")
+        }
         guard !target.isParallexWrapper else {
             throw ParallexError(
                 "'\(target.name)' is itself a Parallex wrapper — point create at the original app instead."
@@ -369,6 +376,10 @@ public enum InstanceCreator {
         settings.separateLibrary = request.separateLibrary
         settings.separateHiddenFolders = request.separateHiddenFolders
         settings.webURL = request.webURL
+        settings.throwaway = request.throwaway ? true : nil
+        // A throwaway from now: a pid file left in a reused folder, or from
+        // the instance this rebuilds, doesn't count as a run.
+        Throwaway.normalize(&settings, was: nil)
         try validateBadge(settings)
         if let adopt = request.adoptData {
             try validateAdoptable(adopt, target: target, slug: slug)
@@ -459,6 +470,7 @@ public enum InstanceCreator {
     ) throws -> CreateResult {
         let fm = FileManager.default
         var settings = change.settings ?? manifest.effectiveSettings
+        Throwaway.normalize(&settings, was: manifest.effectiveSettings)
 
         // Two libraries (PARALLEX_HOME) can hold records naming the same
         // app; only the library the app was built for may rebuild it.
@@ -564,6 +576,7 @@ public enum InstanceCreator {
             throw ParallexError("These changes need the instance to be rebuilt.")
         }
         var settings = settings
+        Throwaway.normalize(&settings, was: manifest.effectiveSettings)
         // First save of a pre-0.5 instance: keep the icon its wrapper has
         // (a baked-in badge isn't recorded anywhere else).
         if manifest.settings == nil, settings.customIconFile == nil, settings.badgeText == nil {

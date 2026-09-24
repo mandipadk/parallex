@@ -73,6 +73,10 @@ final class AppModel {
     var makingWorkspace = false
     private(set) var busy: Set<String> = []
     private(set) var storage: [String: StorageReport] = [:]
+    /// Memory each running instance uses, helpers included (bytes, rounded
+    /// so the display doesn't flicker with every small change).
+    private(set) var memory: [String: UInt64] = [:]
+    @ObservationIgnored private var measuringMemory = false
     private(set) var isolation: [String: IsolationResult] = [:]
     private(set) var catalog: [CatalogApp] = []
     private(set) var catalogState: LoadState = .idle
@@ -151,10 +155,91 @@ final class AppModel {
         }
         noteHealthyCopies()
         autoVerifyRunningInstances()
+        measureMemory()
+        clearFinishedThrowaways()
         if let selection, !entries.contains(where: { $0.id == selection }), selectedWorkspace == nil {
             self.selection = entries.first?.id
         }
         updateFrontmost()
+    }
+
+    // MARK: - Throwaways
+
+    /// Instances seen running while Parallex was open.
+    @ObservationIgnored private var seenRunning: Set<String> = []
+    /// Throwaways being restarted: their quit isn't the end.
+    @ObservationIgnored private var holdingThrowaways: Set<String> = []
+    /// Throwaways that couldn't be moved to the Trash: not tried again
+    /// until Parallex next starts.
+    @ObservationIgnored private var throwawayFailures: Set<String> = []
+
+    /// Throwaways that ran and quit go to the Trash, data and all. Only ones
+    /// seen running (so a launch that failed straight away, or a crash while
+    /// starting, doesn't count), or that finished a while ago, while
+    /// Parallex wasn't open.
+    func clearFinishedThrowaways() {
+        seenRunning.formUnion(entries.filter(\.running).map(\.id))
+        let candidates = entries.filter { entry in
+            entry.manifest.effectiveSettings.throwaway == true && !entry.running
+                && !busy.contains(entry.id) && !holdingThrowaways.contains(entry.id) && !throwawayFailures.contains(entry.id)
+        }
+        guard !candidates.isEmpty else { return }
+        let seen = seenRunning
+        for entry in candidates {
+            let manifest = entry.manifest
+            guard let launched = Throwaway.lastLaunch(of: manifest),
+                  seen.contains(entry.id) || Date().timeIntervalSince(launched) > 10 * 60
+            else { continue }
+            busy.insert(entry.id)
+            Task {
+                do {
+                    let result = try await Task.detached(priority: .utility) { try Throwaway.clear(manifest) }.value
+                    if result != nil {
+                        seenRunning.remove(entry.id)
+                        if selection == entry.id { selection = nil }
+                    }
+                } catch {
+                    throwawayFailures.insert(entry.id)
+                    errorMessage = "Couldn't move the throwaway “\(manifest.name)” to the Trash: \(error)"
+                }
+                busy.remove(entry.id)
+                refresh()
+            }
+        }
+    }
+
+    // MARK: - Memory
+
+    func measureMemory() {
+        let targets = entries.compactMap { entry in
+            entry.pid.map { InstanceMemory.Target(slug: entry.id, pid: $0, bundlePath: entry.isClone ? entry.manifest.wrapperPath : nil) }
+        }
+        guard !targets.isEmpty else {
+            if !memory.isEmpty { memory = [:] }
+            return
+        }
+        guard !measuringMemory else { return }
+        measuringMemory = true
+        Task {
+            let measured = await Task.detached(priority: .utility) { InstanceMemory.measure(targets) }.value
+            measuringMemory = false
+            let step: UInt64 = 5_000_000
+            let rounded = measured.filter { $0.value > 0 }.mapValues { ($0 + step / 2) / step * step }
+            if rounded != memory {
+                memory = rounded
+            }
+        }
+    }
+
+    /// "412 MB" for a running instance.
+    func memoryText(_ entry: InstanceEntry) -> String? {
+        entry.running ? memory[entry.id].map(InstanceMemory.format) : nil
+    }
+
+    /// What a workspace's open instances use together.
+    func memoryText(of members: [InstanceEntry]) -> String? {
+        let total = members.filter(\.running).compactMap { memory[$0.id] }.reduce(0, +)
+        return total > 0 ? InstanceMemory.format(total) : nil
     }
 
     // MARK: - Workspaces
@@ -549,7 +634,15 @@ final class AppModel {
             return
         }
         let id = entry.id
+        holdingThrowaways.insert(id)
         Task {
+            // Its quit here isn't the end, even for a throwaway.
+            defer {
+                Task {
+                    try? await Task.sleep(for: .seconds(30))
+                    holdingThrowaways.remove(id)
+                }
+            }
             app.terminate()
             // Apps may ask to save first; give them a while.
             for _ in 0..<240 where !app.isTerminated {
@@ -642,17 +735,22 @@ final class AppModel {
         }
     }
 
-    func duplicate(_ entry: InstanceEntry, includeData: Bool) {
+    /// A copy of an instance's setup. A throwaway one opens right away and
+    /// is moved to the Trash once it quits.
+    func duplicate(_ entry: InstanceEntry, includeData: Bool, throwaway: Bool = false) {
         let manifest = entry.manifest
         busy.insert(entry.id)
         Task {
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
-                    try InstanceCreator.duplicate(manifest, includeData: includeData)
+                    try InstanceCreator.duplicate(manifest, includeData: includeData, throwaway: throwaway)
                 }.value
                 refresh()
                 selection = result.manifest.slug
                 measureStorage()
+                if throwaway, let fresh = entries.first(where: { $0.id == result.manifest.slug }) {
+                    launch(fresh)
+                }
             } catch {
                 errorMessage = "\(error)"
             }

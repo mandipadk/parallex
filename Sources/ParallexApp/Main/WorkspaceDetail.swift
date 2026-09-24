@@ -168,7 +168,8 @@ struct WorkspaceDetail: View {
     private var summary: String {
         let running = members.filter(\.running).count
         if members.isEmpty { return "Add the instances you use together." }
-        return running == 0 ? "\(members.count) instances, none open" : "\(running) of \(members.count) open"
+        guard running > 0 else { return "\(members.count) instances, none open" }
+        return "\(running) of \(members.count) open" + (model.memoryText(of: members).map { " · \($0) of memory" } ?? "")
     }
 
     private var membersSection: some View {
@@ -315,6 +316,7 @@ private struct MemberRow: View {
     let canMoveDown: Bool
     let move: (Int) -> Void
     let remove: () -> Void
+    @Environment(AppModel.self) private var model
     @State private var hovering = false
 
     var body: some View {
@@ -326,7 +328,7 @@ private struct MemberRow: View {
             }
             Spacer(minLength: 0)
             if entry.running {
-                StatusPill(state: .running)
+                StatusPill(state: .running, detail: model.memoryText(entry))
             }
             HStack(spacing: 2) {
                 iconButton("chevron.up", help: "Open earlier", enabled: canMoveUp) { move(-1) }

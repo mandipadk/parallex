@@ -170,7 +170,7 @@ struct Sidebar: View {
             ForEach(model.groups, id: \.app) { group in
                 Section {
                     ForEach(group.entries) { entry in
-                        SidebarRow(entry: entry, size: model.storage[entry.id]?.totalBytes)
+                        SidebarRow(entry: entry, size: model.storage[entry.id]?.totalBytes, memory: model.memoryText(entry))
                             .tag(entry.id)
                             .contextMenu { rowMenu(entry) }
                     }
@@ -237,6 +237,7 @@ struct Sidebar: View {
 struct SidebarRow: View {
     let entry: InstanceEntry
     let size: Int64?
+    var memory: String? = nil
 
     var body: some View {
         HStack(spacing: 10) {
@@ -256,7 +257,7 @@ struct SidebarRow: View {
     @ViewBuilder private var subtitle: some View {
         switch entry.runState {
         case .running:
-            StatusPill(state: .running)
+            StatusPill(state: .running, detail: memory)
         case .stopped:
             Text(stoppedDetail)
                 .font(Theme.Font.caption)

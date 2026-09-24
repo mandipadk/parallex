@@ -94,6 +94,9 @@ struct Create: ParsableCommand {
     @Flag(help: "Launch the instance right after creating it.")
     var open = false
 
+    @Flag(help: "A throwaway: once it has run and quit, the Parallex app moves it and its data to the Trash.")
+    var throwaway = false
+
     @Argument(parsing: .postTerminator, help: .hidden)
     var passthroughArguments: [String] = []
 
@@ -126,6 +129,7 @@ struct Create: ParsableCommand {
             force: force
         )
         request.webURL = web
+        request.throwaway = throwaway
         // A web instance looks like its site: its own icon, or a letter tile.
         if let web, icon == nil, let site = WebShell.normalizedURL(web) {
             print(Term.dim("Getting \(site.host ?? "the site")'s icon…"))
@@ -137,6 +141,9 @@ struct Create: ParsableCommand {
         let result = try InstanceCreator.create(request)
         printResultSummary(result, verb: "Created")
         print("Launch it from Spotlight or the Dock, or run:  parallex open \"\(result.manifest.name)\"")
+        if throwaway {
+            print(Term.dim("A throwaway: when it quits, the Parallex app moves it and its data to the Trash."))
+        }
 
         if open {
             _ = try? Shell.run("/usr/bin/open", [result.wrapperURL.path], environment: InstanceLauncher.cleanEnvironment())

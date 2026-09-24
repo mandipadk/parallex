@@ -14,6 +14,7 @@ struct WebSetup {
     /// The icon fetched for `iconSite` (nil when that site has none).
     var icon: URL?
     var iconSite: URL?
+    var throwaway = false
     var error: String?
 
     var site: URL? { WebShell.normalizedURL(address) }
@@ -26,6 +27,7 @@ struct WebSetup {
         let name = name.trimmingCharacters(in: .whitespaces)
         var request = CreateRequest(appReference: "", name: name, badgeColorHex: colorHex)
         request.webURL = site?.absoluteString
+        request.throwaway = throwaway
         if let site {
             request.customIcon = (iconSite == site ? icon : WebIcon.fetch(for: site))
                 ?? WebIcon.monogram(for: name, colorHex: colorHex)
@@ -133,6 +135,12 @@ struct WebsiteStep: View {
             GridRow(alignment: .center) {
                 fieldLabel("Color")
                 ColorSwatchPicker(selection: $setup.colorHex, palette: IconBuilder.palette)
+            }
+            GridRow(alignment: .center) {
+                fieldLabel("")
+                Toggle("Throwaway: when it quits, move it and its data to the Trash", isOn: $setup.throwaway)
+                    .toggleStyle(.checkbox)
+                    .font(Theme.Font.callout)
             }
         }
     }

@@ -18,6 +18,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.17.0", highlights: [
+            Highlight(
+                symbol: "trash",
+                title: "Throwaway instances",
+                detail: "For a one-off sign-in or a quick test: once it's been opened and quits, it goes to the Trash with its data. ⋯ › New Throwaway Copy, or turn on Throwaway."
+            ),
+            Highlight(
+                symbol: "memorychip",
+                title: "Memory at a glance",
+                detail: "Each running instance shows the memory it uses, helpers included: in the sidebar, the menu bar, and each workspace's total."
+            ),
+        ]),
         Release(version: "0.16.1", highlights: [
             Highlight(
                 symbol: "dock.rectangle",

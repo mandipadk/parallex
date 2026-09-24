@@ -80,6 +80,9 @@ struct Edit: ParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Show an icon in the menu bar that opens the instance (needs the Parallex app running).")
     var menuBarIcon: Bool?
 
+    @Flag(inversion: .prefixedNo, help: "Make it a throwaway: once it has run and quit, the Parallex app moves it and its data to the Trash.")
+    var throwaway: Bool?
+
     @Argument(parsing: .postTerminator, help: .hidden)
     var passthroughArguments: [String] = []
 
@@ -134,6 +137,12 @@ struct Edit: ParsableCommand {
         }
         if let menuBarIcon {
             settings.menuBarIcon = menuBarIcon ? true : nil
+        }
+        if let throwaway {
+            guard !throwaway || Throwaway.isPossible(for: manifest) else {
+                throw ValidationError("A copy of a sandboxed app can't be a throwaway: it starts without Parallex's launcher, so Parallex can't tell when it has run.")
+            }
+            settings.throwaway = throwaway ? true : nil
         }
         if let hideFromDock {
             guard settings.isClone || !hideFromDock else {
