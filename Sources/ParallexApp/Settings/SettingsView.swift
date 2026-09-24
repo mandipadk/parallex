@@ -5,14 +5,27 @@ import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
+    @State private var tab = Self.initialTab
+
+    private static var initialTab: String {
+        #if DEBUG
+        DebugRoute.settingsTab ?? "general"
+        #else
+        "general"
+        #endif
+    }
+
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             GeneralSettings()
                 .tabItem { Label("General", systemImage: "gearshape") }
+                .tag("general")
             LinksSettings()
-                .tabItem { Label("Sign-in Links", systemImage: "link") }
+                .tabItem { Label("Links", systemImage: "link") }
+                .tag("links")
             AboutSettings()
                 .tabItem { Label("About", systemImage: "info.circle") }
+                .tag("about")
         }
         .frame(width: 540)
         .tint(Theme.accent)
@@ -151,6 +164,11 @@ private struct LinksSettings: View {
     @State private var schemes: [SchemeRow] = []
     @State private var working = false
     @State private var errorMessage: String?
+    @State private var linkChoices = WebLinkChoices()
+    @State private var newSite = ""
+    @State private var newSiteTarget: WebLinkTarget?
+    @State private var webIsDefault = true
+    @Environment(AppModel.self) private var model
 
     struct SchemeRow: Identifiable {
         let scheme: String
@@ -161,6 +179,12 @@ private struct LinksSettings: View {
 
     var body: some View {
         Form {
+            webSection
+
+            if config.routesWeb {
+                sitesSection
+            }
+
             Section {
                 Toggle("Send sign-in links to the right copy", isOn: Binding(
                     get: { config.enabled },
@@ -221,11 +245,119 @@ private struct LinksSettings: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear(perform: reload)
+        .onAppear {
+            reload()
+            linkChoices = .load(entries: model.entries)
+        }
+    }
+
+    private var webSection: some View {
+        Section {
+            Toggle("Open web links in the right browser", isOn: Binding(
+                get: { config.routesWeb },
+                set: { setWeb($0) }
+            ))
+            .disabled(working)
+            if config.routesWeb, !webIsDefault {
+                HStack {
+                    Text("Another browser has made itself the default, so links aren't routed right now.")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.attention)
+                    Spacer()
+                    Button("Route Again") { setWeb(true) }.disabled(working)
+                }
+            }
+        } footer: {
+            Text(webFooter)
+                .font(Theme.Font.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var webFooter: String {
+        let usual = config.previousBrowser.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
+        let rest = usual.map { "everything else opens in \($0), as before" } ?? "everything else opens in your usual browser"
+        return "Links you click in an instance open in its workspace's browser, sites below open where you say, and "
+            + "\(rest). Parallex Links becomes your default browser; macOS asks you to confirm."
+    }
+
+    private var sitesSection: some View {
+        Section("Always open these sites in…") {
+            ForEach(config.webRules ?? [], id: \.domain) { rule in
+                HStack(spacing: Theme.Space.m) {
+                    Text(rule.domain).font(Theme.Font.mono)
+                    Spacer()
+                    WebLinkTargetPicker(
+                        target: Binding(get: { rule.target }, set: { target in setRule(rule.domain, target) }),
+                        choices: linkChoices
+                    )
+                    Button {
+                        setRule(rule.domain, nil)
+                    } label: {
+                        Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remove the rule for \(rule.domain)")
+                }
+            }
+            HStack(spacing: Theme.Space.m) {
+                TextField("Site", text: $newSite, prompt: Text("Add a site, like northwind.com"))
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(addSite)
+                WebLinkTargetPicker(target: $newSiteTarget, choices: linkChoices, placeholder: "Open in…")
+                Button("Add", action: addSite)
+                    .disabled(WebRouting.normalizedDomain(newSite).isEmpty || newSiteTarget == nil)
+            }
+        }
+    }
+
+    private func addSite() {
+        let domain = WebRouting.normalizedDomain(newSite)
+        guard domain.contains("."), let target = newSiteTarget else { return }
+        setRule(domain, target)
+        newSite = ""
+        newSiteTarget = nil
+    }
+
+    /// Add, change (target) or remove (nil) a site rule.
+    private func setRule(_ domain: String, _ target: WebLinkTarget?) {
+        var rules = (config.webRules ?? []).filter { WebRouting.normalizedDomain($0.domain) != domain }
+        if let target {
+            rules.append(WebLinkRule(domain: domain, target: target))
+        }
+        do {
+            try LinkRouting.setWebRules(rules.sorted { $0.domain < $1.domain })
+        } catch {
+            errorMessage = "\(error)"
+        }
+        reload()
+    }
+
+    private func setWeb(_ on: Bool) {
+        working = true
+        errorMessage = nil
+        Task {
+            do {
+                let router = try LauncherLocator.locateRouter()
+                if on {
+                    _ = try await LinkRouting.enableWeb(routerBinary: router)
+                } else {
+                    try await LinkRouting.disableWeb(routerBinary: router)
+                }
+            } catch {
+                errorMessage = "\(error)"
+            }
+            working = false
+            reload()
+        }
     }
 
     private func reload() {
         config = LinkRouting.loadConfiguration()
+        webIsDefault = WebRouting.schemes.allSatisfy(LinkRouting.isRouting)
         schemes = LinkRouting.routableSchemes(InstanceStore.loadAll())
             .sorted { $0.key < $1.key }
             .map { SchemeRow(scheme: $0.key, app: $0.value, routed: LinkRouting.isRouting($0.key)) }

@@ -14,7 +14,7 @@ struct Links: AsyncParsableCommand {
         macOS may ask you to confirm the new default handler, and the first \
         time a link is passed on, to allow Parallex Links to control the app.
         """,
-        subcommands: [Status.self, Enable.self, Disable.self],
+        subcommands: [Status.self, Enable.self, Disable.self, Web.self, Rule.self],
         defaultSubcommand: Status.self
     )
 
@@ -69,6 +69,118 @@ struct Links: AsyncParsableCommand {
         mutating func run() async throws {
             try await LinkRouting.disable()
             print("\(Term.green("✓")) Link routing is off.")
+        }
+    }
+
+    struct Web: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Open web links from each instance in its workspace's browser.",
+            discussion: """
+            With this on, Parallex Links becomes your default browser (macOS asks you \
+            to confirm). A link opened by an instance goes to the browser its \
+            workspace names (`parallex workspace browser`), a site with a rule \
+            (`parallex links rule`) goes where the rule says, and everything else \
+            goes to the browser you had before.
+            """
+        )
+
+        @Argument(help: "on, off, or status.")
+        var state: String = "status"
+
+        mutating func run() async throws {
+            switch state.lowercased() {
+            case "on":
+                let config = try await LinkRouting.enableWeb(routerBinary: try LauncherLocator.locateRouter())
+                print("\(Term.green("✓")) Web links are routed. Everything else opens in "
+                    + "\(config.previousBrowser.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent } ?? "your browser").")
+            case "off":
+                try await LinkRouting.disableWeb(routerBinary: try LauncherLocator.locateRouter())
+                print("\(Term.green("✓")) Web links go straight to your browser again.")
+            case "status":
+                let config = LinkRouting.loadConfiguration()
+                let manifests = InstanceStore.loadAll()
+                let routing = WebRouting.schemes.allSatisfy(LinkRouting.isRouting)
+                print("Web links: \(config.routesWeb && routing ? Term.green("routed") : config.routesWeb ? Term.yellow("on, but another browser is the default") : "off")")
+                if let previous = config.previousBrowser {
+                    print("  Everything else: \(URL(fileURLWithPath: previous).deletingPathExtension().lastPathComponent)")
+                }
+                for workspace in WorkspaceStore.load() where workspace.webLinks != nil {
+                    print("  \(workspace.name): \(WebRouting.describe(workspace.webLinks, manifests: manifests))")
+                }
+                for rule in config.webRules ?? [] {
+                    print("  \(rule.domain) → \(WebRouting.describe(rule.target, manifests: manifests))")
+                }
+            default:
+                throw ValidationError("Use on, off, or status.")
+            }
+        }
+    }
+
+    struct Rule: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Always open a site in a given browser, profile or instance.",
+            subcommands: [Add.self, Remove.self, List.self],
+            defaultSubcommand: List.self
+        )
+
+        struct Add: ParsableCommand {
+            static let configuration = CommandConfiguration(abstract: "Add or change a site rule.")
+            @Argument(help: "The site, like northwind.com (its subdomains too).")
+            var site: String
+            @Argument(help: "An instance's name, <Browser>/<Profile> (Chrome/Work), or a browser's name.")
+            var target: String
+
+            mutating func run() throws {
+                let domain = WebRouting.normalizedDomain(site)
+                guard domain.contains("."), !domain.contains(" ") else {
+                    throw ValidationError("Give a site like northwind.com.")
+                }
+                let browsers = WebRouting.browsers()
+                let manifests = InstanceStore.loadAll()
+                guard let resolved = try WebRouting.resolveTarget(
+                    target, manifests: manifests, browsers: browsers, profiles: WebRouting.profiles(in: browsers)
+                ) else {
+                    throw ValidationError("A rule needs somewhere to send the site; to remove one, use `parallex links rule remove`.")
+                }
+                var rules = (LinkRouting.loadConfiguration().webRules ?? []).filter { WebRouting.normalizedDomain($0.domain) != domain }
+                rules.append(WebLinkRule(domain: domain, target: resolved))
+                try LinkRouting.setWebRules(rules.sorted { $0.domain < $1.domain })
+                print("\(Term.green("✓")) \(domain) → \(WebRouting.describe(resolved, manifests: manifests))")
+                if !LinkRouting.loadConfiguration().routesWeb {
+                    print(Term.dim("Turn web routing on to use it: parallex links web on"))
+                }
+            }
+        }
+
+        struct Remove: ParsableCommand {
+            static let configuration = CommandConfiguration(abstract: "Remove a site rule.")
+            @Argument(help: "The site.")
+            var site: String
+
+            mutating func run() throws {
+                let domain = WebRouting.normalizedDomain(site)
+                let rules = LinkRouting.loadConfiguration().webRules ?? []
+                guard rules.contains(where: { WebRouting.normalizedDomain($0.domain) == domain }) else {
+                    throw ValidationError("There's no rule for \(domain).")
+                }
+                try LinkRouting.setWebRules(rules.filter { WebRouting.normalizedDomain($0.domain) != domain })
+                print("\(Term.green("✓")) Removed the rule for \(domain).")
+            }
+        }
+
+        struct List: ParsableCommand {
+            static let configuration = CommandConfiguration(abstract: "List site rules.")
+
+            mutating func run() throws {
+                let rules = LinkRouting.loadConfiguration().webRules ?? []
+                let manifests = InstanceStore.loadAll()
+                if rules.isEmpty {
+                    print("No site rules. Add one with: parallex links rule add northwind.com \"Chrome/Work\"")
+                }
+                for rule in rules {
+                    print("\(rule.domain) → \(WebRouting.describe(rule.target, manifests: manifests))")
+                }
+            }
         }
     }
 }

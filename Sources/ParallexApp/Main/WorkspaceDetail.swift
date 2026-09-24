@@ -73,6 +73,7 @@ struct WorkspaceDetail: View {
     @State private var name: String
     @State private var error: String?
     @State private var confirmDelete = false
+    @State private var linkChoices = WebLinkChoices()
     @FocusState private var nameFocused: Bool
 
     init(workspace: Workspace) {
@@ -217,6 +218,23 @@ struct WorkspaceDetail: View {
                 detail: "When it opens, instances outside \(workspace.name) step out of the way.",
                 isOn: Binding(get: { workspace.hidesOthers }, set: { hides in update { $0.hidesOthers = hides } })
             )
+            HStack(alignment: .center, spacing: Theme.Space.l) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Web links open in").font(Theme.Font.body)
+                    Text(LinkRouting.loadConfiguration().routesWeb
+                         ? "Links you click in \(workspace.name)'s instances go here."
+                         : "Turn on web links in Settings › Links to send links from \(workspace.name)'s instances here.")
+                        .font(Theme.Font.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: Theme.Space.l)
+                WebLinkTargetPicker(
+                    target: Binding(get: { workspace.webLinks }, set: { target in update { $0.webLinks = target } }),
+                    choices: linkChoices
+                )
+            }
+            .onAppear { linkChoices = .load(entries: model.entries) }
         }
     }
 

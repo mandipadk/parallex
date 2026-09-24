@@ -18,6 +18,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.14.0", highlights: [
+            Highlight(
+                symbol: "arrow.triangle.branch",
+                title: "Links follow you",
+                detail: "A link you click in a work instance opens in your work browser, or a Chrome profile, or a browser instance. Choose it on each workspace, and turn it on in Settings › Links."
+            ),
+            Highlight(
+                symbol: "globe",
+                title: "Sites that always open in one place",
+                detail: "Send northwind.com to the client's browser, github.com to Chrome. Everything else opens in the browser you had, as before."
+            ),
+        ]),
         Release(version: "0.13.0", highlights: [
             Highlight(
                 symbol: "folder.badge.person.crop",

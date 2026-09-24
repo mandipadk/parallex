@@ -20,6 +20,15 @@ public enum LinkRouting {
         /// Ask every time several copies are running, instead of choosing the
         /// most recently used one.
         public var alwaysAsk: Bool = false
+        /// Web links follow the instance they came from (Parallex Links is
+        /// the default browser). See `WebRouting`.
+        public var web: Bool?
+        /// The default browser before web routing, where everything else goes.
+        public var previousBrowser: String?
+        /// "Always open this site in …".
+        public var webRules: [WebLinkRule]?
+
+        public var routesWeb: Bool { web == true }
 
         public init() {}
     }
@@ -258,7 +267,7 @@ public enum LinkRouting {
         config.enabled = true
         try save(config)
 
-        try buildRouterApp(binary: routerBinary, schemes: Array(schemes.keys).sorted())
+        try buildRouterApp(binary: routerBinary, schemes: routerSchemes(config))
         for scheme in schemes.keys.sorted() {
             try await NSWorkspace.shared.setDefaultApplication(at: routerAppURL, toOpenURLsWithScheme: scheme)
         }
@@ -295,6 +304,98 @@ public enum LinkRouting {
         return rerouted
     }
 
+    // MARK: - Web links
+
+    /// Make Parallex Links the default browser, remembering the one before
+    /// (where every link without a reason to go elsewhere still goes).
+    /// macOS asks the user to confirm the change.
+    public static func enableWeb(routerBinary: URL) async throws -> Configuration {
+        var config = loadConfiguration()
+        // Whatever browser is the default now (unless it's the router) is
+        // the one links go back to: the user may have chosen a new one.
+        if let current = currentHandler(for: "https"), !isParallexBundle(current) {
+            config.previousBrowser = current.path
+        } else if config.previousBrowser == nil {
+            config.previousBrowser = safariPath
+        }
+        config.web = true
+        try save(config)
+        try buildRouterApp(binary: routerBinary, schemes: routerSchemes(config))
+        for scheme in WebRouting.schemes {
+            try? await NSWorkspace.shared.setDefaultApplication(at: routerAppURL, toOpenURLsWithScheme: scheme)
+        }
+        // Declined (or failed) for either: leave everything as it was.
+        guard WebRouting.schemes.allSatisfy(isRouting) else {
+            try? await disableWeb(routerBinary: routerBinary)
+            throw ParallexError("The default browser wasn't changed, so web links aren't routed.")
+        }
+        return config
+    }
+
+    static var safariPath: String? {
+        WebRouting.browsers().first { $0.bundleID == "com.apple.Safari" }?.url.path
+    }
+
+    /// Give web links back to the browser you had before.
+    public static func disableWeb(routerBinary: URL) async throws {
+        var config = loadConfiguration()
+        config.web = false
+        try save(config)
+        let previous = [config.previousBrowser, safariPath].compactMap { $0 }.map(URL.init(fileURLWithPath:))
+            .first { FileManager.default.fileExists(atPath: $0.path) && !isParallexBundle($0) }
+        if let previous {
+            for scheme in WebRouting.schemes where isRouting(scheme) {
+                try? await NSWorkspace.shared.setDefaultApplication(at: previous, toOpenURLsWithScheme: scheme)
+            }
+        }
+        let stillRouting = WebRouting.schemes.contains(where: isRouting)
+        if config.enabled {
+            try buildRouterApp(binary: routerBinary, schemes: routerSchemes(config))
+        } else if !stillRouting {
+            // Neither kind of routing: Parallex Links goes, so it doesn't
+            // linger in the list of browsers.
+            removeRouterApp()
+        }
+        if stillRouting {
+            throw ParallexError("Web links still go to Parallex Links. Choose your browser in System Settings › Desktop & Dock.")
+        }
+    }
+
+    static func removeRouterApp() {
+        quitRunningRouter()
+        if let lsregister = BundleBuilder.lsregisterPath {
+            Shell.runAllowingFailure(lsregister, ["-u", routerAppURL.path])
+        }
+        if FileManager.default.fileExists(atPath: routerAppURL.path) {
+            try? Trash.move(routerAppURL)
+        }
+    }
+
+    /// A router that's running (web routing keeps it running) picks up a
+    /// rebuilt app only once it starts again.
+    static func quitRunningRouter() {
+        onMainThread {
+            for router in NSRunningApplication.runningApplications(withBundleIdentifier: routerBundleID) {
+                router.terminate()
+            }
+        }
+    }
+
+    public static func setWebRules(_ rules: [WebLinkRule]) throws {
+        var config = loadConfiguration()
+        config.webRules = rules
+        try save(config)
+    }
+
+    /// What the router app declares: sign-in schemes, plus web links when on.
+    static func routerSchemes(_ config: Configuration) -> [String] {
+        var schemes = config.enabled ? Array(config.schemes.keys).sorted() : []
+        if config.routesWeb {
+            schemes += WebRouting.schemes
+        }
+        return schemes
+    }
+
     public static func setAlwaysAsk(_ ask: Bool) throws {
         var config = loadConfiguration()
         config.alwaysAsk = ask
@@ -319,12 +420,15 @@ public enum LinkRouting {
                 + "its app. Run `parallex links disable` again."
             )
         }
-        if let lsregister = BundleBuilder.lsregisterPath {
-            Shell.runAllowingFailure(lsregister, ["-u", routerAppURL.path])
+        // Still the browser: keep the router, just without sign-in schemes.
+        if config.routesWeb {
+            let binary = FileManager.default.temporaryDirectory.appendingPathComponent("parallex-router-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: binary) }
+            try FileManager.default.copyItem(at: routerAppURL.appendingPathComponent("Contents/MacOS/router"), to: binary)
+            try buildRouterApp(binary: binary, schemes: routerSchemes(config))
+            return
         }
-        if FileManager.default.fileExists(atPath: routerAppURL.path) {
-            try? Trash.move(routerAppURL)
-        }
+        removeRouterApp()
     }
 
     public static func currentHandler(for scheme: String) -> URL? {
@@ -364,6 +468,17 @@ public enum LinkRouting {
                 "CFBundleURLSchemes": schemes,
             ]],
         ]
+        // A browser, as far as macOS is concerned, when it routes web links.
+        if schemes.contains("https") {
+            info["CFBundleDocumentTypes"] = [[
+                "CFBundleTypeName": "Web page",
+                "CFBundleTypeRole": "Viewer",
+                "LSHandlerRank": "Alternate",
+                "LSItemContentTypes": ["public.html", "public.xhtml"],
+            ]]
+            info["NSAppleEventsUsageDescription"] =
+                "Parallex Links passes links to the copy of the app, or the browser, they're meant for."
+        }
         // Read the same registry as the Parallex that built the router.
         if ProcessInfo.processInfo.environment["PARALLEX_HOME"] != nil {
             info["LSEnvironment"] = ["PARALLEX_HOME": Paths.supportRoot.path]
@@ -379,6 +494,7 @@ public enum LinkRouting {
         if let lsregister = BundleBuilder.lsregisterPath {
             Shell.runAllowingFailure(lsregister, ["-f", app.path])
         }
+        quitRunningRouter()
     }
 }
 

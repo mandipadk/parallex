@@ -28,7 +28,12 @@ enum DebugRoute {
     }
 
     static var showsMenuPanel: Bool { value == "panel" }
-    static var showsSettings: Bool { value == "settings" }
+    static var showsSettings: Bool { value == "settings" || value?.hasPrefix("settings:") == true }
+    /// `settings:links` opens Settings on that tab.
+    static var settingsTab: String? {
+        guard let value, value.hasPrefix("settings:") else { return nil }
+        return String(value.dropFirst("settings:".count))
+    }
     /// `PARALLEX_UI_SCROLL=center|bottom` scrolls the detail pane.
     static var scrollAnchor: UnitPoint? {
         switch ProcessInfo.processInfo.environment["PARALLEX_UI_SCROLL"] {

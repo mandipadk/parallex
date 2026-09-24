@@ -44,10 +44,12 @@ final class LauncherIntegrationTests: XCTestCase {
     /// Run the wrapper's launcher binary and capture its output.
     private func runWrapper(
         _ app: URL,
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        arguments: [String] = []
     ) throws -> (stdout: String, stderr: String, exitCode: Int32) {
         let process = Process()
         process.executableURL = app.appendingPathComponent("Contents/MacOS/launcher")
+        process.arguments = arguments
         var env = ProcessInfo.processInfo.environment
         env["PARALLEX_LAUNCHER_NO_UI"] = "1" // never block tests on a dialog
         env.merge(environment) { _, new in new }
@@ -75,6 +77,22 @@ final class LauncherIntegrationTests: XCTestCase {
         let result = try runWrapper(app)
         XCTAssertEqual(result.exitCode, 0, result.stderr)
         XCTAssertEqual(result.stdout, "hello-from-parallex\n")
+    }
+
+    /// A web link the wrapper is launched with (Parallex Links opening a
+    /// link in a browser instance) reaches the app; any other argument
+    /// doesn't, so whoever launches a wrapper can't undo its isolation.
+    func testPassesOnWebLinksAndNothingElse() throws {
+        let app = try makeWrapper(config: [
+            ParallexConfig.Key.targetBinary: "/bin/echo",
+            ParallexConfig.Key.arguments: ["--user-data-dir=/instance"],
+        ])
+        let result = try runWrapper(app, arguments: [
+            "--remote-debugging-port=9222", "https://example.com/a?b=c", "--user-data-dir=/elsewhere",
+            "file:///etc/passwd", "javascript:alert(1)", "http:nohost", "-psn_0_12345",
+        ])
+        XCTAssertEqual(result.exitCode, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "--user-data-dir=/instance https://example.com/a?b=c\n")
     }
 
     func testSetsEnvironmentVariables() throws {

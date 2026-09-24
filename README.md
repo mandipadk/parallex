@@ -107,11 +107,23 @@ verdict):
 
 Apps finish sign-in by opening a link in their own scheme (`claude://…`,
 `cursor://…`). With several copies of an app running, macOS hands that link to
-an arbitrary one. `parallex links enable` (or **Settings › Sign-in links**)
+an arbitrary one. `parallex links enable` (or **Settings › Links**)
 makes a small background app, *Parallex Links*, the handler for your
 instances' schemes; it passes each link to the copy you used most recently, or
 asks. Apps reclaim their scheme when they start, so keep Parallex.app running
 (Settings › Open Parallex at login) — it takes the schemes back.
+
+### Web links
+
+Links you click in an instance can open in that instance's browser: work
+links in your work browser, client links in the client's. With
+`parallex links web on` (or **Settings › Links**), Parallex Links becomes your
+default browser (macOS asks you to confirm). A link opened by an instance goes
+to the browser its workspace uses (`parallex workspace browser Work "Chrome/Work"`
+— a browser, a Chrome/Brave/Edge profile, or a browser instance), a site with a
+rule goes where the rule says (`parallex links rule add northwind.com "Brave Browser"`),
+and everything else opens in the browser you had before, as if Parallex weren't
+there. `parallex links web off` gives links back to that browser.
 
 `parallex check <name>` verifies a running instance: it lists the files the
 instance's processes have open and flags any that belong to the original app's
@@ -230,7 +242,9 @@ parallex repair <name> | --all [--app <path>]
 parallex check <name> [--verbose] [--json]
 parallex storage [<name>] [--clean-caches] [--remove-unused]
 parallex links [status | enable [--ask] | disable]
-parallex workspace [list | create | add | remove | open | quit | rename | shortcut | delete]
+parallex links web [on | off | status]
+parallex links rule [add <site> <target> | remove <site> | list]
+parallex workspace [list | create | add | remove | open | quit | rename | shortcut | browser | delete]
 parallex duplicate <name> [--name <new name>] [--with-data]
 parallex copy-data <name> [--dry-run]
 parallex export <name> [-o <file.parallex>]
@@ -274,6 +288,8 @@ parallex edit "Claude Work" --option separate-claude-code
 parallex check "Claude Work"             # any leaks into the original's data?
 parallex create WhatsApp --name "WhatsApp Work" --clone
 parallex links enable                    # sign-in links go to the right copy
+parallex workspace browser Work "Chrome/Work"  # Work's links open in Chrome's Work profile
+parallex links web on                    # …once Parallex Links routes web links
 parallex repair --all                    # rebuild outdated or broken wrappers
 parallex remove "Chrome Dev"             # wrapper + data → Trash
 ```

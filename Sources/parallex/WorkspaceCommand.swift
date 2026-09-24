@@ -12,7 +12,7 @@ struct WorkspaceCommand: ParsableCommand {
           parallex workspace open Work
           parallex workspace shortcut Work ctrl+opt+w
         """,
-        subcommands: [List.self, Create.self, Add.self, Drop.self, Open.self, Quit.self, Rename.self, Shortcut.self, Delete.self],
+        subcommands: [List.self, Create.self, Add.self, Drop.self, Open.self, Quit.self, Rename.self, Shortcut.self, Browser.self, Delete.self],
         defaultSubcommand: List.self
     )
 
@@ -189,6 +189,32 @@ struct WorkspaceCommand: ParsableCommand {
             }
             let target = try WorkspaceStore.update(id: existing.id) { $0.shortcut = shortcut }
             print("\(Term.green("✓")) “\(target.name)”: \(target.shortcut?.displayString ?? "no shortcut")")
+        }
+    }
+
+    struct Browser: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Choose where web links from a workspace's instances open (with `parallex links web on`)."
+        )
+
+        @Argument(help: "The workspace.")
+        var workspace: String
+
+        @Argument(help: "An instance's name, <Browser>/<Profile> (Chrome/Work), a browser's name, or 'default'.")
+        var target: String
+
+        mutating func run() throws {
+            let existing = try WorkspaceCommand.lookup(workspace)
+            let browsers = WebRouting.browsers()
+            let manifests = InstanceStore.loadAll()
+            let resolved = try WebRouting.resolveTarget(
+                target, manifests: manifests, browsers: browsers, profiles: WebRouting.profiles(in: browsers)
+            )
+            let updated = try WorkspaceStore.update(id: existing.id) { $0.webLinks = resolved }
+            print("\(Term.green("✓")) Web links from “\(updated.name)”: \(WebRouting.describe(resolved, manifests: manifests))")
+            if !LinkRouting.loadConfiguration().routesWeb {
+                print(Term.dim("Turn web routing on to use it: parallex links web on"))
+            }
         }
     }
 

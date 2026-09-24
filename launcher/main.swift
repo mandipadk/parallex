@@ -375,7 +375,14 @@ if let pidFile {
     try? Data(record.serialized.utf8).write(to: url, options: .atomic)
 }
 
-// 5. Become the target.
-let arguments = config[ParallexConfig.Key.arguments] as? [String] ?? []
+// 5. Become the target. A web link this launch was given (Parallex Links
+//    opening a link in a browser instance that isn't running) follows the
+//    instance's own arguments. Nothing else is passed on: a flag from
+//    whoever launched the wrapper could undo its isolation.
+let passedOn = CommandLine.arguments.dropFirst().filter { argument in
+    guard let url = URL(string: argument), let scheme = url.scheme?.lowercased() else { return false }
+    return (scheme == "http" || scheme == "https") && url.host != nil
+}
+let arguments = (config[ParallexConfig.Key.arguments] as? [String] ?? []) + passedOn
 log.info("launching \(targetBinary, privacy: .public) with \(arguments.count) argument(s)")
 execTarget(targetBinary, arguments: arguments)

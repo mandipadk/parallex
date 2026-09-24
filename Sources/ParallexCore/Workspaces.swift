@@ -12,13 +12,20 @@ public struct Workspace: Codable, Sendable, Identifiable, Equatable {
     public var shortcut: KeyShortcut?
     /// Opening the workspace hides running instances that aren't in it.
     public var hidesOthers: Bool
+    /// Where web links opened by its instances go (with web routing on);
+    /// nil: your usual browser.
+    public var webLinks: WebLinkTarget?
 
-    public init(id: UUID = UUID(), name: String, members: [String] = [], shortcut: KeyShortcut? = nil, hidesOthers: Bool = false) {
+    public init(
+        id: UUID = UUID(), name: String, members: [String] = [], shortcut: KeyShortcut? = nil,
+        hidesOthers: Bool = false, webLinks: WebLinkTarget? = nil
+    ) {
         self.id = id
         self.name = name
         self.members = members
         self.shortcut = shortcut
         self.hidesOthers = hidesOthers
+        self.webLinks = webLinks
     }
 
     /// Its members that still exist, as manifests, in order.
