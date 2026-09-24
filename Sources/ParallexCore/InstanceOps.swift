@@ -795,7 +795,7 @@ public enum InstanceCreator {
         return "\(targetName) \(Int.random(in: 1000...9999))"
     }
 
-    private static func resolveName(_ requested: String?, targetName: String, outDir: URL) throws -> String {
+    static func resolveName(_ requested: String?, targetName: String, outDir: URL) throws -> String {
         guard let requested else {
             return suggestName(targetName: targetName, outputDirectory: outDir)
         }

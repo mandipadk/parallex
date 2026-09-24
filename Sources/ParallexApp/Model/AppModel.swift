@@ -2,6 +2,7 @@ import AppKit
 import Observation
 import ParallexCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// One instance as the UI sees it: its manifest plus live status.
 struct InstanceEntry: Identifiable, Equatable {
@@ -385,6 +386,68 @@ final class AppModel {
                 current = entries.first(where: { $0.id == id }) ?? current
             }
             launch(current)
+        }
+    }
+
+    // MARK: - Export and import
+
+    func chooseArchiveToImport() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Instance"
+        panel.allowedContentTypes = [UTType(filenameExtension: InstanceArchive.fileExtension) ?? .zip]
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            importInstance(from: url)
+        }
+    }
+
+    /// Import a `.parallex` file after saying what it is — a file someone
+    /// sent can be opened by double-clicking.
+    func importInstance(from file: URL) {
+        Task {
+            do {
+                let preview = try await Task.detached(priority: .userInitiated) {
+                    try InstanceArchive.preview(file)
+                }.value
+                NSApp.activate()
+                let alert = NSAlert()
+                alert.messageText = "Import “\(preview.name)”?"
+                var detail = "An instance of \(preview.appName), with its settings and data. It's added under a name that's free on this Mac."
+                if !preview.extraArguments.isEmpty || !preview.extraEnvironment.isEmpty {
+                    detail += "\n\nThe file also sets extra launch arguments or environment. They aren't imported — add them later in Advanced if you trust where the file came from."
+                }
+                alert.informativeText = detail
+                alert.addButton(withTitle: "Import")
+                alert.addButton(withTitle: "Cancel")
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try InstanceArchive.import(from: file)
+                }.value
+                refresh()
+                selection = result.manifest.slug
+                measureStorage()
+            } catch {
+                errorMessage = "\(error)"
+            }
+        }
+    }
+
+    func export(_ entry: InstanceEntry) {
+        let panel = NSSavePanel()
+        panel.title = "Export “\(entry.name)”"
+        panel.nameFieldStringValue = "\(entry.name).\(InstanceArchive.fileExtension)"
+        panel.allowedContentTypes = [UTType(filenameExtension: InstanceArchive.fileExtension) ?? .zip]
+        panel.message = "Saves its settings and data in one file, for a backup or another Mac."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let manifest = entry.manifest
+        perform(on: entry.id) { try InstanceArchive.export(manifest, to: url) }
+    }
+
+    /// Copy the original app's data into an own-identity copy.
+    func copyOriginalData(into entry: InstanceEntry) {
+        let manifest = entry.manifest
+        perform(on: entry.id, then: { [weak self] in self?.measureStorage() }) {
+            _ = try OriginalData.copy(into: manifest)
         }
     }
 

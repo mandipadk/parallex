@@ -26,6 +26,10 @@ struct Parallex: AsyncParsableCommand {
           parallex remove "Claude Work"
         """,
         version: ParallexConfig.version,
-        subcommands: [Create.self, Duplicate.self, Apps.self, List.self, Open.self, Edit.self, Repair.self, Check.self, Storage.self, Links.self, WorkspaceCommand.self, Remove.self, Doctor.self]
+        subcommands: [
+            Create.self, Apps.self, List.self, Open.self, Edit.self, Duplicate.self, CopyData.self,
+            WorkspaceCommand.self, Links.self, Check.self, Storage.self, Export.self, Import.self,
+            Repair.self, Remove.self, Doctor.self,
+        ]
     )
 }

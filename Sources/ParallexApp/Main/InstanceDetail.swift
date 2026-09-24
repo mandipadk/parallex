@@ -262,6 +262,8 @@ private struct DetailHeader: View {
             Menu {
                 Button("Open Original \(entry.targetName)") { model.launchOriginal(entry) }
                 Divider()
+                Button("Export…") { model.export(entry) }
+                    .disabled(entry.running)
                 Button("Duplicate") { model.duplicate(entry, includeData: false) }
                 Button("Duplicate with Data") { model.duplicate(entry, includeData: true) }
                     .disabled(entry.running || entry.manifest.clone?.usesLauncher == false)
@@ -382,6 +384,9 @@ private struct IsolationSection: View {
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
+                if entry.manifest.redirectedHome != nil, draft.settings.separateLibrary != false {
+                    StartFromOriginalRow(entry: entry)
+                }
                 ForEach(entry.manifest.recipe?.options ?? []) { option in
                     ExplainedToggle(title: option.title, detail: option.detail, isOn: optionBinding(option))
                 }
@@ -429,6 +434,45 @@ private struct IsolationSection: View {
             get: { draft.settings.activeOptions(of: available).contains(option.id) },
             set: { draft.settings.setOption(option.id, enabled: $0, available: available) }
         )
+    }
+}
+
+/// Seed an own-identity copy with the original's data (it starts empty).
+private struct StartFromOriginalRow: View {
+    let entry: InstanceEntry
+    @Environment(AppModel.self) private var model
+    @State private var items: [OriginalData.Item] = []
+    @State private var confirming = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Theme.Space.l) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Start from \(entry.targetName)'s data").font(Theme.Font.body)
+                Text(items.isEmpty
+                     ? "Nothing of \(entry.targetName)'s to copy right now."
+                     : "Copies its settings, library and sign-ins into this instance, then the two go their own ways.")
+                    .font(Theme.Font.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: Theme.Space.l)
+            Button("Copy…") { confirming = true }
+                .buttonStyle(.secondary)
+                .disabled(items.isEmpty || entry.running || model.busy.contains(entry.id))
+        }
+        .task(id: entry.manifest.redirectedHome) {
+            let manifest = entry.manifest
+            items = await Task.detached { OriginalData.plan(for: manifest) }.value
+        }
+        .confirmationDialog(
+            "Replace \(entry.name)'s data with \(entry.targetName)'s?",
+            isPresented: $confirming, titleVisibility: .visible
+        ) {
+            Button("Copy \(entry.targetName)'s Data") { model.copyOriginalData(into: entry) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Copies \(items.map(\.label).joined(separator: ", ")). What this instance has there now goes to the Trash. Sign-ins \(entry.targetName) keeps in the keychain may need signing in again.")
+        }
     }
 }
 

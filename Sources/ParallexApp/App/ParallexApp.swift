@@ -64,6 +64,11 @@ struct ParallexApp: App {
                     delegate.model.createWorkspace()
                 }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
+                Divider()
+                Button("Import Instance…") {
+                    delegate.windows.showMain()
+                    delegate.model.chooseArchiveToImport()
+                }
             }
             CommandGroup(after: .windowArrangement) {
                 Button("Switch To…") { delegate.switcher.show() }
@@ -203,8 +208,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            guard let link = ParallexLink(url) else { continue }
-            handle(link)
+            if url.isFileURL, url.pathExtension.lowercased() == InstanceArchive.fileExtension {
+                windows.showMain()
+                model.importInstance(from: url)
+            } else if let link = ParallexLink(url) {
+                handle(link)
+            }
         }
     }
 

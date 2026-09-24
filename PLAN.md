@@ -233,4 +233,9 @@ Defaults: `--mode auto` (doctor logic), wrapper written to `/Applications`, data
    sidebar, menu bar and switcher; `parallex workspace …`; stored in `workspaces.json` under
    their own lock); `parallex://` links (open/workspace/show/new — nothing destructive);
    duplicate an instance, optionally with an APFS copy of its data and preferences.
-10. **Later/optional** — export/import of instances; badge style options; published Homebrew tap.
+10. **v0.11** — start a copy from the original's data (Application Support folders, cookies and
+    web storage re-keyed to the copy's bundle ID, config folders, preferences via the preferences
+    daemon; APFS clones; run-state files dropped); export/import of instances as `.parallex`
+    files (a registered document type; paths rebased to the importing Mac, the app rebuilt there,
+    a copy's preferences carried along).
+11. **Later/optional** — badge style options; published Homebrew tap.

@@ -166,6 +166,25 @@ instances. They show at the top of the sidebar, in the menu bar and in the
 switcher. **Duplicate** makes another instance with the same settings,
 starting fresh or with a near-free APFS copy of its data.
 
+**Starting from the original.** A copy with its own Library starts
+empty. **Start from <App>'s data** (or `parallex copy-data <name>`) copies
+the original app's Application Support, cookies and web storage, config
+folder and preferences into the copy. These are APFS clones, so the copy
+is instant. From then on the two go their own ways. Sign-ins the app keeps
+in the keychain may need signing in again.
+
+**Export and import.** `parallex export <name>` (or **Export…** in the
+instance's menu) saves an instance's settings and data as one `.parallex`
+file. Double-clicking the file (or `parallex import <file>`) recreates the
+instance on any Mac that has the app, under a name that's free there.
+The file is treated as untrusted:
+- The app is found on the importing Mac by bundle ID, never by a path in the file.
+- The file's extra launch arguments and environment are left out unless you
+  pass `--keep-extras`.
+- Even with `--keep-extras`, variables that load code (`DYLD_*`,
+  `NODE_OPTIONS`, …) are never imported.
+- Links pointing outside the instance are dropped.
+
 **Links** open things from anywhere: Shortcuts, launchers, scripts, a
 bookmark. Any web page can ask to open a link, so links only ever open or
 show things.
@@ -203,6 +222,9 @@ parallex storage [<name>] [--clean-caches] [--remove-unused]
 parallex links [status | enable [--ask] | disable]
 parallex workspace [list | create | add | remove | open | quit | rename | shortcut | delete]
 parallex duplicate <name> [--name <new name>] [--with-data]
+parallex copy-data <name> [--dry-run]
+parallex export <name> [-o <file.parallex>]
+parallex import <file.parallex> [--name <name>] [--out <dir>]
 parallex remove <name> [--keep-data]
 parallex doctor <app> [--json]
 ```
@@ -297,5 +319,5 @@ try with `--env`. Recipes live in `Presets.recipes`.
 
 ## Status
 
-v0.10 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
+v0.11 — see [PLAN.md](PLAN.md) for the design. The original proof of concept is
 in [poc/](poc/).

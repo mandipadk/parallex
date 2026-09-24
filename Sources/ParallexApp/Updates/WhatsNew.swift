@@ -18,6 +18,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "0.11.0", highlights: [
+            Highlight(
+                symbol: "arrow.right.doc.on.clipboard",
+                title: "Start from the original's data",
+                detail: "Give a new copy the original app's settings, library and sign-ins, then let the two go their own ways."
+            ),
+            Highlight(
+                symbol: "shippingbox",
+                title: "Export and import",
+                detail: "Save an instance, settings and data, as one .parallex file. Keep it as a backup, or open it on another Mac."
+            ),
+        ]),
         Release(version: "0.10.0", highlights: [
             Highlight(
                 symbol: "rectangle.stack",

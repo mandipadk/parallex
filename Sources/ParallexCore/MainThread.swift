@@ -16,3 +16,13 @@ func onMainThread(_ body: @MainActor @Sendable () -> Void) {
         }
     }
 }
+
+/// `onMainThread`, returning the body's value.
+func onMainThreadValue<T: Sendable>(_ body: @MainActor @Sendable () -> T) -> T {
+    if Thread.isMainThread {
+        return MainActor.assumeIsolated(body)
+    }
+    return DispatchQueue.main.sync {
+        MainActor.assumeIsolated(body)
+    }
+}

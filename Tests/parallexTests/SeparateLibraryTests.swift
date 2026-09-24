@@ -216,4 +216,67 @@ final class SeparateLibraryTests: XCTestCase {
         _ = try InstanceRemover.remove(manifest, keepData: false)
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
     }
+
+    func testStartingFromTheOriginalsData() throws {
+        let target = try Fixtures.makeHomeReportingApp(named: "Seedy", bundleID: "com.fake.seedy", in: tempDir)
+        var request = CreateRequest(appReference: target.path, name: "Seedy Work", outputDirectory: outDir)
+        request.cloneApp = true
+        let manifest = try InstanceCreator.create(request, builderOptions: options).manifest
+        let home = try XCTUnwrap(manifest.redirectedHome)
+
+        // A stand-in for the real home with the original's data.
+        let realHome = tempDir.appendingPathComponent("realhome", isDirectory: true)
+        let support = realHome.appendingPathComponent("Library/Application Support/Seedy")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        try Data("account=me".utf8).write(to: support.appendingPathComponent("session"))
+        try FileManager.default.createSymbolicLink(atPath: support.appendingPathComponent("SingletonLock").path, withDestinationPath: "x-1")
+        let cookies = realHome.appendingPathComponent("Library/HTTPStorages/com.fake.seedy")
+        try FileManager.default.createDirectory(at: cookies, withIntermediateDirectories: true)
+        try Data("cookie".utf8).write(to: cookies.appendingPathComponent("httpstorages.sqlite"))
+        let config = realHome.appendingPathComponent(".config/seedy")
+        try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+
+        let planned = OriginalData.plan(for: manifest, realHome: realHome).map(\.label)
+        XCTAssertEqual(Set(planned), ["Application Support/Seedy", "web storage", "~/.config/seedy"])
+
+        // Something the instance already had is replaced.
+        let existing = URL(fileURLWithPath: home).appendingPathComponent("Library/Application Support/Seedy")
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+        try Data("old".utf8).write(to: existing.appendingPathComponent("session"))
+
+        try OriginalData.copy(into: manifest, realHome: realHome)
+        XCTAssertEqual(try String(contentsOf: existing.appendingPathComponent("session"), encoding: .utf8), "account=me")
+        XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: existing.appendingPathComponent("SingletonLock").path))
+        let copiedCookies = URL(fileURLWithPath: home).appendingPathComponent("Library/HTTPStorages/\(manifest.clone!.bundleIdentifier)/httpstorages.sqlite")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copiedCookies.path), "keyed by the copy's own bundle ID")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: support.appendingPathComponent("session").path), "the original is untouched")
+    }
+
+    func testCopyingNeverWritesThroughLinksToTheRealHome() throws {
+        let target = try Fixtures.makeHomeReportingApp(named: "Linky", bundleID: "com.fake.linky", in: tempDir)
+        var request = CreateRequest(appReference: target.path, name: "Linky Work", outputDirectory: outDir)
+        request.cloneApp = true
+        request.extraSharedItems = [".config"]
+        let manifest = try InstanceCreator.create(request, builderOptions: options).manifest
+        let home = URL(fileURLWithPath: try XCTUnwrap(manifest.redirectedHome))
+
+        let realHome = tempDir.appendingPathComponent("realhome", isDirectory: true)
+        for folder in [".config/linky", "Library/Application Support/Linky", "Library/Application Support/Planted"] {
+            try FileManager.default.createDirectory(at: realHome.appendingPathComponent(folder), withIntermediateDirectories: true)
+        }
+        // The instance home shares .config (a link to the real one) …
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: home.appendingPathComponent(".config"),
+                                                   withDestinationURL: realHome.appendingPathComponent(".config"))
+        // … and something planted a link where app data would go.
+        let support = home.appendingPathComponent("Library/Application Support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: support.appendingPathComponent("Linky"),
+                                                   withDestinationURL: realHome.appendingPathComponent("Library/Application Support/Linky"))
+
+        let labels = OriginalData.plan(for: manifest, realHome: realHome).map(\.label)
+        XCTAssertFalse(labels.contains("~/.config/linky"), "shared folders are left alone")
+        XCTAssertFalse(labels.contains("Application Support/Linky"), "never through a link")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: realHome.appendingPathComponent(".config/linky").path))
+    }
 }
