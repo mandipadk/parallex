@@ -465,6 +465,12 @@ private struct ProblemBanners: View {
         case .separationUnavailable:
             "macOS didn't let Parallex give \(entry.name) a Library of its own, so it didn't open — it would have used \(entry.targetName)'s data. "
                 + "Try again after a macOS or Parallex update, or use it as a plain copy that shares \(entry.targetName)'s data."
+        case .copyReplaced where entry.running:
+            "\(entry.targetName)'s updater replaced this copy with its own build, which is running with \(entry.targetName)'s data. "
+                + "Quit it, then repair to make it a copy again."
+        case .copyReplaced:
+            "\(entry.targetName)'s updater replaced this copy with its own build, which would open with \(entry.targetName)'s data. "
+                + "Repair makes it a copy again; the instance's own data is safe."
         }
     }
 

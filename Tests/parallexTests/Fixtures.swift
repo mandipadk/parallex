@@ -85,9 +85,10 @@ enum Fixtures {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
         process.arguments = [
-            "-dynamiclib", "-O2", "-I", source.appendingPathComponent("include").path,
-            source.appendingPathComponent("home.c").path, "-o", output.path,
-            "-framework", "Security", "-framework", "CoreFoundation",
+            "-dynamiclib", "-O2", "-fobjc-arc", "-I", source.appendingPathComponent("include").path,
+            source.appendingPathComponent("home.c").path, source.appendingPathComponent("updates.m").path,
+            "-o", output.path,
+            "-framework", "Security", "-framework", "CoreFoundation", "-framework", "Foundation",
         ]
         try! process.run()
         process.waitUntilExit()
@@ -153,8 +154,23 @@ enum Fixtures {
         return url
     }()
 
+    /// One signing identity for the whole test run (made on first use,
+    /// like a Mac's own), removed at exit.
+    static let sharedSigning: URL = {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parallex-tests-signing-\(ProcessInfo.processInfo.processIdentifier)")
+        setenv("PARALLEX_SIGNING_DIR", url.path, 1)
+        atexit {
+            if let path = getenv("PARALLEX_SIGNING_DIR") {
+                try? FileManager.default.removeItem(atPath: String(cString: path))
+            }
+        }
+        return url
+    }()
+
     static func makeTempDirectory(_ testName: String) throws -> URL {
         _ = isolatedTrash
+        _ = sharedSigning
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("parallex-tests-\(testName)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

@@ -100,7 +100,14 @@ static void leave_environment(void) {
     unsetenv("PARALLEX_KEYCHAIN_KEEP");
 }
 
-__attribute__((constructor)) static void parallex_home_init(void) {
+// Runs once, from the constructor (or earlier, if another part of the
+// library asks first; see parallex_home_active).
+static void set_up(void) {
+    static bool done = false;
+    if (done) {
+        return;
+    }
+    done = true;
     const char *home = getenv("PARALLEX_HOME_REDIRECT");
     const char *scope = getenv("PARALLEX_HOME_SCOPE");
     if (home == NULL || home[0] != '/' || strlen(home) >= sizeof(redirect_home)
@@ -145,6 +152,15 @@ __attribute__((constructor)) static void parallex_home_init(void) {
         snprintf(real_home_entry, sizeof(real_home_entry), "HOME=%s", account->pw_dir);
     }
     active = true;
+}
+
+__attribute__((constructor)) static void parallex_home_init(void) {
+    set_up();
+}
+
+bool parallex_home_active(void) {
+    set_up();
+    return active;
 }
 
 static void redirect(struct passwd *entry) {

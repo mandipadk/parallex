@@ -57,7 +57,7 @@ the front instead of starting a second copy.
 For a real identity of its own, create the instance with `--clone` (or turn on
 **Own identity** in the app). Parallex then makes the instance a copy of the
 app — an APFS clone, so it costs almost no disk space — with its own bundle ID,
-re-signed ad hoc, and with the Parallex launcher as its main executable. The
+re-signed on your Mac, and with the Parallex launcher as its main executable. The
 copy runs as itself: its own Dock icon and name, ⌘-Tab entry, notifications,
 and privacy permissions. Every way of opening it (Dock, notifications, login)
 still goes through the launcher, so its isolation always applies.
@@ -89,8 +89,22 @@ still goes through the launcher, so its isolation always applies.
   one way to give them separate data. Apps that keep data in shared app-group
   containers (e.g. WhatsApp) may still see the original's data there;
   `parallex doctor <app>` says what to expect.
-- The copy doesn't update itself. When the original updates, the instance
-  shows "repair to refresh the copy"; repairing re-copies it (quit it first).
+- **It keeps what you allowed it.** Copies are signed with a certificate
+  Parallex makes on your Mac the first time you make one, kept in a keychain
+  of its own (not your login keychain). macOS remembers permissions (camera,
+  microphone, screen recording, files and folders) and keychain access by an
+  app's signature, so a copy signed the same way every time keeps them when
+  it's refreshed. Copies made before 1.1 ask once more after their next
+  refresh. `PARALLEX_SIGNING=adhoc` signs copies ad hoc instead.
+- **The app's own updater is off in the copy.** Left alone, an app's updater
+  would install the vendor's build over the copy, which gives it the
+  original's identity and data back. So a copy has no Sparkle update feed,
+  and with its own Library (the default) its "Check for Updates…" is greyed
+  out and Electron apps hear there's no update, so nothing is downloaded.
+  When the original updates, Parallex
+  refreshes the copy: automatically once it quits, or with **Repair**. If
+  something replaces the copy anyway, Parallex notices, won't open it, and
+  makes it a copy again.
 - Features tied to the developer's signature (iCloud, push, keychain sharing)
   don't work in the copy, and it may ask for access to keychain items the
   original created. Apple's own apps can't be copied.

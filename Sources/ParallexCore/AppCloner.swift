@@ -52,7 +52,8 @@ public enum AppCloner {
         var notes: [String] = [
             "Parallex makes a copy of \(app.name) (an APFS clone — almost no extra disk space) with its own "
             + "identity, so the instance gets its own Dock icon, name, notifications, and permissions.",
-            "The copy doesn't update itself: when \(app.name) updates, Parallex shows “repair to refresh the copy”.",
+            "\(app.name)'s own updater is off in the copy; when \(app.name) updates, Parallex refreshes the copy, "
+            + "and the copy keeps the permissions you gave it.",
         ]
         let entitlements = app.entitlements
         let dropped = entitlements.keys.filter(isRestricted).sorted()
@@ -72,8 +73,7 @@ public enum AppCloner {
         } else {
             notes.append(
                 "With its own Library, a new copy also keeps its own encryption key in the keychain (its own "
-                + "“\(app.name) Safe Storage”) instead of the original's. macOS may ask once to let the copy "
-                + "use it after Parallex refreshes the copy."
+                + "“\(app.name) Safe Storage”) instead of the original's."
             )
         }
         if FileManager.default.fileExists(atPath: app.url.appendingPathComponent("Contents/_MASReceipt").path) {
@@ -102,6 +102,9 @@ public enum AppCloner {
         /// No Dock icon or ⌘-Tab entry (LSUIElement).
         var hideFromDock = false
     }
+
+    /// The Parallex launcher's name inside a copy (its main executable).
+    static let launcherName = "parallex-launcher"
 
     /// Where the mapping library lives inside a sandboxed copy.
     static let groupsLibraryPath = "Contents/Frameworks/libparallexgroups.dylib"
@@ -193,10 +196,15 @@ public enum AppCloner {
         // "<Name> Helper.app" helpers by it). The Dock and ⌘-Tab show the
         // display name.
         info["CFBundleDisplayName"] = spec.displayName
-        // Don't let a self-updater (Sparkle) replace the copy with the
-        // vendor's build — that would restore the original identity.
+        // Don't let the app's own updater replace the copy with the
+        // vendor's build: that restores the original's identity, and with it
+        // the original's data. Sparkle accepts such an update whenever its
+        // signature checks out, so the copy gets no feed to check at all
+        // (the key stays: without it, Sparkle refuses to start and says so
+        // at every launch). Parallex refreshes the copy instead.
         info["SUEnableAutomaticChecks"] = false
         info["SUAutomaticallyUpdate"] = false
+        info["SUFeedURL"] = nil
         if spec.hideFromDock {
             info["LSUIElement"] = true
         }
@@ -211,7 +219,6 @@ public enum AppCloner {
             info["CFBundleIconName"] = nil
         }
         if spec.useLauncher {
-            let launcherName = "parallex-launcher"
             let launcherDest = contents.appendingPathComponent("MacOS/\(launcherName)")
             try? fm.removeItem(at: launcherDest)
             try fm.copyItem(at: spec.launcherBinary, to: launcherDest)
@@ -275,7 +282,18 @@ public enum AppCloner {
         try? fm.removeItem(at: contents.appendingPathComponent("_MASReceipt"))
 
         if sign {
-            try resign(copy, source: spec.source, within: staging, groupMap: spec.groupMap)
+            // Signed with this Mac's own identity, the copy keeps its
+            // permissions and keychain access across refreshes (see
+            // SigningIdentity); ad hoc when that isn't available.
+            let identity = SigningIdentity.forSigning()
+            do {
+                try resign(copy, source: spec.source, within: staging, groupMap: spec.groupMap, identity: identity)
+            } catch where identity != nil {
+                FileHandle.standardError.write(Data(
+                    "parallex: signing with this Mac's identity failed, signing ad hoc instead: \(error)\n".utf8
+                ))
+                try resign(copy, source: spec.source, within: staging, groupMap: spec.groupMap, identity: nil)
+            }
         }
 
         // Swap in the new copy; if that fails, put the old one back.
@@ -357,11 +375,15 @@ public enum AppCloner {
         }
     }
 
-    /// Re-sign the copy ad hoc, inside out. Nested code (frameworks, helper
-    /// apps, extensions, XPC services) keeps its own entitlements minus the
-    /// restricted ones; the hardened runtime is dropped, which also lifts
-    /// library validation between the re-signed pieces.
-    static func resign(_ bundle: URL, source: AppInfo, within workArea: URL, groupMap: [String: String] = [:]) throws {
+    /// Re-sign the copy inside out, with `identity` (ad hoc when nil).
+    /// Nested code (frameworks, helper apps, extensions, XPC services) keeps
+    /// its own entitlements minus the restricted ones; the hardened runtime
+    /// is dropped, which also lifts library validation between the re-signed
+    /// pieces.
+    static func resign(
+        _ bundle: URL, source: AppInfo, within workArea: URL, groupMap: [String: String] = [:],
+        identity: SigningIdentity.Identity? = nil
+    ) throws {
         let fm = FileManager.default
         // Resolve symlinked prefixes (/var → /private/var) so enumerated
         // paths and the bundle path share one spelling; relative paths map
@@ -383,7 +405,10 @@ public enum AppCloner {
         defer { try? fm.removeItem(at: workDir) }
 
         func sign(_ url: URL, entitlementsFrom original: URL?) throws {
-            var arguments = ["--force", "--sign", "-", "--timestamp=none"]
+            var arguments = ["--force", "--sign", identity?.hash ?? "-", "--timestamp=none"]
+            if let identity {
+                arguments += ["--keychain", identity.keychain.path]
+            }
             if let original,
                var entitlements = AppInspector.signingInfo(of: original).entitlements {
                 entitlements = entitlements.filter { !isRestricted($0.key) }

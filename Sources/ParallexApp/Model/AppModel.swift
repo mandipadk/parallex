@@ -34,7 +34,7 @@ struct InstanceEntry: Identifiable, Equatable {
 
     var runState: RunState {
         if let blocking = status.problems.first(where: \.isBlocking) {
-            return .broken(blocking == .wrapperMissing ? "Needs repair" : "App missing")
+            return .broken(blocking == .targetMissing ? "App missing" : "Needs repair")
         }
         if running {
             return .running

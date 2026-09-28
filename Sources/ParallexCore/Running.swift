@@ -51,10 +51,17 @@ public enum Running {
             return pid
         }
         guard let clone = manifest.clone else { return nil }
+        // By the copy's identity, or by where it runs from: an app whose
+        // updater replaced the copy runs from the same place under the
+        // original's identity, and must not be rebuilt underneath itself.
+        let bundle = URL(fileURLWithPath: manifest.wrapperPath).standardizedFileURL.resolvingSymlinksInPath().path
         nonisolated(unsafe) var found: pid_t?
         onMainThread {
             found = NSRunningApplication.runningApplications(withBundleIdentifier: clone.bundleIdentifier)
                 .first?.processIdentifier
+                ?? NSWorkspace.shared.runningApplications.first {
+                    $0.bundleURL?.standardizedFileURL.resolvingSymlinksInPath().path == bundle
+                }?.processIdentifier
         }
         return found
     }

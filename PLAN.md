@@ -94,7 +94,9 @@ original's Dock tile, ⌘-Tab entry, notifications, and bundle-ID-keyed storage 
 cookie store).
 
 **Clone mode** gets a real identity by changing the executable instead: the instance is an APFS
-clone of the whole app with its own bundle ID, re-signed ad hoc inside out (nested code keeps its
+clone of the whole app with its own bundle ID, re-signed inside out with the Mac's own signing
+identity (a self-signed certificate Parallex makes once, so permissions survive refreshes; ad hoc
+when it's unavailable) (nested code keeps its
 entitlements minus provisioning-only ones; hardened runtime dropped), with the Parallex launcher as
 `CFBundleExecutable` and the app's binary beside it. Launch Services then registers the running
 process under the copy's identity. `CFBundleName` stays (Electron locates `<Name> Helper.app` by

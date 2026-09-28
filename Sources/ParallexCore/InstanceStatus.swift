@@ -23,18 +23,23 @@ public struct InstanceStatus: Sendable {
         /// original's data). Retrying may work after an update; turning off
         /// Separate Library makes it a plain copy.
         case separationUnavailable
+        /// Clone mode: something (the app's own updater, most likely)
+        /// replaced the copy with a build that isn't Parallex's — it has the
+        /// original's identity again and would open with the original's
+        /// data. A rebuild makes it a copy again.
+        case copyReplaced
 
         /// Problems a rebuild fixes without asking anything of the user.
         public var isMaintainable: Bool {
             switch self {
-            case .wrapperOutdated, .targetMoved, .cloneOutdated: true
+            case .wrapperOutdated, .targetMoved, .cloneOutdated, .copyReplaced: true
             case .wrapperMissing, .targetMissing, .separationUnavailable: false
             }
         }
 
         public var isBlocking: Bool {
             switch self {
-            case .wrapperMissing, .targetMissing: true
+            case .wrapperMissing, .targetMissing, .copyReplaced: true
             case .targetMoved, .wrapperOutdated, .cloneOutdated, .separationUnavailable: false
             }
         }
@@ -49,6 +54,8 @@ public struct InstanceStatus: Sendable {
                 "copy is of \(copy); the app is now \(original) — repair to refresh the copy"
             case .separationUnavailable:
                 "macOS won't give it a Library of its own — turn off Separate Library to use it as a plain copy"
+            case .copyReplaced:
+                "the app's updater replaced the copy with its own build — repair to make it a copy again"
             }
         }
     }
@@ -65,6 +72,9 @@ public struct InstanceStatus: Sendable {
         let wrapper = URL(fileURLWithPath: manifest.wrapperPath)
         if !fm.fileExists(atPath: wrapper.path) {
             problems.append(.wrapperMissing)
+        } else if let clone = manifest.clone, isReplaced(wrapper, clone: clone) {
+            // Not the copy Parallex built: nothing else about it applies.
+            return InstanceStatus(pid: Running.processID(of: manifest), problems: [.copyReplaced])
         } else if let version = builtWith(wrapper, isCopy: manifest.clone != nil),
                   compareVersions(version, ParallexConfig.version) == .orderedAscending {
             problems.append(.wrapperOutdated(builtWith: version))
@@ -96,6 +106,22 @@ public struct InstanceStatus: Sendable {
             pid: Running.processID(of: manifest),
             problems: problems
         )
+    }
+
+    /// Whether the app at a copy's path is still the copy Parallex built:
+    /// its own bundle ID and, when it starts through the launcher, the
+    /// launcher as its main executable. A vendor updater installing its
+    /// build over the copy changes both.
+    static func isReplaced(_ copy: URL, clone: InstanceManifest.CloneRecord) -> Bool {
+        guard let data = try? Data(contentsOf: copy.appendingPathComponent("Contents/Info.plist")),
+              let plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any]
+        else {
+            return false
+        }
+        if plist["CFBundleIdentifier"] as? String != clone.bundleIdentifier {
+            return true
+        }
+        return clone.usesLauncher && plist["CFBundleExecutable"] as? String != AppCloner.launcherName
     }
 
     /// Which Parallex built an instance: recorded in its launch config
@@ -143,6 +169,12 @@ public enum InstanceLauncher {
             throw ParallexError(
                 "The wrapper for '\(manifest.name)' is missing at \(manifest.wrapperPath). "
                 + "Repair it with: parallex repair \"\(manifest.name)\""
+            )
+        }
+        if let clone = manifest.clone, InstanceStatus.isReplaced(URL(fileURLWithPath: manifest.wrapperPath), clone: clone) {
+            throw ParallexError(
+                "“\(manifest.name)” isn't a copy anymore: the app's updater replaced it with its own build, which "
+                + "would open with the original's data. Repair it first: parallex repair \"\(manifest.name)\""
             )
         }
         try Shell.run("/usr/bin/open", [manifest.wrapperPath], environment: cleanEnvironment())

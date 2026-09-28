@@ -784,7 +784,18 @@ public enum InstanceCreator {
             throw ParallexError("Quit “\(previous.name)” first — its copy of the app is replaced when it's rebuilt.")
         }
         let destination = spec.outputDirectory.appendingPathComponent("\(spec.name).app", isDirectory: true)
-        if fm.fileExists(atPath: destination.path), !BundleBuilder.isParallexWrapper(destination) {
+        // The one foreign app this may replace: this instance's own copy,
+        // which the app's updater swapped for its build (it goes to the Trash).
+        let replacedCopy = previous.flatMap { previous in
+            previous.clone.map { clone in
+                sameItem(destination, URL(fileURLWithPath: previous.wrapperPath))
+                    && InstanceStatus.isReplaced(destination, clone: clone)
+                    && AppInspectorLite.bundleID(of: destination).map {
+                        [clone.bundleIdentifier, previous.knownTargetBundleID].contains($0)
+                    } == true
+            }
+        } ?? false
+        if fm.fileExists(atPath: destination.path), !BundleBuilder.isParallexWrapper(destination), !replacedCopy {
             throw ParallexError(
                 "\(destination.path) exists and is not a Parallex instance — refusing to replace it. Pick a different name."
             )
