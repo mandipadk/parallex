@@ -89,6 +89,14 @@ public enum ParallexConfig {
     /// and does nothing else.
     public static let forgetKeychainArgument = "--parallex-forget-keychain"
 
+    /// A copy refreshed while it ran waits in the instance folder until it
+    /// can take the running copy's place: `<instance>/staged/copy.staged`
+    /// (not `.app`, so macOS never takes it for an app) with the instance
+    /// record it comes with. Parallex puts it in place when the copy quits;
+    /// the copy's launcher does, if the copy is opened first.
+    public static let stagingFolder = "staged"
+    public static let stagedCopyName = "copy.staged"
+
     /// Written into the instance folder (next to its home) when the probe
     /// found separation unavailable, so the app can explain and offer a way
     /// out; removed as soon as a probe succeeds.

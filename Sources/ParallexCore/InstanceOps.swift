@@ -98,6 +98,117 @@ public struct CreateRequest: Sendable {
     }
 }
 
+/// Refreshing a copy while it runs. When its app updates, the refreshed
+/// copy is built beside it (`Paths.stagedCopy`) and takes its place in two
+/// renames once it quits — by Parallex, or by the copy's own launcher if
+/// the copy is opened first. So a copy is never kept out of date just
+/// because it was in use.
+extension InstanceCreator {
+    /// Build the refreshed copy of a running (or any) own-identity copy
+    /// without touching it. Its settings and name stay as they are.
+    public static func stageRefresh(
+        _ manifest: InstanceManifest,
+        builderOptions: BundleBuilder.Options = BundleBuilder.Options()
+    ) throws {
+        guard manifest.clone != nil else {
+            throw ParallexError("Only an own-identity copy is refreshed while it runs.")
+        }
+        let target = try AppInspector.inspect(try locateTarget(of: manifest))
+        if let expected = manifest.knownTargetBundleID, expected != target.bundleID {
+            throw ParallexError("\(target.url.path) is \(target.bundleID), but this instance was made for \(expected).")
+        }
+        var settings = manifest.effectiveSettings
+        Throwaway.normalize(&settings, was: settings)
+        _ = try assemble(
+            target: target,
+            name: manifest.name,
+            slug: manifest.slug,
+            outputDirectory: URL(fileURLWithPath: manifest.wrapperPath).deletingLastPathComponent(),
+            settings: settings,
+            previous: manifest,
+            stage: true,
+            builderOptions: builderOptions
+        )
+    }
+
+    /// The instance record of a refresh waiting to take over, if there is one.
+    public static func stagedRefresh(of manifest: InstanceManifest) -> InstanceManifest? {
+        guard FileManager.default.fileExists(atPath: Paths.stagedCopy(slug: manifest.slug).path) else { return nil }
+        return InstanceStore.load(from: Paths.stagedManifest(slug: manifest.slug))
+    }
+
+    /// Whether the waiting refresh is of the app as it is now, and made by
+    /// this Parallex (otherwise it's worth building again).
+    public static func stagedRefreshIsCurrent(for manifest: InstanceManifest) -> Bool {
+        guard let staged = stagedRefresh(of: manifest), let clone = staged.clone else { return false }
+        let target = URL(fileURLWithPath: manifest.targetApp)
+        return clone.sourceVersion == AppCloner.version(of: target) && staged.parallexVersion == ParallexConfig.version
+            && staged.wrapperPath == manifest.wrapperPath
+    }
+
+    /// Put a waiting refresh in place of the copy, which must not be
+    /// running. Returns the instance as it now is, or nil when there was
+    /// nothing (usable) waiting.
+    @discardableResult
+    public static func installStagedRefresh(
+        _ manifest: InstanceManifest,
+        builderOptions: BundleBuilder.Options = BundleBuilder.Options()
+    ) throws -> InstanceManifest? {
+        let fm = FileManager.default
+        let staged = Paths.stagedCopy(slug: manifest.slug)
+        defer { clearLeftovers(slug: manifest.slug) }
+        guard let refreshed = stagedRefresh(of: manifest) else { return nil }
+        // Built for another place or name (the instance changed since).
+        guard refreshed.wrapperPath == manifest.wrapperPath else {
+            discardStagedRefresh(slug: manifest.slug)
+            return nil
+        }
+        guard !Running.isRunning(manifest) else { return nil }
+        let copy = URL(fileURLWithPath: manifest.wrapperPath)
+        let previous = Paths.stagingDir(slug: manifest.slug).appendingPathComponent("previous-\(UUID().uuidString).app")
+        let hadCopy = fm.fileExists(atPath: copy.path)
+        if hadCopy {
+            BundleBuilder.unregister(copy)
+            try fm.moveItem(at: copy, to: previous)
+        }
+        do {
+            try fm.moveItem(at: staged, to: copy)
+        } catch {
+            if hadCopy {
+                try? fm.moveItem(at: previous, to: copy)
+            }
+            throw error
+        }
+        try InstanceStore.save(refreshed)
+        try? fm.removeItem(at: Paths.stagedManifest(slug: manifest.slug))
+        if builderOptions.registerWithLaunchServices, let lsregister = BundleBuilder.lsregisterPath {
+            Shell.runAllowingFailure(lsregister, ["-f", copy.path])
+        }
+        return refreshed
+    }
+
+    /// Drop a waiting refresh (a rebuild supersedes it).
+    static func discardStagedRefresh(slug: String) {
+        let fm = FileManager.default
+        try? fm.removeItem(at: Paths.stagedCopy(slug: slug))
+        try? fm.removeItem(at: Paths.stagedManifest(slug: slug))
+        clearLeftovers(slug: slug)
+    }
+
+    /// Copies a refresh replaced (the launcher leaves them here) go to the
+    /// Trash; an empty staging folder goes.
+    static func clearLeftovers(slug: String) {
+        let fm = FileManager.default
+        let folder = Paths.stagingDir(slug: slug)
+        for name in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] where name.hasPrefix("previous-") {
+            try? Trash.move(folder.appendingPathComponent(name))
+        }
+        if (try? fm.contentsOfDirectory(atPath: folder.path))?.isEmpty == true {
+            try? fm.removeItem(at: folder)
+        }
+    }
+}
+
 /// Duplicating an instance: the same app and settings under a new name,
 /// optionally with a copy of its data.
 extension InstanceCreator {
@@ -620,9 +731,14 @@ public enum InstanceCreator {
         settings: InstanceSettings,
         previous: InstanceManifest?,
         keychainSuffix requestedKeychainSuffix: String?? = nil,
+        stage: Bool = false,
         builderOptions: BundleBuilder.Options
     ) throws -> CreateResult {
         let instanceDir = Paths.instanceDir(slug: slug)
+        // A rebuild supersedes a refresh waiting to take over.
+        if !stage {
+            discardStagedRefresh(slug: slug)
+        }
         var sharedItems = settings.includeDefaultSharedItems ? Presets.defaultSharedItems : []
         sharedItems.append(contentsOf: settings.extraSharedItems.filter { !sharedItems.contains($0) })
 
@@ -716,6 +832,7 @@ public enum InstanceCreator {
                 spec: spec, target: target, previous: previous,
                 separateGroups: settings.separatesLibrary(for: target) && target.isSandboxed,
                 hideFromDock: settings.hideFromDock == true,
+                stageAt: stage ? Paths.stagedCopy(slug: slug) : nil,
                 builderOptions: builderOptions
             )
             separatedGroups = built.groupMap.isEmpty ? nil : built.groupMap
@@ -732,6 +849,7 @@ public enum InstanceCreator {
                 )
             }
         } else {
+            guard !stage else { throw ParallexError("Only an own-identity copy is refreshed while it runs.") }
             output = try BundleBuilder(options: builderOptions).build(spec)
         }
 
@@ -741,7 +859,8 @@ public enum InstanceCreator {
             bundleIdentifier: spec.bundleIdentifier,
             targetApp: target.url.path,
             targetBinary: spec.targetBinaryPath,
-            wrapperPath: output.url.path,
+            // Staged, it's built elsewhere but belongs where the copy is.
+            wrapperPath: stage ? outDir.appendingPathComponent("\(instanceName).app").path : output.url.path,
             mode: plan.mode,
             preset: plan.presetID,
             arguments: arguments,
@@ -759,7 +878,7 @@ public enum InstanceCreator {
             keychainSuffix: cloneRecord?.usesLauncher == true || previous?.keychainSuffix != nil ? keychainSuffix : nil,
             instanceKeychain: cloneRecord?.usesLauncher == true ? instanceKeychain : nil
         )
-        try InstanceStore.save(manifest)
+        try InstanceStore.save(manifest, to: stage ? Paths.stagedManifest(slug: slug) : nil)
 
         return CreateResult(
             manifest: manifest,
@@ -781,6 +900,7 @@ public enum InstanceCreator {
         previous: InstanceManifest?,
         separateGroups: Bool,
         hideFromDock: Bool = false,
+        stageAt: URL? = nil,
         builderOptions: BundleBuilder.Options
     ) throws -> (
         output: BundleBuilder.BuildOutput, record: InstanceManifest.CloneRecord, executable: String,
@@ -791,7 +911,7 @@ public enum InstanceCreator {
         guard assessment.possible else {
             throw ParallexError(assessment.notes.joined(separator: " "))
         }
-        if let previous, Running.isRunning(previous) {
+        if stageAt == nil, let previous, Running.isRunning(previous) {
             throw ParallexError("Quit “\(previous.name)” first — its copy of the app is replaced when it's rebuilt.")
         }
         let destination = spec.outputDirectory.appendingPathComponent("\(spec.name).app", isDirectory: true)
@@ -878,8 +998,9 @@ public enum InstanceCreator {
         buildSpec.groupMap = groupMap
         buildSpec.groupsLibrary = groupsLibrary
         buildSpec.hideFromDock = hideFromDock
+        buildSpec.stageAt = stageAt
         let url = try AppCloner.build(buildSpec, sign: builderOptions.sign)
-        if builderOptions.registerWithLaunchServices, let lsregister = BundleBuilder.lsregisterPath {
+        if stageAt == nil, builderOptions.registerWithLaunchServices, let lsregister = BundleBuilder.lsregisterPath {
             Shell.runAllowingFailure(lsregister, ["-f", url.path])
         }
         let record = InstanceManifest.CloneRecord(

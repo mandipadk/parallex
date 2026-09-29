@@ -113,7 +113,9 @@ still goes through the launcher, so its isolation always applies.
   and with its own Library (the default) its "Check for Updates…" is greyed
   out and Electron apps hear there's no update, so nothing is downloaded.
   When the original updates, Parallex
-  refreshes the copy: automatically once it quits, or with **Repair**. If
+  builds the refreshed copy right away, even while the copy is in use; it
+  takes over the moment the copy quits, or the next time it opens, so a copy
+  is never left behind just because it was running. If
   something replaces the copy anyway, Parallex notices, won't open it, and
   makes it a copy again.
 - Features tied to the developer's signature (iCloud, push, keychain items

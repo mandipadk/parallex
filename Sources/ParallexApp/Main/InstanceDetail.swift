@@ -459,6 +459,8 @@ private struct ProblemBanners: View {
         case .targetMissing: "\(entry.targetName) isn't installed anymore. Reinstall it, or point the instance at where it is now."
         case .targetMoved(let path): "\(entry.targetName) moved to \(Paths.abbreviate(path)). Repair records the new location."
         case .wrapperOutdated: "Built with an older Parallex. Repair picks up the latest improvements."
+        case .cloneOutdated(_, let original) where entry.running && InstanceCreator.stagedRefreshIsCurrent(for: entry.manifest):
+            "\(entry.targetName) updated to \(original). The refreshed copy is ready and takes over when this one quits."
         case .cloneOutdated(_, let original) where entry.running:
             "\(entry.targetName) updated to \(original). This copy catches up when it restarts."
         case .cloneOutdated(_, let original): "\(entry.targetName) updated to \(original). Repair refreshes this copy."

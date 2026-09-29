@@ -280,6 +280,15 @@ struct Repair: ParsableCommand {
         for manifest in manifests {
             do {
                 let target = try app.map { try AppResolver.resolve($0) }
+                // A running copy can't be replaced underneath itself: its
+                // refresh is built now and takes over when it quits.
+                let problems = InstanceStatus.check(manifest).problems
+                if manifest.clone != nil, target == nil, Running.isRunning(manifest),
+                   !problems.contains(.copyReplaced) {
+                    try InstanceCreator.stageRefresh(manifest)
+                    print("\(Term.green("✓")) “\(manifest.name)” is running: its refreshed copy is ready and takes over when it quits")
+                    continue
+                }
                 let result = try InstanceCreator.update(manifest, InstanceUpdate(targetApp: target))
                 print("\(Term.green("✓")) Repaired “\(result.manifest.name)”")
                 for warning in result.warnings {

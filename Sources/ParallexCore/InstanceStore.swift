@@ -404,8 +404,8 @@ public enum InstanceStore {
         return decoder
     }
 
-    public static func save(_ manifest: InstanceManifest) throws {
-        let url = manifestURL(slug: manifest.slug)
+    public static func save(_ manifest: InstanceManifest, to destination: URL? = nil) throws {
+        let url = destination ?? manifestURL(slug: manifest.slug)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -414,7 +414,11 @@ public enum InstanceStore {
     }
 
     public static func load(slug: String) -> InstanceManifest? {
-        guard let data = try? Data(contentsOf: manifestURL(slug: slug)) else {
+        load(from: manifestURL(slug: slug))
+    }
+
+    public static func load(from url: URL) -> InstanceManifest? {
+        guard let data = try? Data(contentsOf: url) else {
             return nil
         }
         return try? decoder.decode(InstanceManifest.self, from: data)

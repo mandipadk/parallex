@@ -101,6 +101,9 @@ public enum AppCloner {
         var groupsLibrary: URL? = nil
         /// No Dock icon or ⌘-Tab entry (LSUIElement).
         var hideFromDock = false
+        /// Build it here instead of in place: a refresh made while the copy
+        /// runs, put in place later (`ParallexConfig.stagingFolder`).
+        var stageAt: URL? = nil
     }
 
     /// The Parallex launcher's name inside a copy (its main executable).
@@ -297,6 +300,16 @@ public enum AppCloner {
                 ))
                 try resign(copy, source: spec.source, within: staging, groupMap: spec.groupMap, identity: nil)
             }
+        }
+
+        // A staged refresh waits beside the instance; the running copy stays.
+        if let stageAt = spec.stageAt {
+            try fm.createDirectory(at: stageAt.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if fm.fileExists(atPath: stageAt.path) {
+                try fm.removeItem(at: stageAt)
+            }
+            try fm.moveItem(at: copy, to: stageAt)
+            return stageAt
         }
 
         // Swap in the new copy; if that fails, put the old one back.

@@ -1,4 +1,5 @@
 import Foundation
+import ParallexKit
 
 /// Well-known locations. All instance data lives under one support root so it
 /// is easy to find, back up, or nuke. PARALLEX_HOME overrides the root for
@@ -33,6 +34,20 @@ public enum Paths {
     /// instance folder, beside (not inside) the home the copy sees.
     public static func instanceKeychain(slug: String) -> URL {
         instanceDir(slug: slug).appendingPathComponent("Instance.keychain-db")
+    }
+
+    /// Where a copy refreshed while it ran waits (see
+    /// `ParallexConfig.stagingFolder`).
+    public static func stagingDir(slug: String) -> URL {
+        instanceDir(slug: slug).appendingPathComponent(ParallexConfig.stagingFolder, isDirectory: true)
+    }
+
+    public static func stagedCopy(slug: String) -> URL {
+        stagingDir(slug: slug).appendingPathComponent(ParallexConfig.stagedCopyName, isDirectory: true)
+    }
+
+    public static func stagedManifest(slug: String) -> URL {
+        stagingDir(slug: slug).appendingPathComponent("instance.json")
     }
 
     /// PID file the launcher writes before exec (see `Running`).

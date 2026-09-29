@@ -119,6 +119,8 @@ final class AppModel {
     /// Instances whose automatic repair failed this session (not retried).
     private(set) var maintenanceFailures: Set<String> = []
     @ObservationIgnored private var maintaining = false
+    /// Copies whose refresh is being built while they run.
+    @ObservationIgnored private var staging: Set<String> = []
 
     @ObservationIgnored private var healthyCopies: Set<String> = []
     /// Running processes already checked automatically (one check per launch).
@@ -937,6 +939,7 @@ final class AppModel {
                 && entry.status.problems.allSatisfy(\.isMaintainable)
                 && !maintenanceFailures.contains(entry.id) && !busy.contains(entry.id)
         }
+        stageRefreshes()
         guard !due.isEmpty else { return }
         maintaining = true
         Task {
@@ -950,7 +953,13 @@ final class AppModel {
                 busy.insert(entry.id)
                 do {
                     _ = try await Task.detached(priority: .utility) {
-                        try InstanceCreator.update(manifest)
+                        // A refresh built while it ran takes over in an
+                        // instant; otherwise it's rebuilt now.
+                        if InstanceCreator.stagedRefreshIsCurrent(for: manifest),
+                           try InstanceCreator.installStagedRefresh(manifest) != nil {
+                            return
+                        }
+                        _ = try InstanceCreator.update(manifest)
                     }.value
                     IconCache.invalidate(manifest.wrapperPath)
                 } catch {
@@ -960,6 +969,28 @@ final class AppModel {
             }
             maintaining = false
             refresh()
+        }
+    }
+
+    /// Running copies whose app updated get their refresh built now, so it
+    /// takes over the moment they quit instead of keeping them waiting.
+    private func stageRefreshes() {
+        let due = entries.filter { entry in
+            entry.running && entry.isClone && !staging.contains(entry.id) && !busy.contains(entry.id)
+                && !entry.status.problems.isEmpty
+                && entry.status.problems.allSatisfy { $0.isMaintainable && $0 != .copyReplaced }
+                && !InstanceCreator.stagedRefreshIsCurrent(for: entry.manifest)
+        }
+        for entry in due {
+            let manifest = entry.manifest
+            staging.insert(entry.id)
+            Task {
+                _ = try? await Task.detached(priority: .utility) {
+                    try InstanceCreator.stageRefresh(manifest)
+                }.value
+                staging.remove(entry.id)
+                refresh()
+            }
         }
     }
 

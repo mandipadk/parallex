@@ -126,6 +126,46 @@ func holdLaunchLock(pidFile: String) {
     while flock(descriptor, LOCK_EX) != 0 && errno == EINTR {}
 }
 
+/// A refresh of this copy that Parallex built while it ran (see
+/// `ParallexConfig.stagingFolder`): put it in place of this copy and start
+/// over from it. Only the same copy (same identity, same instance) is taken;
+/// anything off, and the copy opens as it is (Parallex installs the refresh
+/// once it's running).
+func installStagedRefresh(pidFile: String, config: [String: Any]) {
+    let fm = FileManager.default
+    let instanceDir = URL(fileURLWithPath: pidFile).deletingLastPathComponent()
+    let staging = instanceDir.appendingPathComponent(ParallexConfig.stagingFolder)
+    let staged = staging.appendingPathComponent(ParallexConfig.stagedCopyName)
+    let record = staging.appendingPathComponent("instance.json")
+    guard fm.fileExists(atPath: staged.path), fm.fileExists(atPath: record.path),
+          let data = try? Data(contentsOf: staged.appendingPathComponent("Contents/Info.plist")),
+          let info = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any],
+          info["CFBundleIdentifier"] as? String == Bundle.main.bundleIdentifier,
+          let stagedConfig = info[ParallexConfig.rootKey] as? [String: Any],
+          let slug = config[ParallexConfig.Key.slug] as? String,
+          stagedConfig[ParallexConfig.Key.slug] as? String == slug
+    else {
+        return
+    }
+    let own = Bundle.main.bundleURL
+    let previous = staging.appendingPathComponent("previous-\(UUID().uuidString).app")
+    // Renames only (the refresh sits on the same disk); if either fails,
+    // everything stays as it was.
+    guard rename(own.path, previous.path) == 0 else { return }
+    guard rename(staged.path, own.path) == 0 else {
+        _ = rename(previous.path, own.path)
+        return
+    }
+    _ = rename(record.path, instanceDir.appendingPathComponent("instance.json").path)
+    log.info("installed the refreshed copy; starting over from it")
+    let launcher = own.appendingPathComponent("Contents/MacOS/parallex-launcher").path
+    var argv: [UnsafeMutablePointer<CChar>?] = [strdup(launcher)]
+    argv.append(contentsOf: CommandLine.arguments.dropFirst().map { strdup($0) })
+    argv.append(nil)
+    execv(launcher, argv)
+    fail("Could not start the refreshed copy: \(String(cString: strerror(errno)))")
+}
+
 /// Replace this process with the target binary, keeping our PID.
 func execTarget(_ path: String, arguments: [String]) -> Never {
     var argv: [UnsafeMutablePointer<CChar>?] = [strdup(path)]
@@ -229,6 +269,12 @@ if let pidFile, let running = runningInstancePID(pidFile: pidFile, expectedExecu
     log.info("instance already running as pid \(running, privacy: .public); activating it")
     NSRunningApplication(processIdentifier: running)?.activate(options: [.activateAllWindows])
     exit(0)
+}
+
+// 0b. A refresh waiting to take over (this copy wasn't running when it
+//     could): install it and start over from it.
+if let pidFile, config[ParallexConfig.Key.redirectScope] != nil || Bundle.main.executableURL?.lastPathComponent == "parallex-launcher" {
+    installStagedRefresh(pidFile: pidFile, config: config)
 }
 
 // Drop isolation variables inherited from another instance (this launcher
