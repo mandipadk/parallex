@@ -41,6 +41,7 @@ struct WrapperSpec {
     var keychainKeep: [String] = []
     /// The copy's own keychain file (with its own Library only).
     var instanceKeychain: String? = nil
+    var safeStorageInKeychain = false
 }
 
 /// Assembles, signs, and registers wrapper bundles. The bundle is built in a
@@ -204,6 +205,9 @@ public struct BundleBuilder {
             }
             if let instanceKeychain = spec.instanceKeychain {
                 config[ParallexConfig.Key.instanceKeychain] = instanceKeychain
+                if spec.safeStorageInKeychain {
+                    config[ParallexConfig.Key.safeStorageInKeychain] = true
+                }
             }
             if let keychainSuffix = spec.keychainSuffix {
                 config[ParallexConfig.Key.keychainSuffix] = keychainSuffix

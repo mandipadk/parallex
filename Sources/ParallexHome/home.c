@@ -62,6 +62,9 @@ static char keychain_suffix[128];
 // "\n"-separated "… Safe Storage" names left alone (other browsers' keys).
 static char keychain_keep[1024];
 static char instance_keychain_path[PATH_MAX];
+// "Safe Storage" keys go to the copy's own keychain as well (copies made
+// with it), instead of being renamed in the login keychain.
+static bool safe_storage_own = false;
 
 static bool has_suffix(const char *text, size_t length, const char *suffix) {
     size_t suffix_length = strlen(suffix);
@@ -106,6 +109,7 @@ static void leave_environment(void) {
     unsetenv("PARALLEX_KEYCHAIN_SUFFIX");
     unsetenv("PARALLEX_KEYCHAIN_KEEP");
     unsetenv("PARALLEX_INSTANCE_KEYCHAIN");
+    unsetenv("PARALLEX_SAFE_STORAGE_OWN");
 }
 
 // Runs once, from the constructor (or earlier, if another part of the
@@ -157,6 +161,8 @@ static void set_up(void) {
     const char *instance_keychain = getenv("PARALLEX_INSTANCE_KEYCHAIN");
     if (instance_keychain != NULL && instance_keychain[0] == '/') {
         strlcpy(instance_keychain_path, instance_keychain, sizeof(instance_keychain_path));
+        const char *own = getenv("PARALLEX_SAFE_STORAGE_OWN");
+        safe_storage_own = own != NULL && strcmp(own, "1") == 0;
     }
     // Calls from this library aren't interposed: this is the real account.
     struct passwd *account = getpwuid(getuid());
@@ -325,9 +331,11 @@ static bool is_safe_storage(UInt32 length, const char *name) {
 
 // "<App> Safe Storage" → "<App> Safe Storage<suffix>", for the legacy API
 // (the name isn't NUL-terminated there). NULL when it stays as it is; the
-// caller frees it.
-static char *renamed_service(UInt32 length, const char *name) {
-    if (!renames_keychain() || !is_safe_storage(length, name) || is_kept(name, length)) {
+// caller frees it. A copy whose key lives in its own keychain renames it
+// only where the app names a keychain itself (it may name yours).
+static char *renamed_service(UInt32 length, const char *name, bool names_keychain) {
+    if ((safe_storage_own && !names_keychain) || !renames_keychain() || !is_safe_storage(length, name)
+        || is_kept(name, length)) {
         return NULL;
     }
     size_t size = length + strlen(keychain_suffix) + 1;
@@ -405,9 +413,27 @@ static CFDictionaryRef translated(CFDictionaryRef query, bool adding) {
     if (!password) {
         return NULL;
     }
+    // Proxy passwords are the Mac's, not the app's (the system's network
+    // code looks them up in-process): they stay where they are.
+    if (!generic) {
+        CFTypeRef protocol = CFDictionaryGetValue(query, kSecAttrProtocol);
+        if (protocol != NULL && (CFEqual(protocol, kSecAttrProtocolHTTPProxy) || CFEqual(protocol, kSecAttrProtocolHTTPSProxy)
+                                 || CFEqual(protocol, kSecAttrProtocolSOCKS) || CFEqual(protocol, kSecAttrProtocolFTPProxy))) {
+            return NULL;
+        }
+    }
     bool safe_storage_item = generic && service != NULL && CFGetTypeID(service) == CFStringGetTypeID()
         && CFStringHasSuffix((CFStringRef)service, CFSTR(" Safe Storage"));
-    if (safe_storage_item) {
+    bool names_keychain = CFDictionaryContainsKey(query, kSecUseKeychain) || CFDictionaryContainsKey(query, kSecMatchSearchList);
+    if (safe_storage_item && safe_storage_own && !names_keychain) {
+        // Its own key in its own keychain, unless it's another app's (a
+        // browser copy importing from Chrome reads Chrome's).
+        char current[512];
+        if (CFStringGetCString((CFStringRef)service, current, sizeof(current), kCFStringEncodingUTF8)
+            && is_kept(current, strlen(current))) {
+            return NULL;
+        }
+    } else if (safe_storage_item) {
         char current[512];
         if (!renames_keychain() || !CFStringGetCString((CFStringRef)service, current, sizeof(current), kCFStringEncodingUTF8)
             || is_kept(current, strlen(current))) {
@@ -472,7 +498,10 @@ static CFDictionaryRef translated_changes(CFDictionaryRef changes) {
 // The legacy API: "no keychain" means the default ones. For the copy's
 // password items (not Safe Storage) that's its own keychain.
 static CFTypeRef legacy_keychains(CFTypeRef requested, UInt32 service_length, const char *service) {
-    if (requested != NULL || !active || is_safe_storage(service_length, service)) {
+    if (requested != NULL || !active) {
+        return requested;
+    }
+    if (is_safe_storage(service_length, service) && (!safe_storage_own || is_kept(service, service_length))) {
         return requested;
     }
     SecKeychainRef own = own_keychain();
@@ -489,7 +518,7 @@ static void share_with_copy(SecKeychainItemRef item) {
 static OSStatus parallex_find_generic(CFTypeRef keychains, UInt32 service_length, const char *service,
                                       UInt32 account_length, const char *account, UInt32 *password_length,
                                       void **password, SecKeychainItemRef *item) {
-    char *renamed = renamed_service(service_length, service);
+    char *renamed = renamed_service(service_length, service, keychains != NULL);
     CFTypeRef where = legacy_keychains(keychains, service_length, service);
     OSStatus status = renamed != NULL
         ? SecKeychainFindGenericPassword(where, (UInt32)strlen(renamed), renamed, account_length, account,
@@ -503,7 +532,7 @@ static OSStatus parallex_find_generic(CFTypeRef keychains, UInt32 service_length
 static OSStatus parallex_add_generic(SecKeychainRef keychain, UInt32 service_length, const char *service,
                                      UInt32 account_length, const char *account, UInt32 password_length,
                                      const void *password, SecKeychainItemRef *item) {
-    char *renamed = renamed_service(service_length, service);
+    char *renamed = renamed_service(service_length, service, keychain != NULL);
     SecKeychainRef where = (SecKeychainRef)legacy_keychains(keychain, service_length, service);
     SecKeychainItemRef made = NULL;
     OSStatus status = renamed != NULL
@@ -523,12 +552,18 @@ static OSStatus parallex_add_generic(SecKeychainRef keychain, UInt32 service_len
     return status;
 }
 
+static bool is_proxy(SecProtocolType protocol) {
+    return protocol == kSecProtocolTypeHTTPProxy || protocol == kSecProtocolTypeHTTPSProxy
+        || protocol == kSecProtocolTypeSOCKS || protocol == kSecProtocolTypeFTPProxy;
+}
+
 static OSStatus parallex_find_internet(CFTypeRef keychains, UInt32 server_length, const char *server,
                                        UInt32 domain_length, const char *domain, UInt32 account_length,
                                        const char *account, UInt32 path_length, const char *path, UInt16 port,
                                        SecProtocolType protocol, SecAuthenticationType authentication,
                                        UInt32 *password_length, void **password, SecKeychainItemRef *item) {
-    return SecKeychainFindInternetPassword(legacy_keychains(keychains, 0, NULL), server_length, server, domain_length,
+    CFTypeRef where = is_proxy(protocol) ? keychains : legacy_keychains(keychains, 0, NULL);
+    return SecKeychainFindInternetPassword(where, server_length, server, domain_length,
                                            domain, account_length, account, path_length, path, port, protocol,
                                            authentication, password_length, password, item);
 }
@@ -538,7 +573,7 @@ static OSStatus parallex_add_internet(SecKeychainRef keychain, UInt32 server_len
                                       const char *account, UInt32 path_length, const char *path, UInt16 port,
                                       SecProtocolType protocol, SecAuthenticationType authentication,
                                       UInt32 password_length, const void *password, SecKeychainItemRef *item) {
-    SecKeychainRef where = (SecKeychainRef)legacy_keychains(keychain, 0, NULL);
+    SecKeychainRef where = is_proxy(protocol) ? keychain : (SecKeychainRef)legacy_keychains(keychain, 0, NULL);
     SecKeychainItemRef made = NULL;
     OSStatus status = SecKeychainAddInternetPassword(where, server_length, server, domain_length, domain,
                                                      account_length, account, path_length, path, port, protocol,

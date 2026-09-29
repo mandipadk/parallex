@@ -104,6 +104,9 @@ public enum AppCloner {
         /// Build it here instead of in place: a refresh made while the copy
         /// runs, put in place later (`ParallexConfig.stagingFolder`).
         var stageAt: URL? = nil
+        /// Signed with this Mac's identity or not at all (a copy with its own
+        /// keychain can only open it with the same signature).
+        var requireIdentity = false
     }
 
     /// The Parallex launcher's name inside a copy (its main executable).
@@ -243,6 +246,9 @@ public enum AppCloner {
             }
             if let keychain = spec.launcherConfig[ParallexConfig.Key.instanceKeychain] as? String {
                 variables["PARALLEX_INSTANCE_KEYCHAIN"] = keychain
+                if spec.launcherConfig[ParallexConfig.Key.safeStorageInKeychain] as? Bool == true {
+                    variables["PARALLEX_SAFE_STORAGE_OWN"] = "1"
+                }
             }
             if let suffix = spec.launcherConfig[ParallexConfig.Key.keychainSuffix] as? String {
                 variables["PARALLEX_KEYCHAIN_SUFFIX"] = suffix
@@ -295,14 +301,18 @@ public enum AppCloner {
             // Signed with this Mac's own identity, the copy keeps its
             // permissions and keychain access across refreshes (see
             // SigningIdentity); ad hoc when that isn't available.
-            let identity = SigningIdentity.forSigning()
-            do {
-                try resign(copy, source: spec.source, within: staging, groupMap: spec.groupMap, identity: identity)
-            } catch where identity != nil {
-                FileHandle.standardError.write(Data(
-                    "parallex: signing with this Mac's identity failed, signing ad hoc instead: \(error)\n".utf8
-                ))
-                try resign(copy, source: spec.source, within: staging, groupMap: spec.groupMap, identity: nil)
+            try SigningIdentity.whileSigning { identity in
+                if spec.requireIdentity, identity == nil {
+                    throw ParallexError("This Mac's signing identity isn't available, so the copy wasn't made.")
+                }
+                do {
+                    try resign(copy, source: spec.source, within: staging, groupMap: spec.groupMap, identity: identity)
+                } catch where identity != nil && !spec.requireIdentity {
+                    FileHandle.standardError.write(Data(
+                        "parallex: signing with this Mac's identity failed, signing ad hoc instead: \(error)\n".utf8
+                    ))
+                    try resign(copy, source: spec.source, within: staging, groupMap: spec.groupMap, identity: nil)
+                }
             }
         }
 
@@ -362,20 +372,34 @@ public enum AppCloner {
     /// weak load command naming the same file the launcher inserts (so it's
     /// never loaded twice). An Electron app's framework is the one place
     /// every one of its processes loads; otherwise the app's binary and its
-    /// helpers' and services' are linked. Binaries without room keep
-    /// relying on DYLD_INSERT_LIBRARIES. Returns whether the app's own
-    /// binary now loads it (for this Mac's architecture). Before re-signing.
+    /// helpers' and services' are linked. Returns whether all of them now
+    /// load it (for the architecture this Mac runs them as); if any doesn't,
+    /// the launcher keeps checking that macOS inserts it. Only ever writes
+    /// to files inside the copy. Before re-signing.
     static func linkHomeLibrary(_ library: String, into copy: URL, appExecutable: String) -> Bool {
         let fm = FileManager.default
+        let root = copy.resolvingSymlinksInPath().path + "/"
+        /// The file itself, if it's a Mach-O inside the copy (never through
+        /// a link to somewhere else, like the original app).
+        func own(_ url: URL) -> URL? {
+            let resolved = url.resolvingSymlinksInPath()
+            let isFile = (try? resolved.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
+            return resolved.path.hasPrefix(root) && isFile && isMachO(resolved) ? resolved : nil
+        }
+        func loads(_ binary: URL) -> Bool {
+            guard let linked = try? MachOLinker.addWeakLibrary(library, to: binary),
+                  let running = MachOLinker.runningArchitecture(of: binary)
+            else { return false }
+            return linked.contains(running)
+        }
         let contents = copy.appendingPathComponent("Contents")
         let appBinary = contents.appendingPathComponent("MacOS").appendingPathComponent(appExecutable)
         let framework = contents.appendingPathComponent("Frameworks/Electron Framework.framework/Electron Framework")
-            .resolvingSymlinksInPath()
         if fm.fileExists(atPath: framework.path) {
-            guard let linked = try? MachOLinker.addWeakLibrary(library, to: framework),
-                  let running = MachOLinker.runningArchitecture(of: appBinary)
+            guard let framework = own(framework), let app = own(appBinary),
+                  let running = MachOLinker.runningArchitecture(of: app)
             else { return false }
-            return linked.contains(running)
+            return (try? MachOLinker.addWeakLibrary(library, to: framework))?.contains(running) == true
         }
         var binaries = [appBinary]
         if let enumerator = fm.enumerator(at: contents, includingPropertiesForKeys: [.isSymbolicLinkKey]) {
@@ -386,14 +410,17 @@ public enum AppCloner {
                 binaries.append(bundle.appendingPathComponent("Contents/MacOS").appendingPathComponent(name))
             }
         }
-        var appLinked = false
-        for binary in binaries where fm.fileExists(atPath: binary.path) && isMachO(binary) {
-            guard let linked = try? MachOLinker.addWeakLibrary(library, to: binary) else { continue }
-            if binary == appBinary, let running = MachOLinker.runningArchitecture(of: binary) {
-                appLinked = linked.contains(running)
+        var all = true
+        for binary in binaries {
+            guard let binary = own(binary) else {
+                all = false
+                continue
+            }
+            if !loads(binary) {
+                all = false
             }
         }
-        return appLinked
+        return all
     }
 
     /// Parts of an app that macOS starts itself — XPC services, helper apps

@@ -121,6 +121,9 @@ final class AppModel {
     @ObservationIgnored private var maintaining = false
     /// Copies whose refresh is being built while they run.
     @ObservationIgnored private var staging: Set<String> = []
+    /// Refreshes that couldn't be built (instance and app version), so a
+    /// failing one isn't tried again every time an app quits.
+    @ObservationIgnored private var stagingFailures: Set<String> = []
 
     @ObservationIgnored private var healthyCopies: Set<String> = []
     /// Running processes already checked automatically (one check per launch).
@@ -937,7 +940,7 @@ final class AppModel {
         let due = entries.filter { entry in
             !entry.running && !entry.status.problems.isEmpty
                 && entry.status.problems.allSatisfy(\.isMaintainable)
-                && !maintenanceFailures.contains(entry.id) && !busy.contains(entry.id)
+                && !maintenanceFailures.contains(entry.id) && !busy.contains(entry.id) && !staging.contains(entry.id)
         }
         stageRefreshes()
         guard !due.isEmpty else { return }
@@ -979,19 +982,29 @@ final class AppModel {
             entry.running && entry.isClone && !staging.contains(entry.id) && !busy.contains(entry.id)
                 && !entry.status.problems.isEmpty
                 && entry.status.problems.allSatisfy { $0.isMaintainable && $0 != .copyReplaced }
+                && !stagingFailures.contains(Self.stagingKey(entry))
                 && !InstanceCreator.stagedRefreshIsCurrent(for: entry.manifest)
         }
         for entry in due {
             let manifest = entry.manifest
+            let key = Self.stagingKey(entry)
             staging.insert(entry.id)
             Task {
-                _ = try? await Task.detached(priority: .utility) {
-                    try InstanceCreator.stageRefresh(manifest)
-                }.value
+                do {
+                    try await Task.detached(priority: .utility) {
+                        try InstanceCreator.stageRefresh(manifest)
+                    }.value
+                } catch {
+                    stagingFailures.insert(key)
+                }
                 staging.remove(entry.id)
                 refresh()
             }
         }
+    }
+
+    private static func stagingKey(_ entry: InstanceEntry) -> String {
+        entry.id + "|" + AppCloner.version(of: URL(fileURLWithPath: entry.manifest.targetApp))
     }
 
     // MARK: - Verification

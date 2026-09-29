@@ -143,7 +143,9 @@ final class InstanceKeychainTests: XCTestCase {
         XCTAssertEqual(try launch(result.wrapperURL, "add"), "0 ", "the data protection request works in the copy")
         XCTAssertTrue(FileManager.default.fileExists(atPath: keychain), "the launcher made its keychain")
         XCTAssertTrue(try items(in: keychain).contains(service), "the token is in the copy's keychain")
-        XCTAssertTrue(InstanceKeychain.hasStoredPassword(for: keychain), "its password is kept for the launcher")
+        let password = InstanceKeychain.passwordFile(for: keychain)
+        let permissions = try FileManager.default.attributesOfItem(atPath: password)[.posixPermissions] as? NSNumber
+        XCTAssertEqual(permissions?.intValue, 0o600, "its password is beside it, yours alone")
         // Not in the keychains everything else uses.
         XCTAssertNil(try? Shell.run("/usr/bin/security", ["find-generic-password", "-s", service]))
 
@@ -170,14 +172,42 @@ final class InstanceKeychainTests: XCTestCase {
         XCTAssertFalse(try String(contentsOf: out, encoding: .utf8).hasPrefix("0 "), "the original doesn't find it")
     }
 
-    func testRemovingTheInstanceForgetsItsKeychainPassword() throws {
-        let target = try makeTokenApp(named: "Gone")
-        let result = try makeCopy(of: target, name: "Gone Work")
-        _ = try launch(result.wrapperURL, "add")
-        let keychain = Paths.instanceKeychain(slug: "gone-work").path
-        XCTAssertTrue(InstanceKeychain.hasStoredPassword(for: keychain))
-        _ = try InstanceRemover.remove(result.manifest, keepData: false)
-        XCTAssertFalse(InstanceKeychain.hasStoredPassword(for: keychain), "the copy deleted its keychain's password")
+    /// The app updates and its copy is refreshed (new code, same signing
+    /// identity): the copy still opens its keychain and finds its sign-in.
+    func testTheCopyKeepsItsSignInsAcrossARefresh() throws {
+        let target = try makeTokenApp(named: "Steady")
+        let result = try makeCopy(of: target, name: "Steady Work")
+        XCTAssertEqual(try launch(result.wrapperURL, "add"), "0 ")
+        let refreshed = try InstanceCreator.update(result.manifest, builderOptions: options)
+        XCTAssertEqual(try launch(refreshed.wrapperURL, "read"), "0 token-1")
+        XCTAssertEqual(try runHelper(of: refreshed.wrapperURL, named: "Steady"), "0 token-1")
+    }
+
+    /// If its keychain can't be opened, the copy doesn't open: it would
+    /// otherwise use your keychain and find the original's sign-ins.
+    func testACopyWhoseKeychainWontOpenDoesntOpen() throws {
+        let target = try makeTokenApp(named: "Locked")
+        let result = try makeCopy(of: target, name: "Locked Work")
+        XCTAssertEqual(try launch(result.wrapperURL, "add"), "0 ")
+        let keychain = Paths.instanceKeychain(slug: "locked-work").path
+        var opened: SecKeychain?
+        XCTAssertEqual(SecKeychainOpen(keychain, &opened), errSecSuccess)
+        SecKeychainLock(opened)
+        try Data("not-its-password".utf8).write(to: URL(fileURLWithPath: InstanceKeychain.passwordFile(for: keychain)))
+
+        let out = tempDir.appendingPathComponent("locked-out")
+        let process = Process()
+        process.executableURL = result.wrapperURL.appendingPathComponent("Contents/MacOS/parallex-launcher")
+        var environment = ProcessInfo.processInfo.environment
+        environment["FIXTURE_OUT"] = out.path
+        environment["FIXTURE_MODE"] = "read"
+        environment["FIXTURE_SERVICE"] = service
+        process.environment = environment
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertNotEqual(process.terminationStatus, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: out.path), "the app never ran")
     }
 
     /// Copies that had their own Library before they had their own keychain
@@ -186,7 +216,9 @@ final class InstanceKeychainTests: XCTestCase {
         let target = try makeTokenApp(named: "Oldie")
         var old = try makeCopy(of: target, name: "Oldie Work").manifest
         old.instanceKeychain = nil
+        old.safeStorageInKeychain = nil
         old.settings?.separateKeychain = nil
+        old.parallexVersion = "1.0.0"
         XCTAssertEqual(old.effectiveSettings.separateKeychain, false)
         let rebuilt = try InstanceCreator.update(old, builderOptions: options)
         XCTAssertNil(rebuilt.manifest.instanceKeychain, "a routine rebuild doesn't sign it out")
@@ -197,8 +229,8 @@ final class InstanceKeychainTests: XCTestCase {
         XCTAssertEqual(turnedOn.manifest.instanceKeychain, Paths.instanceKeychain(slug: "oldie-work").path)
     }
 
-    /// A keychain file whose password was never kept can't be opened by
-    /// anyone: it's set aside and the copy gets a new one.
+    /// A keychain file without its password can't be opened by anyone:
+    /// it's set aside and the copy gets a new one.
     func testAKeychainNobodyCanOpenIsReplaced() throws {
         let target = try makeTokenApp(named: "Orphan")
         let result = try makeCopy(of: target, name: "Orphan Work")
@@ -206,12 +238,39 @@ final class InstanceKeychainTests: XCTestCase {
         try FileManager.default.createDirectory(atPath: (keychain as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         var stray: SecKeychain?
         XCTAssertEqual("lost".withCString { SecKeychainCreate(keychain, 4, $0, false, nil, &stray) }, errSecSuccess)
-        XCTAssertFalse(InstanceKeychain.hasStoredPassword(for: keychain))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: InstanceKeychain.passwordFile(for: keychain)))
 
         XCTAssertEqual(try launch(result.wrapperURL, "add"), "0 ")
-        XCTAssertTrue(InstanceKeychain.hasStoredPassword(for: keychain))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: InstanceKeychain.passwordFile(for: keychain)))
         let folder = (keychain as NSString).deletingLastPathComponent
         XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: folder).contains { $0.hasPrefix("Instance.keychain-db.unusable-") })
+    }
+
+    /// A new copy's own encryption key ("<App> Safe Storage") is in its own
+    /// keychain too, so it survives refreshes without asking.
+    func testANewCopysSafeStorageKeyIsInItsOwnKeychain() throws {
+        let target = try makeTokenApp(named: "Chromey")
+        let result = try makeCopy(of: target, name: "Chromey Work")
+        XCTAssertEqual(result.manifest.safeStorageInKeychain, true)
+        service = "Chromey \(UUID().uuidString.prefix(6)) Safe Storage"
+        XCTAssertEqual(try launch(result.wrapperURL, "add"), "0 ")
+        let keychain = Paths.instanceKeychain(slug: "chromey-work").path
+        XCTAssertTrue(try items(in: keychain).contains(service))
+        XCTAssertNil(try? Shell.run("/usr/bin/security", ["find-generic-password", "-s", service]), "not in your keychains")
+        XCTAssertNil(try? Shell.run("/usr/bin/security", ["find-generic-password", "-s", service + " (Parallex chromey-work)"]))
+        let refreshed = try InstanceCreator.update(result.manifest, builderOptions: options)
+        XCTAssertEqual(try launch(refreshed.wrapperURL, "read"), "0 token-1")
+    }
+
+    /// Signed any other way it couldn't open its keychain, so a copy that
+    /// has one isn't rebuilt without this Mac's identity.
+    func testACopyWithItsOwnKeychainIsntRebuiltWithoutTheIdentity() throws {
+        let target = try makeTokenApp(named: "Keep")
+        let result = try makeCopy(of: target, name: "Keep Work")
+        setenv("PARALLEX_SIGNING", "adhoc", 1)
+        defer { unsetenv("PARALLEX_SIGNING") }
+        XCTAssertThrowsError(try InstanceCreator.update(result.manifest, builderOptions: options))
+        XCTAssertEqual(InstanceStore.load(slug: "keep-work")?.instanceKeychain, result.manifest.instanceKeychain)
     }
 
     func testADuplicateStartsWithAKeychainOfItsOwn() throws {

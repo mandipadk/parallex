@@ -110,10 +110,10 @@ footer { color: var(--subtle); font-size: 13px; border-top: 1px solid var(--rule
   <section>
     <h2>Why a copy is re-signed</h2>
     <p>macOS knows an app by its bundle ID and its code signature. Giving the copy its own bundle ID changes the app, which breaks the developer's signature, so Parallex signs the copy again on your Mac, with a certificate it makes there the first time you make a copy. The certificate is trusted by nothing outside your Mac and kept in a keychain of Parallex's own, not your login keychain. The original keeps its signature.</p>
-    <p>Signing every copy with the same certificate matters because macOS remembers what you allowed an app (camera, microphone, screen recording, keychain items) by its signature. When the original updates and Parallex refreshes the copy, the copy keeps those permissions.</p>
+    <p>Signing every copy with the same certificate matters because macOS remembers what you allowed an app (camera, microphone, screen recording, files and folders) by its signature. When the original updates and Parallex refreshes the copy, the copy keeps those permissions.</p>
     <p>A copy's own updater is turned off. Left alone, it could install the developer's build over the copy, which would give the copy the original's identity and data again. Parallex refreshes the copy itself when the original updates.</p>
     <p>What that costs: features tied to the developer's signature don't work in a copy. That means iCloud, push notifications that go through Apple, Sign in with Apple, keychain items shared between the developer's apps, website links that should open the app, and system extensions. Apple's own apps can't be copied at all.</p>
-    <p>Sign-ins a copy keeps in the keychain go to a keychain of its own, in its instance folder, so it never finds or replaces the original's. Its password is kept in your login keychain, where only that copy can read it.</p>
+    <p>Sign-ins a copy keeps in the keychain go to a keychain of its own, in its instance folder, so it never finds or replaces the original's, and keeps them through refreshes. Its password is kept beside it, readable only by you. A copy runs without the hardened runtime, so a program you run could reach its sign-ins through the copy itself; that's true of any app built that way, and a password in your login keychain wouldn't change it.</p>
   </section>
 
   <section>

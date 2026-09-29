@@ -195,6 +195,10 @@ public struct InstanceManifest: Codable, Sendable {
     /// The copy's own keychain file, when it keeps its sign-ins there (see
     /// `InstanceKeychain`).
     public var instanceKeychain: String?
+    /// Its "<App> Safe Storage" key is in that keychain too (not renamed in
+    /// the login keychain): true for copies that had their own keychain
+    /// from the start.
+    public var safeStorageInKeychain: Bool?
 
     public struct CloneRecord: Codable, Sendable, Equatable {
         /// The copy's own bundle identifier.
@@ -227,7 +231,8 @@ public struct InstanceManifest: Codable, Sendable {
         privateHomeItems: [String]? = nil,
         links: [String: String]? = nil,
         keychainSuffix: String? = nil,
-        instanceKeychain: String? = nil
+        instanceKeychain: String? = nil,
+        safeStorageInKeychain: Bool? = nil
     ) {
         self.name = name
         self.slug = slug
@@ -251,6 +256,7 @@ public struct InstanceManifest: Codable, Sendable {
         self.links = links
         self.keychainSuffix = keychainSuffix
         self.instanceKeychain = instanceKeychain
+        self.safeStorageInKeychain = safeStorageInKeychain
         if settings != nil {
             schemaVersion = 2
         }
@@ -282,7 +288,8 @@ public struct InstanceManifest: Codable, Sendable {
             // Copies with their own Library but made before they had their
             // own keychain keep yours until it's turned on: the sign-ins
             // they made are there.
-            if settings.separateKeychain == nil, redirectedHome != nil, instanceKeychain == nil {
+            if settings.separateKeychain == nil, redirectedHome != nil, instanceKeychain == nil,
+               InstanceStatus.compareVersions(parallexVersion, "1.1.0") == .orderedAscending {
                 settings.separateKeychain = false
             }
             return settings

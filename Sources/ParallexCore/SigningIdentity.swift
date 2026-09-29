@@ -42,20 +42,38 @@ public enum SigningIdentity {
         ProcessInfo.processInfo.environment["PARALLEX_SIGNING"] == "adhoc"
     }
 
-    /// The identity to sign a copy with, made the first time it's needed
-    /// and unlocked for `codesign`. `nil` (sign ad hoc instead) when it's
-    /// turned off or can't be made.
+    /// The identity copies are signed with, made the first time it's
+    /// needed. `nil` (sign ad hoc instead) when it's turned off or can't be
+    /// made. Its keychain stays locked except while signing.
     public static func forSigning() -> Identity? {
         guard !isDisabled else { return nil }
         do {
-            let identity = try loadOrCreate()
-            try unlock()
-            return identity
+            return try loadOrCreate()
         } catch {
             FileHandle.standardError.write(Data(
                 "parallex: signing copies ad hoc — couldn't use this Mac's signing identity: \(error)\n".utf8
             ))
             return nil
+        }
+    }
+
+    /// Run `body` with the identity unlocked for `codesign` (nil when there
+    /// is none), then lock it again. One signing at a time across Parallex
+    /// and the command line, so neither locks it under the other.
+    static func whileSigning<T>(_ body: (Identity?) throws -> T) throws -> T {
+        guard let identity = forSigning() else { return try body(nil) }
+        let session = try FileLock(directory.appendingPathComponent(".signing.lock"))
+        defer { session.release() }
+        guard (try? unlock()) != nil else { return try body(nil) }
+        defer { lock() }
+        return try body(identity)
+    }
+
+    /// Lock the signing keychain: only a signing Parallex does may use it.
+    static func lock() {
+        var keychain: SecKeychain?
+        if SecKeychainOpen(keychainURL.path, &keychain) == errSecSuccess, let keychain {
+            SecKeychainLock(keychain)
         }
     }
 
@@ -147,6 +165,7 @@ public enum SigningIdentity {
             throw ParallexError("The signing certificate wasn't found in its keychain.")
         }
         try Data(hash.utf8).write(to: identityURL, options: .atomic)
+        lock()
         return Identity(hash: hash, keychain: keychainURL)
     }
 

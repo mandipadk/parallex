@@ -70,14 +70,19 @@ public enum ParallexConfig {
         /// modern macOS). Format: see `PidFileRecord`.
         public static let pidFile = "PidFile"
         /// An own-identity copy's own keychain (a file in its instance
-        /// folder): the launcher makes and unlocks it, and the copy keeps
-        /// every password item there (see `InstanceKeychain`).
+        /// folder, its password beside it): the launcher makes and unlocks
+        /// it, and the copy keeps every password item there (see
+        /// `InstanceKeychain`).
         public static let instanceKeychain = "InstanceKeychain"
         /// The copy's app loads the home-redirect library itself (a load
         /// command Parallex added to it), not only through
         /// DYLD_INSERT_LIBRARIES, so it keeps its own Library even if
         /// macOS stops honoring that variable.
         public static let homeLibraryLinked = "HomeLibraryLinked"
+        /// The copy keeps its "<App> Safe Storage" key in its own keychain
+        /// too (copies made with their own keychain); older copies keep
+        /// theirs, renamed, in the login keychain, where their data's key is.
+        public static let safeStorageInKeychain = "SafeStorageInKeychain"
         /// The Parallex version that built this instance. A copy's
         /// CFBundleShortVersionString is its app's, so this is what says
         /// whether it has the current launcher.
@@ -88,11 +93,6 @@ public enum ParallexConfig {
     /// copy. Before opening one, the launcher runs itself with this argument
     /// and the library requested, to see whether macOS still allows that.
     public static let separationProbeArgument = "--parallex-separation-probe"
-
-    /// Run by Parallex when it removes a copy: the copy's launcher deletes
-    /// the password of the copy's own keychain (only it may, without asking)
-    /// and does nothing else.
-    public static let forgetKeychainArgument = "--parallex-forget-keychain"
 
     /// A copy refreshed while it ran waits in the instance folder until it
     /// can take the running copy's place: `<instance>/staged/copy.staged`

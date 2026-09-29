@@ -97,19 +97,29 @@ still goes through the launcher, so its isolation always applies.
   account there could replace it). A copy with its own Library keeps every
   password item in a keychain of its own, in its instance folder, including
   what the app asks the data protection keychain for (a copy isn't entitled
-  to that one). The copy's helpers and services read what the app stored,
-  and nothing else can without asking. Its launcher makes it the first time
-  the copy opens; the keychain's password is kept in your login keychain,
-  readable only by that copy. Copies made before 1.1 keep using your
-  keychain until you turn on **Separate keychain** (`parallex edit <name>
-  --separate-keychain`), which signs them out of what they kept there.
+  to that one), and for new copies their own encryption key ("<App> Safe
+  Storage"). The copy's helpers and services read what the app stored, and
+  other apps can't without asking. Its launcher makes it the first time the
+  copy opens and unlocks it each time; its password is kept beside it,
+  readable only by you. (A copy runs without the hardened runtime, so a
+  program running as you could reach its sign-ins through the copy itself;
+  keeping the password in your login keychain wouldn't change that, and
+  macOS would ask for it after every refresh.) If the keychain can't be
+  opened, the copy doesn't open rather than use yours. Copies made before
+  1.1 keep using your keychain until you turn on **Separate keychain**
+  (`parallex edit <name> --separate-keychain`), which signs them out of
+  what they kept there.
 - **It keeps what you allowed it.** Copies are signed with a certificate
   Parallex makes on your Mac the first time you make one, kept in a keychain
-  of its own (not your login keychain). macOS remembers permissions (camera,
-  microphone, screen recording, files and folders) and keychain access by an
-  app's signature, so a copy signed the same way every time keeps them when
-  it's refreshed. Copies made before 1.1 ask once more after their next
-  refresh. `PARALLEX_SIGNING=adhoc` signs copies ad hoc instead.
+  of its own (not your login keychain, and locked except while signing).
+  macOS remembers privacy permissions (camera, microphone, screen recording,
+  files and folders) by an app's signature, so a copy signed the same way
+  every time keeps them when it's refreshed, and what it keeps in its own
+  keychain stays readable. Copies made before 1.1 ask once more after their
+  next refresh. (Items a copy keeps in your login keychain, like an older
+  copy's encryption key, are tied to its exact code by macOS and may still
+  ask after a refresh.) `PARALLEX_SIGNING=adhoc` signs copies ad hoc
+  instead.
 - **The app's own updater is off in the copy.** Left alone, an app's updater
   would install the vendor's build over the copy, which gives it the
   original's identity and data back. So a copy has no Sparkle update feed,

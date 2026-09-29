@@ -58,6 +58,17 @@ final class LinkedLibraryTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: tight), before, "no room: left exactly as it was")
     }
 
+    func testTheLinkerLeavesWhatIsntAMachOAlone() throws {
+        let junk = tempDir.appendingPathComponent("junk")
+        var bytes = [UInt8](repeating: 0xAB, count: 512)
+        bytes.replaceSubrange(0..<4, with: [0xCF, 0xFA, 0xED, 0xFE]) // a Mach-O's magic, then nonsense
+        try Data(bytes).write(to: junk)
+        XCTAssertTrue(try MachOLinker.addWeakLibrary("/tmp/libexample.dylib", to: junk).isEmpty)
+        let fat = tempDir.appendingPathComponent("fat")
+        try Data([0xCA, 0xFE, 0xBA, 0xBE, 0xFF, 0xFF, 0xFF, 0xFF] + [UInt8](repeating: 0, count: 64)).write(to: fat)
+        XCTAssertTrue(try MachOLinker.addWeakLibrary("/tmp/libexample.dylib", to: fat).isEmpty)
+    }
+
     func testACopyLoadsItsLibraryWithoutDYLDInsertLibraries() throws {
         let target = try Fixtures.makeHomeReportingApp(named: "Linky", bundleID: "com.fake.linky", in: tempDir, linkerFlags: roomy)
         var request = CreateRequest(appReference: target.path, name: "Linky Work", outputDirectory: outDir)

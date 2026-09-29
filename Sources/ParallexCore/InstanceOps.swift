@@ -117,18 +117,39 @@ extension InstanceCreator {
         if let expected = manifest.knownTargetBundleID, expected != target.bundleID {
             throw ParallexError("\(target.url.path) is \(target.bundleID), but this instance was made for \(expected).")
         }
+        // It takes the copy's place by renaming, so it must wait on the
+        // same disk as the copy.
+        let copyFolder = URL(fileURLWithPath: manifest.wrapperPath).deletingLastPathComponent()
+        let instanceFolder = Paths.instanceDir(slug: manifest.slug)
+        let volume = { (url: URL) in (try? url.resourceValues(forKeys: [.volumeIdentifierKey]))?.volumeIdentifier as? NSObject }
+        guard let copyVolume = volume(copyFolder), copyVolume.isEqual(volume(instanceFolder)) else {
+            throw ParallexError("“\(manifest.name)” is on another disk than Parallex's data; it's refreshed once it quits.")
+        }
         var settings = manifest.effectiveSettings
         Throwaway.normalize(&settings, was: settings)
         _ = try assemble(
             target: target,
             name: manifest.name,
             slug: manifest.slug,
-            outputDirectory: URL(fileURLWithPath: manifest.wrapperPath).deletingLastPathComponent(),
+            outputDirectory: copyFolder,
             settings: settings,
             previous: manifest,
             stage: true,
             builderOptions: builderOptions
         )
+        // Changed (or rebuilt) while this was being built: it's already out
+        // of date, and would bring the old instance back.
+        if InstanceStore.load(slug: manifest.slug).map({ !sameRecord($0, manifest) }) ?? true {
+            discardStagedRefresh(slug: manifest.slug)
+        }
+    }
+
+    /// The same instance record, as stored.
+    static func sameRecord(_ lhs: InstanceManifest, _ rhs: InstanceManifest) -> Bool {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        encoder.dateEncodingStrategy = .iso8601
+        return (try? encoder.encode(lhs)) == (try? encoder.encode(rhs))
     }
 
     /// The instance record of a refresh waiting to take over, if there is one.
@@ -157,13 +178,23 @@ extension InstanceCreator {
         let fm = FileManager.default
         let staged = Paths.stagedCopy(slug: manifest.slug)
         defer { clearLeftovers(slug: manifest.slug) }
-        guard let refreshed = stagedRefresh(of: manifest) else { return nil }
-        // Built for another place or name (the instance changed since).
-        guard refreshed.wrapperPath == manifest.wrapperPath else {
+        guard var refreshed = stagedRefresh(of: manifest) else { return nil }
+        let live = InstanceStore.load(slug: manifest.slug) ?? manifest
+        // Built for another place or name, or with settings that have
+        // changed since in a way a rebuild would show: out of date.
+        guard refreshed.wrapperPath == live.wrapperPath, refreshed.name == live.name,
+              !live.effectiveSettings.requiresRebuild(toReach: refreshed.effectiveSettings)
+        else {
             discardStagedRefresh(slug: manifest.slug)
             return nil
         }
-        guard !Running.isRunning(manifest) else { return nil }
+        // Everything else the user set since (a shortcut, throwaway, …) stays.
+        refreshed.settings = live.settings
+        // Not while it runs, or a launch of it is under way (the launcher
+        // holds this until it becomes the app), or anything runs from it.
+        let lock = try FileLock(URL(fileURLWithPath: Paths.pidFile(slug: manifest.slug).path + ".lock"))
+        defer { lock.release() }
+        guard !Running.isRunning(live), !Running.anythingRunning(inside: live.wrapperPath) else { return nil }
         let copy = URL(fileURLWithPath: manifest.wrapperPath)
         let previous = Paths.stagingDir(slug: manifest.slug).appendingPathComponent("previous-\(UUID().uuidString).app")
         let hadCopy = fm.fileExists(atPath: copy.path)
@@ -315,7 +346,8 @@ extension InstanceCreator {
         // Not its keychain: only the copy it belongs to can open that, so a
         // duplicate starts with a keychain of its own.
         for item in (try? fm.contentsOfDirectory(atPath: from.path)) ?? []
-        where !skipped.contains(item) && !item.hasPrefix("custom-icon.") && !item.hasPrefix("Instance.keychain") {
+        where !skipped.contains(item) && !item.hasPrefix("custom-icon.") && !item.hasPrefix("Instance.keychain")
+            && item != ParallexConfig.stagingFolder {
             let target = to.appendingPathComponent(item)
             if fm.fileExists(atPath: target.path) {
                 try fm.removeItem(at: target)
@@ -768,10 +800,21 @@ public enum InstanceCreator {
         // Its sign-ins in a keychain of its own (see InstanceKeychain), when
         // it's signed with this Mac's identity: that's what lets its launcher
         // read the keychain's password without asking after every refresh.
-        let instanceKeychain = redirectHome != nil && settings.separateKeychain != false
-            && builderOptions.sign && SigningIdentity.forSigning() != nil
-            ? Paths.instanceKeychain(slug: slug).path
-            : nil
+        let wantsKeychain = redirectHome != nil && settings.separateKeychain != false
+        let identityAvailable = wantsKeychain && builderOptions.sign && SigningIdentity.forSigning() != nil
+        // One that has its own keychain never loses it quietly: signed any
+        // other way, it couldn't open what it keeps there.
+        if wantsKeychain, previous?.instanceKeychain != nil, !identityAvailable {
+            throw ParallexError(
+                "“\(instanceName)” keeps its sign-ins in its own keychain, which needs this Mac's signing identity, "
+                + "and that isn't available right now, so it wasn't rebuilt. Try again, or turn off Separate keychain."
+            )
+        }
+        let instanceKeychain = wantsKeychain && identityAvailable ? Paths.instanceKeychain(slug: slug).path : nil
+        // Its own encryption key goes in that keychain too, for copies that
+        // had it from the start (older ones' data needs their renamed key).
+        let safeStorageInKeychain = instanceKeychain != nil && keychainSuffix != nil
+            && (previous == nil || previous?.safeStorageInKeychain == true)
         // A dedicated home mirrors yours, except for the app's own folders
         // (and what the user shares explicitly). Home mode keeps its promise
         // of a home of its own, shared items aside.
@@ -820,7 +863,8 @@ public enum InstanceCreator {
             redirectPrivate: privateHomeItems,
             keychainSuffix: redirectHome != nil ? keychainSuffix : nil,
             keychainKeep: redirectHome != nil && keychainSuffix != nil ? KeychainNames.foreignServices(for: target) : [],
-            instanceKeychain: instanceKeychain
+            instanceKeychain: instanceKeychain,
+            safeStorageInKeychain: safeStorageInKeychain
         )
 
         var notes = plan.notes
@@ -833,6 +877,7 @@ public enum InstanceCreator {
                 separateGroups: settings.separatesLibrary(for: target) && target.isSandboxed,
                 hideFromDock: settings.hideFromDock == true,
                 stageAt: stage ? Paths.stagedCopy(slug: slug) : nil,
+                requireIdentity: instanceKeychain != nil,
                 builderOptions: builderOptions
             )
             separatedGroups = built.groupMap.isEmpty ? nil : built.groupMap
@@ -876,7 +921,8 @@ public enum InstanceCreator {
             privateHomeItems: cloneRecord?.usesLauncher == true ? privateHomeItems : nil,
             links: plan.links.isEmpty ? nil : plan.links,
             keychainSuffix: cloneRecord?.usesLauncher == true || previous?.keychainSuffix != nil ? keychainSuffix : nil,
-            instanceKeychain: cloneRecord?.usesLauncher == true ? instanceKeychain : nil
+            instanceKeychain: cloneRecord?.usesLauncher == true ? instanceKeychain : nil,
+            safeStorageInKeychain: cloneRecord?.usesLauncher == true && safeStorageInKeychain ? true : nil
         )
         try InstanceStore.save(manifest, to: stage ? Paths.stagedManifest(slug: slug) : nil)
 
@@ -901,6 +947,7 @@ public enum InstanceCreator {
         separateGroups: Bool,
         hideFromDock: Bool = false,
         stageAt: URL? = nil,
+        requireIdentity: Bool = false,
         builderOptions: BundleBuilder.Options
     ) throws -> (
         output: BundleBuilder.BuildOutput, record: InstanceManifest.CloneRecord, executable: String,
@@ -999,6 +1046,7 @@ public enum InstanceCreator {
         buildSpec.groupsLibrary = groupsLibrary
         buildSpec.hideFromDock = hideFromDock
         buildSpec.stageAt = stageAt
+        buildSpec.requireIdentity = requireIdentity
         let url = try AppCloner.build(buildSpec, sign: builderOptions.sign)
         if stageAt == nil, builderOptions.registerWithLaunchServices, let lsregister = BundleBuilder.lsregisterPath {
             Shell.runAllowingFailure(lsregister, ["-f", url.path])
@@ -1169,21 +1217,6 @@ public struct RemoveResult: Sendable {
 public enum InstanceRemover {
     /// Remove an instance. Everything goes through the Trash, never `rm -rf`,
     /// and bundles Parallex didn't create are never touched.
-    static func forgetKeychainPassword(of copy: URL) {
-        let launcher = copy.appendingPathComponent("Contents/MacOS/\(AppCloner.launcherName)")
-        guard FileManager.default.isExecutableFile(atPath: launcher.path) else { return }
-        let process = Process()
-        process.executableURL = launcher
-        process.arguments = [ParallexConfig.forgetKeychainArgument]
-        var environment = InstanceLauncher.cleanEnvironment()
-        environment["PARALLEX_LAUNCHER_NO_UI"] = "1"
-        process.environment = environment
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return }
-        process.waitUntilExit()
-    }
-
     public static func remove(_ manifest: InstanceManifest, keepData: Bool) throws -> RemoveResult {
         let fm = FileManager.default
         let wasRunning = Running.isRunning(manifest)
@@ -1201,11 +1234,6 @@ public enum InstanceRemover {
         var wrapperWasMissing = false
         var wrapperSkippedForeign = false
         let wrapper = URL(fileURLWithPath: manifest.wrapperPath)
-        // Its keychain goes with its data; the password that opened it goes
-        // too, deleted by the copy itself (the only one that may, silently).
-        if !keepData, manifest.instanceKeychain != nil, BundleBuilder.isParallexWrapper(wrapper) {
-            forgetKeychainPassword(of: wrapper)
-        }
         if fm.fileExists(atPath: wrapper.path) {
             if BundleBuilder.isParallexWrapper(wrapper) {
                 BundleBuilder.unregister(wrapper)

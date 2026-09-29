@@ -128,9 +128,9 @@ func holdLaunchLock(pidFile: String) {
 
 /// A refresh of this copy that Parallex built while it ran (see
 /// `ParallexConfig.stagingFolder`): put it in place of this copy and start
-/// over from it. Only the same copy (same identity, same instance) is taken;
-/// anything off, and the copy opens as it is (Parallex installs the refresh
-/// once it's running).
+/// over from it. Only the same copy (same identity, same instance) with the
+/// same name, place and settings as the instance has now is taken; anything
+/// off, and the copy opens as it is (Parallex sorts the refresh out).
 func installStagedRefresh(pidFile: String, config: [String: Any]) {
     let fm = FileManager.default
     let instanceDir = URL(fileURLWithPath: pidFile).deletingLastPathComponent()
@@ -143,7 +143,12 @@ func installStagedRefresh(pidFile: String, config: [String: Any]) {
           info["CFBundleIdentifier"] as? String == Bundle.main.bundleIdentifier,
           let stagedConfig = info[ParallexConfig.rootKey] as? [String: Any],
           let slug = config[ParallexConfig.Key.slug] as? String,
-          stagedConfig[ParallexConfig.Key.slug] as? String == slug
+          stagedConfig[ParallexConfig.Key.slug] as? String == slug,
+          let stagedRecord = jsonObject(at: record),
+          let liveRecord = jsonObject(at: instanceDir.appendingPathComponent("instance.json")),
+          stagedRecord["name"] as? String == liveRecord["name"] as? String,
+          stagedRecord["wrapperPath"] as? String == liveRecord["wrapperPath"] as? String,
+          (stagedRecord["settings"] as? NSDictionary) == (liveRecord["settings"] as? NSDictionary)
     else {
         return
     }
@@ -164,6 +169,10 @@ func installStagedRefresh(pidFile: String, config: [String: Any]) {
     argv.append(nil)
     execv(launcher, argv)
     fail("Could not start the refreshed copy: \(String(cString: strerror(errno)))")
+}
+
+func jsonObject(at url: URL) -> [String: Any]? {
+    (try? Data(contentsOf: url)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
 }
 
 /// Replace this process with the target binary, keeping our PID.
@@ -219,15 +228,6 @@ enum SeparationProbe {
 // Probe mode: report whether the redirect library was loaded, and nothing else.
 if CommandLine.arguments.count == 2, CommandLine.arguments[1] == ParallexConfig.separationProbeArgument {
     exit(SeparationProbe.libraryIsLoaded() ? 0 : 3)
-}
-
-// Parallex is removing this copy: forget its keychain's password, and nothing else.
-if CommandLine.arguments.count == 2, CommandLine.arguments[1] == ParallexConfig.forgetKeychainArgument {
-    if let config = Bundle.main.object(forInfoDictionaryKey: ParallexConfig.rootKey) as? [String: Any],
-       let keychain = config[ParallexConfig.Key.instanceKeychain] as? String {
-        InstanceKeychain.forget(path: keychain)
-    }
-    exit(0)
 }
 
 guard let config = Bundle.main.object(forInfoDictionaryKey: ParallexConfig.rootKey) as? [String: Any] else {
@@ -349,18 +349,28 @@ for directory in config[ParallexConfig.Key.createDirectories] as? [String] ?? []
 
 // 1d. The copy's own keychain, ready before the app asks for anything in
 //     it. Before any HOME override: the keychain APIs find your keychains
-//     through $HOME. If it can't be made or unlocked, the copy uses your
-//     keychain as copies did before, rather than not opening.
+//     through $HOME. If it can't be made or unlocked, the copy doesn't
+//     open: it would find, and could overwrite, the original's sign-ins.
 if let keychain = config[ParallexConfig.Key.instanceKeychain] as? String {
-    let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-        ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Instance"
-    if InstanceKeychain.prepare(path: keychain, label: "\(name) keychain (Parallex)") {
-        setenv("PARALLEX_INSTANCE_KEYCHAIN", keychain, 1)
+    guard InstanceKeychain.prepare(path: keychain) else {
+        let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "This instance"
+        fail("""
+            “\(name)” keeps its sign-ins in a keychain of its own, and that keychain couldn't be opened \
+            (\(keychain)), so it wasn't opened: it would have used your keychain instead.
+
+            Open Parallex and try again, or turn off Separate keychain for it to share yours.
+            """)
+    }
+    setenv("PARALLEX_INSTANCE_KEYCHAIN", keychain, 1)
+    if config[ParallexConfig.Key.safeStorageInKeychain] as? Bool == true {
+        setenv("PARALLEX_SAFE_STORAGE_OWN", "1", 1)
     } else {
-        unsetenv("PARALLEX_INSTANCE_KEYCHAIN")
+        unsetenv("PARALLEX_SAFE_STORAGE_OWN")
     }
 } else {
     unsetenv("PARALLEX_INSTANCE_KEYCHAIN")
+    unsetenv("PARALLEX_SAFE_STORAGE_OWN")
 }
 
 // 2. Optional HOME override — the generic isolation tier for non-Electron apps.

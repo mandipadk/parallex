@@ -110,6 +110,46 @@ final class StagedRefreshTests: XCTestCase {
                        "the refreshed copy is the one that ran")
     }
 
+    /// What the user set since the refresh was built stays: turning a
+    /// throwaway off while it ran isn't undone when the refresh takes over.
+    func testARefreshKeepsWhatWasSetSince() throws {
+        let (target, result) = try makeCopy("Keeper", seconds: "0")
+        var settings = result.manifest.effectiveSettings
+        settings.throwaway = true
+        let throwaway = try InstanceCreator.saveSettings(settings, for: result.manifest)
+        try updateOriginal(target, to: "2.0")
+        try InstanceCreator.stageRefresh(throwaway, builderOptions: options)
+        var off = throwaway.effectiveSettings
+        off.throwaway = nil
+        let turnedOff = try InstanceCreator.saveSettings(off, for: throwaway)
+
+        let installed = try XCTUnwrap(try InstanceCreator.installStagedRefresh(turnedOff, builderOptions: options))
+        XCTAssertNil(installed.settings?.throwaway)
+        XCTAssertNil(InstanceStore.load(slug: result.manifest.slug)?.settings?.throwaway)
+        XCTAssertEqual(installed.clone?.sourceVersion, "2.0 (?)")
+    }
+
+    /// Changed since in a way that needs a rebuild: the waiting refresh is
+    /// out of date and is dropped, by Parallex and by the launcher alike.
+    func testARefreshMadeBeforeASettingsChangeIsDropped() throws {
+        let (target, result) = try makeCopy("Changer", seconds: "0")
+        try updateOriginal(target, to: "2.0")
+        try InstanceCreator.stageRefresh(result.manifest, builderOptions: options)
+        var changed = result.manifest
+        changed.settings?.extraArguments = ["1"]
+        try InstanceStore.save(changed)
+
+        // The launcher leaves it alone and opens the copy as it is.
+        let process = try start(result.wrapperURL)
+        process.waitUntilExit()
+        XCTAssertEqual(version(of: result.wrapperURL), "1.0")
+        XCTAssertNotNil(InstanceCreator.stagedRefresh(of: changed))
+        // Parallex drops it.
+        XCTAssertNil(try InstanceCreator.installStagedRefresh(changed, builderOptions: options))
+        XCTAssertNil(InstanceCreator.stagedRefresh(of: changed))
+        XCTAssertEqual(version(of: result.wrapperURL), "1.0")
+    }
+
     func testARebuildDiscardsAWaitingRefresh() throws {
         let (target, result) = try makeCopy("Edit", seconds: "0")
         try updateOriginal(target, to: "2.0")

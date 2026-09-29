@@ -47,12 +47,7 @@ public enum Throwaway {
         else { return false }
         // Nothing still running from inside it either (a copy's helpers,
         // or a launch that's just starting).
-        // (/private/tmp and /tmp are the same place, spelled either way.)
-        func plain(_ path: String) -> String { path.hasPrefix("/private/") ? String(path.dropFirst("/private".count)) : path }
-        let bundle = plain(URL(fileURLWithPath: manifest.wrapperPath).standardizedFileURL.path) + "/"
-        return !IsolationCheck.allPIDs().contains { pid in
-            Running.executablePath(of: pid).map { plain($0).hasPrefix(bundle) } ?? false
-        }
+        return !Running.anythingRunning(inside: manifest.wrapperPath)
     }
 
     public static func finished(_ manifests: [InstanceManifest]) -> [InstanceManifest] {

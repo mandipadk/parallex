@@ -72,7 +72,7 @@ public enum CompatibilityReport {
         } else if manifest.redirectedHome != nil, settings.separateLibrary != false {
             parts.append("separate Library")
             if settings.separateHiddenFolders != false { parts.append("separate hidden folders") }
-            if settings.separateKeychain != false { parts.append("separate keychain") }
+            if manifest.instanceKeychain != nil { parts.append("separate keychain") }
         } else {
             parts.append("shared Library")
         }

@@ -44,7 +44,9 @@ enum MachOLinker {
         guard data.count >= 8 else { return [] }
         let magic = data.readUInt32(at: 0, bigEndian: true)
         guard magic == 0xCAFE_BABE else { return [0] }
+        // (Java class files share the magic; a real one has a few slices.)
         let count = Int(data.readUInt32(at: 4, bigEndian: true))
+        guard count <= 32 else { return [] }
         return (0..<count).compactMap { index in
             let entry = 8 + index * 20
             guard entry + 20 <= data.count else { return nil }
@@ -62,6 +64,8 @@ enum MachOLinker {
         let architecture: Architecture = cpuType == 0x0100_000C ? .arm64 : cpuType == 0x0100_0007 ? .x86_64 : .other
         let commandCount = Int(data.readUInt32(at: offset + 16))
         let commandsSize = Int(data.readUInt32(at: offset + 20))
+        let commandsEnd = offset + 32 + commandsSize
+        guard commandsEnd <= data.count else { return .unsupported }
         let name = Array(installName.utf8) + [0]
         let size = (24 + name.count + 7) / 8 * 8
 
@@ -70,12 +74,13 @@ enum MachOLinker {
         var position = offset + 32
         var firstContent: Int?
         for _ in 0..<commandCount {
-            guard position + 8 <= data.count else { return .unsupported }
+            guard position + 8 <= commandsEnd else { return .unsupported }
             let command = data.readUInt32(at: position)
             let commandSize = Int(data.readUInt32(at: position + 4))
-            guard commandSize >= 8 else { return .unsupported }
+            guard commandSize >= 8, position + commandSize <= commandsEnd else { return .unsupported }
             if command == loadWeakDylib || command == loadDylib {
                 let nameOffset = Int(data.readUInt32(at: position + 8))
+                guard nameOffset < commandSize else { return .unsupported }
                 let start = position + nameOffset
                 let end = min(position + commandSize, data.count)
                 if start < end, data[start..<end].prefix(while: { $0 != 0 }).elementsEqual(installName.utf8) {
@@ -83,7 +88,9 @@ enum MachOLinker {
                 }
             }
             if command == segment64 {
+                guard commandSize >= 72 else { return .unsupported }
                 let sections = Int(data.readUInt32(at: position + 64))
+                guard 72 + sections * 80 <= commandSize else { return .unsupported }
                 for index in 0..<sections {
                     let sectionOffset = Int(data.readUInt32(at: position + 72 + index * 80 + 48))
                     if sectionOffset > 0, firstContent.map({ sectionOffset < $0 }) ?? true {
@@ -94,8 +101,8 @@ enum MachOLinker {
             position += commandSize
         }
         guard let firstContent else { return .unsupported }
-        let end = offset + 32 + commandsSize
-        guard offset + firstContent - end >= size else { return .noRoom }
+        let end = commandsEnd
+        guard offset + firstContent - end >= size, end + size <= data.count else { return .noRoom }
         guard data[end..<(end + size)].allSatisfy({ $0 == 0 }) else { return .noRoom }
 
         var command = Data()
@@ -131,7 +138,9 @@ enum MachOLinker {
 }
 
 private extension Data {
+    /// 0 past the end (callers check what they read against the size).
     func readUInt32(at offset: Int, bigEndian: Bool = false) -> UInt32 {
+        guard offset >= 0, offset + 4 <= count else { return 0 }
         let value = self[offset..<(offset + 4)].withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
         return bigEndian ? UInt32(bigEndian: value) : UInt32(littleEndian: value)
     }
