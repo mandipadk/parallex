@@ -193,6 +193,7 @@ public enum AppCloner {
 
         let contents = copy.appendingPathComponent("Contents")
         let infoURL = contents.appendingPathComponent("Info.plist")
+        var launcherConfig = spec.launcherConfig
         var info = spec.source.infoPlist
         info["CFBundleIdentifier"] = spec.bundleIdentifier
         // CFBundleName stays: apps use it internally (Electron finds its
@@ -250,6 +251,9 @@ public enum AppCloner {
                 }
             }
             try injectEnvironment(into: copy, source: spec.source.url, variables)
+            if linkHomeLibrary(library, into: copy, appExecutable: spec.source.executableURL.lastPathComponent) {
+                launcherConfig[ParallexConfig.Key.homeLibraryLinked] = true
+            }
         }
         if !spec.groupMap.isEmpty, let source = spec.groupsLibrary {
             // Inside the copy (signed with it), so the copy never depends on
@@ -280,7 +284,7 @@ public enum AppCloner {
             info["LSEnvironment"] = launchEnvironment
             try injectEnvironment(into: copy, source: spec.source.url, environment, includeSandboxed: true)
         }
-        info[ParallexConfig.rootKey] = spec.launcherConfig
+        info[ParallexConfig.rootKey] = launcherConfig
         let plistData = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
         try plistData.write(to: infoURL)
 
@@ -352,6 +356,44 @@ public enum AppCloner {
             try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: plistURL)
         }
         return renamed
+    }
+
+    /// Make the copy's code load the home-redirect library by itself: a
+    /// weak load command naming the same file the launcher inserts (so it's
+    /// never loaded twice). An Electron app's framework is the one place
+    /// every one of its processes loads; otherwise the app's binary and its
+    /// helpers' and services' are linked. Binaries without room keep
+    /// relying on DYLD_INSERT_LIBRARIES. Returns whether the app's own
+    /// binary now loads it (for this Mac's architecture). Before re-signing.
+    static func linkHomeLibrary(_ library: String, into copy: URL, appExecutable: String) -> Bool {
+        let fm = FileManager.default
+        let contents = copy.appendingPathComponent("Contents")
+        let appBinary = contents.appendingPathComponent("MacOS").appendingPathComponent(appExecutable)
+        let framework = contents.appendingPathComponent("Frameworks/Electron Framework.framework/Electron Framework")
+            .resolvingSymlinksInPath()
+        if fm.fileExists(atPath: framework.path) {
+            guard let linked = try? MachOLinker.addWeakLibrary(library, to: framework),
+                  let running = MachOLinker.runningArchitecture(of: appBinary)
+            else { return false }
+            return linked.contains(running)
+        }
+        var binaries = [appBinary]
+        if let enumerator = fm.enumerator(at: contents, includingPropertiesForKeys: [.isSymbolicLinkKey]) {
+            for case let bundle as URL in enumerator where ["app", "xpc"].contains(bundle.pathExtension) {
+                if (try? bundle.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true { continue }
+                guard let name = NSDictionary(contentsOf: bundle.appendingPathComponent("Contents/Info.plist"))?["CFBundleExecutable"] as? String
+                else { continue }
+                binaries.append(bundle.appendingPathComponent("Contents/MacOS").appendingPathComponent(name))
+            }
+        }
+        var appLinked = false
+        for binary in binaries where fm.fileExists(atPath: binary.path) && isMachO(binary) {
+            guard let linked = try? MachOLinker.addWeakLibrary(library, to: binary) else { continue }
+            if binary == appBinary, let running = MachOLinker.runningArchitecture(of: binary) {
+                appLinked = linked.contains(running)
+            }
+        }
+        return appLinked
     }
 
     /// Parts of an app that macOS starts itself — XPC services, helper apps

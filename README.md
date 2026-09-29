@@ -70,7 +70,10 @@ still goes through the launcher, so its isolation always applies.
   library answers the account lookups (`getpwuid` and friends) with the
   instance's home, so everything the app keeps under `~` lands in the
   instance. Documents, Desktop, Downloads and your dotfiles stay shared
-  through links. The library is only active in processes whose executable
+  through links. The copy's own code names the library too (Parallex adds a
+  load command to the app, or to an Electron app's framework, where there's
+  room), so it's loaded even if macOS stops honoring the launcher's way of
+  inserting it. The library is only active in processes whose executable
   lives inside the copy, so tools the app starts (shells, `git`, …) behave
   normally. It's on by default: turn off **Separate Library** in the
   instance, or use `parallex edit <name> --no-separate-library`. Copies made

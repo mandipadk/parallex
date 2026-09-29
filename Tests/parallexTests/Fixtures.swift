@@ -116,7 +116,9 @@ enum Fixtures {
 
     /// Compile a small native app whose executable writes what it sees as
     /// home (NSHomeDirectory, Application Support, $HOME) to $FIXTURE_OUT.
-    static func makeHomeReportingApp(named name: String, bundleID: String, in directory: URL) throws -> URL {
+    static func makeHomeReportingApp(
+        named name: String, bundleID: String, in directory: URL, linkerFlags: [String] = []
+    ) throws -> URL {
         let app = try makeApp(named: name, bundleID: bundleID, in: directory, extraInfoKeys: ["CFBundleShortVersionString": "1.0"])
         let source = directory.appendingPathComponent("\(name)-main.m")
         try Data("""
@@ -135,7 +137,7 @@ enum Fixtures {
         try? FileManager.default.removeItem(at: executable)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
-        process.arguments = ["-fobjc-arc", "-framework", "Foundation", source.path, "-o", executable.path]
+        process.arguments = ["-fobjc-arc", "-framework", "Foundation", source.path, "-o", executable.path] + linkerFlags
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { throw NSError(domain: "fixture", code: 1) }

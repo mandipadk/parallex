@@ -73,6 +73,11 @@ public enum ParallexConfig {
         /// folder): the launcher makes and unlocks it, and the copy keeps
         /// every password item there (see `InstanceKeychain`).
         public static let instanceKeychain = "InstanceKeychain"
+        /// The copy's app loads the home-redirect library itself (a load
+        /// command Parallex added to it), not only through
+        /// DYLD_INSERT_LIBRARIES, so it keeps its own Library even if
+        /// macOS stops honoring that variable.
+        public static let homeLibraryLinked = "HomeLibraryLinked"
         /// The Parallex version that built this instance. A copy's
         /// CFBundleShortVersionString is its app's, so this is what says
         /// whether it has the current launcher.

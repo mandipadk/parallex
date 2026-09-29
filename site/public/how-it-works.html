@@ -120,6 +120,7 @@ footer { color: var(--subtle); font-size: 13px; border-top: 1px solid var(--rule
     <h2>The library Parallex loads into a copy</h2>
     <p>macOS apps find their <code>~/Library</code> folder (sign-ins, caches, cookies) by asking who you are, not by looking at <code>$HOME</code>. So to give a copy of an app that isn't sandboxed a Library of its own, the launcher loads a small library, <code>libparallexhome</code>, into it. It answers "where's my home folder?" (and <code>$HOME</code>) with the instance's folder:</p>
     <ul>
+      <li>The copy's own code names the library as well, so it loads even if macOS someday stops honoring the way the launcher inserts it.</li>
       <li>It's active only in processes that run from inside the copy. Tools the app starts, like a shell or <code>git</code>, get your real home back.</li>
       <li>Your Documents, Desktop, Downloads and dotfiles stay shared through links, so files you open or save are where you expect. The app's own folders, like <code>~/.vscode</code>, stay with the copy.</li>
       <li>Before a copy opens, the launcher checks that macOS loaded the library. If macOS refused it, the copy doesn't open, rather than quietly using your real data. If the check can't run at all, the copy opens, and Verify Isolation can check it while it runs.</li>

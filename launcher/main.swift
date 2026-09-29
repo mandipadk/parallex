@@ -430,9 +430,11 @@ if let redirectHome = config[ParallexConfig.Key.redirectHome] as? String,
 
     // Opening it without the library would put its data in the original's
     // folders, so don't — say why, and leave a note for Parallex to explain.
+    // (Not needed when the app loads the library by itself.)
     let marker = URL(fileURLWithPath: redirectHome).deletingLastPathComponent()
         .appendingPathComponent(ParallexConfig.separationUnavailableMarker)
-    switch SeparationProbe.run() {
+    let linked = config[ParallexConfig.Key.homeLibraryLinked] as? Bool == true
+    switch linked ? .loaded : SeparationProbe.run() {
     case .loaded:
         try? FileManager.default.removeItem(at: marker)
     case .notLoaded:
