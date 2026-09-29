@@ -69,6 +69,10 @@ public enum ParallexConfig {
         /// the target's after exec, and process env isn't readable on
         /// modern macOS). Format: see `PidFileRecord`.
         public static let pidFile = "PidFile"
+        /// An own-identity copy's own keychain (a file in its instance
+        /// folder): the launcher makes and unlocks it, and the copy keeps
+        /// every password item there (see `InstanceKeychain`).
+        public static let instanceKeychain = "InstanceKeychain"
         /// The Parallex version that built this instance. A copy's
         /// CFBundleShortVersionString is its app's, so this is what says
         /// whether it has the current launcher.
@@ -79,6 +83,11 @@ public enum ParallexConfig {
     /// copy. Before opening one, the launcher runs itself with this argument
     /// and the library requested, to see whether macOS still allows that.
     public static let separationProbeArgument = "--parallex-separation-probe"
+
+    /// Run by Parallex when it removes a copy: the copy's launcher deletes
+    /// the password of the copy's own keychain (only it may, without asking)
+    /// and does nothing else.
+    public static let forgetKeychainArgument = "--parallex-forget-keychain"
 
     /// Written into the instance folder (next to its home) when the probe
     /// found separation unavailable, so the app can explain and offer a way

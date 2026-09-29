@@ -201,8 +201,10 @@ extension InstanceCreator {
         let from = Paths.instanceDir(slug: source.slug)
         let to = Paths.instanceDir(slug: destination.slug)
         let skipped: Set<String> = ["instance.json", "instance.pid", "instance.pid.lock"]
+        // Not its keychain: only the copy it belongs to can open that, so a
+        // duplicate starts with a keychain of its own.
         for item in (try? fm.contentsOfDirectory(atPath: from.path)) ?? []
-        where !skipped.contains(item) && !item.hasPrefix("custom-icon.") {
+        where !skipped.contains(item) && !item.hasPrefix("custom-icon.") && !item.hasPrefix("Instance.keychain") {
             let target = to.appendingPathComponent(item)
             if fm.fileExists(atPath: target.path) {
                 try fm.removeItem(at: target)
@@ -647,6 +649,13 @@ public enum InstanceCreator {
             if let previous { return previous.keychainSuffix }
             return redirectHome != nil ? KeychainNames.suffix(for: slug) : nil
         }()
+        // Its sign-ins in a keychain of its own (see InstanceKeychain), when
+        // it's signed with this Mac's identity: that's what lets its launcher
+        // read the keychain's password without asking after every refresh.
+        let instanceKeychain = redirectHome != nil && settings.separateKeychain != false
+            && builderOptions.sign && SigningIdentity.forSigning() != nil
+            ? Paths.instanceKeychain(slug: slug).path
+            : nil
         // A dedicated home mirrors yours, except for the app's own folders
         // (and what the user shares explicitly). Home mode keeps its promise
         // of a home of its own, shared items aside.
@@ -694,7 +703,8 @@ public enum InstanceCreator {
             redirectHome: redirectHome,
             redirectPrivate: privateHomeItems,
             keychainSuffix: redirectHome != nil ? keychainSuffix : nil,
-            keychainKeep: redirectHome != nil && keychainSuffix != nil ? KeychainNames.foreignServices(for: target) : []
+            keychainKeep: redirectHome != nil && keychainSuffix != nil ? KeychainNames.foreignServices(for: target) : [],
+            instanceKeychain: instanceKeychain
         )
 
         var notes = plan.notes
@@ -746,7 +756,8 @@ public enum InstanceCreator {
             separatedGroups: separatedGroups,
             privateHomeItems: cloneRecord?.usesLauncher == true ? privateHomeItems : nil,
             links: plan.links.isEmpty ? nil : plan.links,
-            keychainSuffix: cloneRecord?.usesLauncher == true || previous?.keychainSuffix != nil ? keychainSuffix : nil
+            keychainSuffix: cloneRecord?.usesLauncher == true || previous?.keychainSuffix != nil ? keychainSuffix : nil,
+            instanceKeychain: cloneRecord?.usesLauncher == true ? instanceKeychain : nil
         )
         try InstanceStore.save(manifest)
 
@@ -1037,6 +1048,21 @@ public struct RemoveResult: Sendable {
 public enum InstanceRemover {
     /// Remove an instance. Everything goes through the Trash, never `rm -rf`,
     /// and bundles Parallex didn't create are never touched.
+    static func forgetKeychainPassword(of copy: URL) {
+        let launcher = copy.appendingPathComponent("Contents/MacOS/\(AppCloner.launcherName)")
+        guard FileManager.default.isExecutableFile(atPath: launcher.path) else { return }
+        let process = Process()
+        process.executableURL = launcher
+        process.arguments = [ParallexConfig.forgetKeychainArgument]
+        var environment = InstanceLauncher.cleanEnvironment()
+        environment["PARALLEX_LAUNCHER_NO_UI"] = "1"
+        process.environment = environment
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return }
+        process.waitUntilExit()
+    }
+
     public static func remove(_ manifest: InstanceManifest, keepData: Bool) throws -> RemoveResult {
         let fm = FileManager.default
         let wasRunning = Running.isRunning(manifest)
@@ -1054,6 +1080,11 @@ public enum InstanceRemover {
         var wrapperWasMissing = false
         var wrapperSkippedForeign = false
         let wrapper = URL(fileURLWithPath: manifest.wrapperPath)
+        // Its keychain goes with its data; the password that opened it goes
+        // too, deleted by the copy itself (the only one that may, silently).
+        if !keepData, manifest.instanceKeychain != nil, BundleBuilder.isParallexWrapper(wrapper) {
+            forgetKeychainPassword(of: wrapper)
+        }
         if fm.fileExists(atPath: wrapper.path) {
             if BundleBuilder.isParallexWrapper(wrapper) {
                 BundleBuilder.unregister(wrapper)

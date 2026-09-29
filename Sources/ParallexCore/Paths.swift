@@ -29,6 +29,12 @@ public enum Paths {
         supportRoot.appendingPathComponent("lib/libparallexhome.dylib")
     }
 
+    /// An own-identity copy's own keychain (see `InstanceKeychain`). In the
+    /// instance folder, beside (not inside) the home the copy sees.
+    public static func instanceKeychain(slug: String) -> URL {
+        instanceDir(slug: slug).appendingPathComponent("Instance.keychain-db")
+    }
+
     /// PID file the launcher writes before exec (see `Running`).
     public static func pidFile(slug: String) -> URL {
         instanceDir(slug: slug).appendingPathComponent("instance.pid")

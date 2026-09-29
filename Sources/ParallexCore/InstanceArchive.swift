@@ -32,6 +32,11 @@ public enum InstanceArchive {
         try Shell.run("/bin/cp", ["-cRp", source.path, folder.path])
         try? fm.removeItem(at: folder.appendingPathComponent("instance.pid"))
         try? fm.removeItem(at: folder.appendingPathComponent("instance.pid.lock"))
+        // Its keychain opens only for this Mac's copy; the imported one
+        // starts with its own.
+        for item in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] where item.hasPrefix("Instance.keychain") {
+            try? fm.removeItem(at: folder.appendingPathComponent(item))
+        }
         InstanceCreator.removeRunState(in: folder)
         // Links to this Mac's home (the instance home's shared folders) mean
         // nothing elsewhere; the launcher recreates them where it's imported.

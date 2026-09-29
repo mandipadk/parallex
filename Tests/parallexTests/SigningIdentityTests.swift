@@ -89,5 +89,7 @@ final class SigningIdentityTests: XCTestCase {
         request.cloneApp = true
         let result = try InstanceCreator.create(request, builderOptions: options)
         XCTAssertTrue(try requirement(result.wrapperURL).contains("cdhash H\""))
+        XCTAssertNil(result.manifest.instanceKeychain,
+                     "no keychain of its own: its launcher would have to ask for it after every refresh")
     }
 }

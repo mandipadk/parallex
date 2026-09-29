@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import XCTest
 
 /// Helpers for building fake .app bundles and locating built products.
@@ -168,9 +169,38 @@ enum Fixtures {
         return url
     }()
 
+    /// Copies keep their keychain's password in your login keychain; in
+    /// tests it goes to this throwaway one instead (made without touching
+    /// the keychain search list), removed at exit.
+    static let passwordKeychain: URL = {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parallex-tests-passwords-\(ProcessInfo.processInfo.processIdentifier).keychain-db")
+        var keychain: SecKeychain?
+        let password = "parallex-tests"
+        let status = password.withCString { SecKeychainCreate(url.path, UInt32(strlen($0)), $0, false, nil, &keychain) }
+        precondition(status == errSecSuccess, "couldn't make the test password keychain (\(status))")
+        _ = password.withCString { SecKeychainUnlock(keychain, UInt32(strlen($0)), $0, true) }
+        let settings = Process()
+        settings.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        settings.arguments = ["set-keychain-settings", url.path]
+        try? settings.run()
+        settings.waitUntilExit()
+        setenv("PARALLEX_PASSWORD_KEYCHAIN", url.path, 1)
+        atexit {
+            if let path = getenv("PARALLEX_PASSWORD_KEYCHAIN") {
+                try? FileManager.default.removeItem(atPath: String(cString: path))
+            }
+        }
+        return url
+    }()
+
     static func makeTempDirectory(_ testName: String) throws -> URL {
+        // Launchers started by tests never show anything: no error
+        // dialogs, and no keychain prompts.
+        setenv("PARALLEX_LAUNCHER_NO_UI", "1", 1)
         _ = isolatedTrash
         _ = sharedSigning
+        _ = passwordKeychain
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("parallex-tests-\(testName)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

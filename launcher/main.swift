@@ -181,6 +181,15 @@ if CommandLine.arguments.count == 2, CommandLine.arguments[1] == ParallexConfig.
     exit(SeparationProbe.libraryIsLoaded() ? 0 : 3)
 }
 
+// Parallex is removing this copy: forget its keychain's password, and nothing else.
+if CommandLine.arguments.count == 2, CommandLine.arguments[1] == ParallexConfig.forgetKeychainArgument {
+    if let config = Bundle.main.object(forInfoDictionaryKey: ParallexConfig.rootKey) as? [String: Any],
+       let keychain = config[ParallexConfig.Key.instanceKeychain] as? String {
+        InstanceKeychain.forget(path: keychain)
+    }
+    exit(0)
+}
+
 guard let config = Bundle.main.object(forInfoDictionaryKey: ParallexConfig.rootKey) as? [String: Any] else {
     fail("""
     This wrapper's Info.plist has no '\(ParallexConfig.rootKey)' configuration. \
@@ -290,6 +299,22 @@ for directory in config[ParallexConfig.Key.createDirectories] as? [String] ?? []
         \(error.localizedDescription)
         """)
     }
+}
+
+// 1d. The copy's own keychain, ready before the app asks for anything in
+//     it. Before any HOME override: the keychain APIs find your keychains
+//     through $HOME. If it can't be made or unlocked, the copy uses your
+//     keychain as copies did before, rather than not opening.
+if let keychain = config[ParallexConfig.Key.instanceKeychain] as? String {
+    let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+        ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Instance"
+    if InstanceKeychain.prepare(path: keychain, label: "\(name) keychain (Parallex)") {
+        setenv("PARALLEX_INSTANCE_KEYCHAIN", keychain, 1)
+    } else {
+        unsetenv("PARALLEX_INSTANCE_KEYCHAIN")
+    }
+} else {
+    unsetenv("PARALLEX_INSTANCE_KEYCHAIN")
 }
 
 // 2. Optional HOME override — the generic isolation tier for non-Electron apps.

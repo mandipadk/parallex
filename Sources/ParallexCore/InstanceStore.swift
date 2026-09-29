@@ -65,6 +65,11 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     /// app's own hidden folders (like ~/.vscode), which stay in the
     /// instance too. `nil` means on; `false` shares them with the original.
     public var separateHiddenFolders: Bool?
+    /// With its own Library, the copy also keeps its sign-ins (every
+    /// password item) in a keychain of its own instead of yours, where it
+    /// would find and could overwrite the original's. `nil` means on;
+    /// `false` shares your keychain, as copies made before 1.1 do.
+    public var separateKeychain: Bool?
 
     public var isClone: Bool { cloneApp == true }
 
@@ -187,6 +192,9 @@ public struct InstanceManifest: Codable, Sendable {
     /// (its own encryption key). Nil: it uses the original's, as copies
     /// made before 0.13.1 do, and copies started from the original's data.
     public var keychainSuffix: String?
+    /// The copy's own keychain file, when it keeps its sign-ins there (see
+    /// `InstanceKeychain`).
+    public var instanceKeychain: String?
 
     public struct CloneRecord: Codable, Sendable, Equatable {
         /// The copy's own bundle identifier.
@@ -218,7 +226,8 @@ public struct InstanceManifest: Codable, Sendable {
         separatedGroups: [String: String]? = nil,
         privateHomeItems: [String]? = nil,
         links: [String: String]? = nil,
-        keychainSuffix: String? = nil
+        keychainSuffix: String? = nil,
+        instanceKeychain: String? = nil
     ) {
         self.name = name
         self.slug = slug
@@ -241,6 +250,7 @@ public struct InstanceManifest: Codable, Sendable {
         self.privateHomeItems = privateHomeItems
         self.links = links
         self.keychainSuffix = keychainSuffix
+        self.instanceKeychain = instanceKeychain
         if settings != nil {
             schemaVersion = 2
         }
@@ -268,6 +278,12 @@ public struct InstanceManifest: Codable, Sendable {
             if settings.separateHiddenFolders == nil, redirectedHome != nil, privateHomeItems == nil,
                InstanceStatus.compareVersions(parallexVersion, "0.13.0") == .orderedAscending {
                 settings.separateHiddenFolders = false
+            }
+            // Copies with their own Library but made before they had their
+            // own keychain keep yours until it's turned on: the sign-ins
+            // they made are there.
+            if settings.separateKeychain == nil, redirectedHome != nil, instanceKeychain == nil {
+                settings.separateKeychain = false
             }
             return settings
         }

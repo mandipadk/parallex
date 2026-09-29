@@ -89,6 +89,17 @@ still goes through the launcher, so its isolation always applies.
   one way to give them separate data. Apps that keep data in shared app-group
   containers (e.g. WhatsApp) may still see the original's data there;
   `parallex doctor <app>` says what to expect.
+- **Its own keychain.** Apps keep sign-ins in the keychain under their own
+  names, so a copy would find the original's (and signing in to another
+  account there could replace it). A copy with its own Library keeps every
+  password item in a keychain of its own, in its instance folder, including
+  what the app asks the data protection keychain for (a copy isn't entitled
+  to that one). The copy's helpers and services read what the app stored,
+  and nothing else can without asking. Its launcher makes it the first time
+  the copy opens; the keychain's password is kept in your login keychain,
+  readable only by that copy. Copies made before 1.1 keep using your
+  keychain until you turn on **Separate keychain** (`parallex edit <name>
+  --separate-keychain`), which signs them out of what they kept there.
 - **It keeps what you allowed it.** Copies are signed with a certificate
   Parallex makes on your Mac the first time you make one, kept in a keychain
   of its own (not your login keychain). macOS remembers permissions (camera,
@@ -105,9 +116,9 @@ still goes through the launcher, so its isolation always applies.
   refreshes the copy: automatically once it quits, or with **Repair**. If
   something replaces the copy anyway, Parallex notices, won't open it, and
   makes it a copy again.
-- Features tied to the developer's signature (iCloud, push, keychain sharing)
-  don't work in the copy, and it may ask for access to keychain items the
-  original created. Apple's own apps can't be copied.
+- Features tied to the developer's signature (iCloud, push, keychain items
+  shared between the developer's apps) don't work in the copy. Apple's own
+  apps can't be copied.
 
 Data isolation is tiered, auto-detected per app (`parallex doctor` shows the
 verdict):

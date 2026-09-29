@@ -564,6 +564,14 @@ private struct IsolationSection: View {
                         )
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
+                    if draft.settings.separateLibrary != false {
+                        ExplainedToggle(
+                            title: "Separate keychain",
+                            detail: "Sign-ins \(entry.targetName) keeps in the keychain stay in a keychain of this instance's own, so it never finds or replaces the original's. Turning it on signs this instance out of what it kept in yours.",
+                            isOn: separateKeychainBinding
+                        )
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
                 } else if draft.settings.isClone, targetHasGroups {
                     ExplainedToggle(
                         title: "Separate shared data",
@@ -601,6 +609,16 @@ private struct IsolationSection: View {
             set: { on in
                 let stored = entry.manifest.effectiveSettings.separateHiddenFolders
                 draft.settings.separateHiddenFolders = on ? (stored == nil ? nil : true) : false
+            }
+        )
+    }
+
+    private var separateKeychainBinding: Binding<Bool> {
+        Binding(
+            get: { draft.settings.separateKeychain != false },
+            set: { on in
+                let stored = entry.manifest.effectiveSettings.separateKeychain
+                draft.settings.separateKeychain = on ? (stored == nil ? nil : true) : false
             }
         )
     }

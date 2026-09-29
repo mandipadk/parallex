@@ -62,6 +62,9 @@ struct Edit: ParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Keep the app's own hidden folders in your home (like ~/.vscode) separate too (on by default).")
     var separateHiddenFolders: Bool?
 
+    @Flag(inversion: .prefixedNo, help: "Keep an own-identity copy's sign-ins in a keychain of its own (on by default for new copies).")
+    var separateKeychain: Bool?
+
     @Option(help: ArgumentHelp(
         "Global shortcut that opens the instance, e.g. ctrl+opt+1 or ⌃⌥W (needs the Parallex app running).",
         valueName: "keys"
@@ -140,6 +143,9 @@ struct Edit: ParsableCommand {
         }
         if let separateHiddenFolders {
             settings.separateHiddenFolders = separateHiddenFolders
+        }
+        if let separateKeychain {
+            settings.separateKeychain = separateKeychain
         }
         if let menuBarIcon {
             settings.menuBarIcon = menuBarIcon ? true : nil
