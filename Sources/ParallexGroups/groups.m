@@ -20,6 +20,7 @@
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
+#import <os/lock.h>
 #import <servers/bootstrap.h>
 #import <semaphore.h>
 #import <stdarg.h>
@@ -110,16 +111,45 @@ static NSString *rewrittenName(NSString *name) {
     return nil;
 }
 
-// Returns a C string that lives as long as the process (the mapped names are
-// few and fixed); NULL when the name isn't rewritten.
+// Rewritten names, made once each: the result must outlive the call (the
+// caller keeps the pointer), and these lookups run often (every connection,
+// semaphore and port), so they're kept for the life of the process. The
+// names an app uses are few; past a sane number they're made per call.
+static os_unfair_lock cacheLock = OS_UNFAIR_LOCK_INIT;
+static NSMutableDictionary<NSString *, id> *cache;
+static const NSUInteger cacheLimit = 512;
+
+// NULL when the name isn't rewritten.
 static const char *rewrittenCName(const char *name) {
     // Some of these run during process start-up, before Objective-C is
     // ready: touch nothing until there's a map (set by our constructor).
     if (name == NULL || groupMap == nil) {
         return NULL;
     }
-    NSString *rewritten = rewrittenName([NSString stringWithUTF8String:name]);
-    return rewritten != nil ? strdup(rewritten.UTF8String) : NULL;
+    NSString *key = [NSString stringWithUTF8String:name];
+    if (key == nil) {
+        return NULL;
+    }
+    os_unfair_lock_lock(&cacheLock);
+    id cached = cache[key];
+    os_unfair_lock_unlock(&cacheLock);
+    if (cached != nil) {
+        return cached == [NSNull null] ? NULL : (const char *)[(NSValue *)cached pointerValue];
+    }
+    NSString *rewritten = rewrittenName(key);
+    const char *result = rewritten != nil ? strdup(rewritten.UTF8String) : NULL;
+    os_unfair_lock_lock(&cacheLock);
+    id existing = cache[key];
+    if (existing == nil && cache.count < cacheLimit) {
+        cache[key] = result != NULL ? [NSValue valueWithPointer:result] : [NSNull null];
+    }
+    os_unfair_lock_unlock(&cacheLock);
+    if (existing != nil) {
+        // Another thread made it first; use that one.
+        free((void *)result);
+        return existing == [NSNull null] ? NULL : (const char *)[(NSValue *)existing pointerValue];
+    }
+    return result;
 }
 
 static xpc_connection_t parallex_xpc_connection_create_mach_service(const char *name, dispatch_queue_t queue, uint64_t flags)
@@ -186,6 +216,7 @@ PARALLEX_INTERPOSE(parallex_CFMessagePortCreateRemote, CFMessagePortCreateRemote
 
 __attribute__((constructor)) static void parallex_groups_init(void) {
     serviceMap = parseMap(getenv("PARALLEX_SERVICE_MAP"));
+    cache = [NSMutableDictionary dictionary];
     groupMap = parseMap(getenv("PARALLEX_GROUP_MAP"));
     if (groupMap == nil) {
         return;

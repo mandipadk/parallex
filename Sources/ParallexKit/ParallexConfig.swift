@@ -1,3 +1,5 @@
+import Foundation
+
 /// Shared between the CLI and the generic launcher: the names of the keys in a
 /// wrapper bundle's Info.plist that carry the launch configuration.
 ///
@@ -84,22 +86,28 @@ public enum ParallexConfig {
     public static let separationUnavailableMarker = "separation-unavailable"
 }
 
-/// The pid file's contents: the PID on the first line and, since 0.5, the
-/// executable the launcher exec'd on the second. The executable path lets
-/// liveness checks reject a recycled PID even when the target app was moved
-/// after the instance was created. Older launchers write only the PID.
+/// The pid file's contents: the PID on the first line, since 0.5 the
+/// executable the launcher exec'd on the second, and since 1.1 the process's
+/// start time on the third. The executable path rejects a recycled PID even
+/// when the target app was moved after the instance was created; the start
+/// time rejects one that the same app got again (a wrapper's executable *is*
+/// the original app's, so after a quit the original could otherwise pass for
+/// the instance). Older launchers write less.
 public struct PidFileRecord: Equatable, Sendable {
     public var pid: Int32
     public var executablePath: String?
+    /// When the process started ("seconds.microseconds"); `execv` keeps it.
+    public var started: String?
 
-    public init(pid: Int32, executablePath: String?) {
+    public init(pid: Int32, executablePath: String?, started: String? = nil) {
         self.pid = pid
         self.executablePath = executablePath
+        self.started = started
     }
 
     public init?(parsing text: String) {
-        // No Foundation here (the launcher stays lean): trim by hand. Paths
-        // can contain inner spaces ("Application Support"), so only the ends.
+        // Trim by hand: paths can contain inner spaces ("Application
+        // Support"), so only the ends.
         let lines = text.split(whereSeparator: \.isNewline).map { line -> String in
             var slice = Substring(line)
             while slice.first?.isWhitespace == true { slice = slice.dropFirst() }
@@ -111,10 +119,42 @@ public struct PidFileRecord: Equatable, Sendable {
         }
         self.pid = pid
         self.executablePath = lines.count > 1 && !lines[1].isEmpty ? lines[1] : nil
+        self.started = lines.count > 2 && !lines[2].isEmpty ? lines[2] : nil
     }
 
     public var serialized: String {
-        executablePath.map { "\(pid)\n\($0)\n" } ?? "\(pid)\n"
+        [String(pid), executablePath ?? "", started ?? ""]
+            .reversed().drop { $0.isEmpty }.reversed()
+            .map { $0 + "\n" }.joined()
+    }
+
+    /// A process's start time, as recorded in `started`.
+    public static func startTime(of pid: Int32) -> String? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return "\(info.pbi_start_tvsec).\(info.pbi_start_tvusec)"
+    }
+
+    /// The recorded process, if it's still the one the launcher became:
+    /// alive, running `executablePath` (or `expectedExecutable` for records
+    /// without one), and started when recorded.
+    public func liveProcess(expectedExecutable: String) -> Int32? {
+        guard kill(pid, 0) == 0 || errno == EPERM else {
+            return nil
+        }
+        var buffer = [UInt8](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+        guard length > 0 else { return nil }
+        // The kernel reports the resolved path (/private/tmp/… for /tmp/…).
+        let actual = URL(fileURLWithPath: String(decoding: buffer[..<Int(length)], as: UTF8.self))
+            .resolvingSymlinksInPath().path
+        let expected = URL(fileURLWithPath: executablePath ?? expectedExecutable).resolvingSymlinksInPath().path
+        guard actual == expected else { return nil }
+        if let started, Self.startTime(of: pid) != started {
+            return nil
+        }
+        return pid
     }
 }
 

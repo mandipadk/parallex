@@ -31,6 +31,7 @@ public enum InstanceArchive {
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         try Shell.run("/bin/cp", ["-cRp", source.path, folder.path])
         try? fm.removeItem(at: folder.appendingPathComponent("instance.pid"))
+        try? fm.removeItem(at: folder.appendingPathComponent("instance.pid.lock"))
         InstanceCreator.removeRunState(in: folder)
         // Links to this Mac's home (the instance home's shared folders) mean
         // nothing elsewhere; the launcher recreates them where it's imported.

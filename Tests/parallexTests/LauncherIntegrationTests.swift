@@ -123,11 +123,10 @@ final class LauncherIntegrationTests: XCTestCase {
         XCTAssertEqual(process.terminationStatus, 0)
         // execv kept the PID, so the file must contain the launcher's own PID,
         // plus the executable it became.
-        let recorded = try String(contentsOf: pidFile, encoding: .utf8)
-        XCTAssertEqual(
-            PidFileRecord(parsing: recorded),
-            PidFileRecord(pid: process.processIdentifier, executablePath: "/usr/bin/true")
-        )
+        let recorded = try XCTUnwrap(PidFileRecord(parsing: try String(contentsOf: pidFile, encoding: .utf8)))
+        XCTAssertEqual(recorded.pid, process.processIdentifier)
+        XCTAssertEqual(recorded.executablePath, "/usr/bin/true")
+        XCTAssertNotNil(recorded.started, "and when it started, to tell it from a later process at the same PID")
     }
 
     func testCreatesConfiguredDirectories() throws {
@@ -265,6 +264,38 @@ final class LauncherIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         // ...and the running instance's pid file is left alone.
         XCTAssertEqual(PidFileRecord(parsing: try String(contentsOf: pidFile, encoding: .utf8)), record)
+    }
+
+    /// Two launches at the same moment (login restore and Parallex opening
+    /// it, say): the second waits for the first to become the app, then
+    /// hands off to it instead of starting another.
+    func testTwoLaunchesAtOnceStartTheAppOnce() throws {
+        let pidFile = tempDir.appendingPathComponent("instance.pid")
+        let app = try makeWrapper(config: [
+            ParallexConfig.Key.targetBinary: "/bin/sleep",
+            ParallexConfig.Key.arguments: ["3"],
+            ParallexConfig.Key.pidFile: pidFile.path,
+        ])
+        var env = ProcessInfo.processInfo.environment
+        env["PARALLEX_LAUNCHER_NO_UI"] = "1"
+        let launches = (0..<2).map { _ -> Process in
+            let process = Process()
+            process.executableURL = app.appendingPathComponent("Contents/MacOS/launcher")
+            process.environment = env
+            return process
+        }
+        for process in launches { try process.run() }
+        // One of them became `sleep 3`; the other must be done well before.
+        let deadline = Date().addingTimeInterval(2)
+        while launches.allSatisfy(\.isRunning), Date() < deadline { usleep(20_000) }
+        let finished = try XCTUnwrap(launches.first { !$0.isRunning }, "one launch should hand off and exit at once")
+        XCTAssertEqual(finished.terminationStatus, 0)
+        let running = try XCTUnwrap(launches.first { $0 !== finished })
+        XCTAssertTrue(running.isRunning, "the other is the app")
+        let record = try XCTUnwrap(PidFileRecord(parsing: try String(contentsOf: pidFile, encoding: .utf8)))
+        XCTAssertEqual(record.pid, running.processIdentifier)
+        running.terminate()
+        running.waitUntilExit()
     }
 
     func testStalePidFileDoesNotBlockLaunch() throws {

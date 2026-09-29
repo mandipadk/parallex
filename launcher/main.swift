@@ -113,16 +113,17 @@ func runningInstancePID(pidFile: String, expectedExecutable: String) -> pid_t? {
     else {
         return nil
     }
-    guard kill(record.pid, 0) == 0 || errno == EPERM else {
-        return nil
-    }
-    var buffer = [UInt8](repeating: 0, count: Int(MAXPATHLEN) * 4)
-    let length = proc_pidpath(record.pid, &buffer, UInt32(buffer.count))
-    guard length > 0 else { return nil }
-    let path = String(decoding: buffer[..<Int(length)], as: UTF8.self)
-    // The kernel reports the resolved path (/private/tmp/… for /tmp/…).
-    let expected = URL(fileURLWithPath: record.executablePath ?? expectedExecutable).resolvingSymlinksInPath().path
-    return URL(fileURLWithPath: path).resolvingSymlinksInPath().path == expected ? record.pid : nil
+    return record.liveProcess(expectedExecutable: expectedExecutable)
+}
+
+/// Held from the "already running?" check until the exec, so two launches
+/// at once (login restore and Parallex opening it, say) can't both start
+/// the app: the second waits, then finds the first running. Opened
+/// close-on-exec, so the running app never holds it.
+func holdLaunchLock(pidFile: String) {
+    let descriptor = open(pidFile + ".lock", O_RDWR | O_CREAT | O_CLOEXEC, 0o644)
+    guard descriptor >= 0 else { return }
+    while flock(descriptor, LOCK_EX) != 0 && errno == EINTR {}
 }
 
 /// Replace this process with the target binary, keeping our PID.
@@ -209,6 +210,12 @@ if let own = Bundle.main.executableURL?.resolvingSymlinksInPath().path,
 let pidFile = config[ParallexConfig.Key.pidFile] as? String
 
 // 0. Already running? Bring it forward instead of starting a second copy.
+if let pidFile {
+    try? FileManager.default.createDirectory(
+        at: URL(fileURLWithPath: pidFile).deletingLastPathComponent(), withIntermediateDirectories: true
+    )
+    holdLaunchLock(pidFile: pidFile)
+}
 if let pidFile, let running = runningInstancePID(pidFile: pidFile, expectedExecutable: targetBinary) {
     log.info("instance already running as pid \(running, privacy: .public); activating it")
     NSRunningApplication(processIdentifier: running)?.activate(options: [.activateAllWindows])
@@ -381,7 +388,9 @@ if let pidFile {
     try? FileManager.default.createDirectory(
         at: url.deletingLastPathComponent(), withIntermediateDirectories: true
     )
-    let record = PidFileRecord(pid: getpid(), executablePath: targetBinary)
+    let record = PidFileRecord(
+        pid: getpid(), executablePath: targetBinary, started: PidFileRecord.startTime(of: getpid())
+    )
     try? Data(record.serialized.utf8).write(to: url, options: .atomic)
 }
 

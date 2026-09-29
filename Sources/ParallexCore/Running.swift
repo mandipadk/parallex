@@ -22,21 +22,7 @@ public enum Running {
         else {
             return nil
         }
-        let pid = record.pid
-        // kill(pid, 0): delivery check only. ESRCH → gone; EPERM → exists.
-        guard kill(pid, 0) == 0 || errno == EPERM else {
-            return nil
-        }
-        // Launchers since 0.5 record the executable they exec'd (which can
-        // differ from the manifest's if the target app moved).
-        // The kernel reports the resolved path (/private/tmp/… for /tmp/…).
-        let expected = URL(fileURLWithPath: record.executablePath ?? targetBinary).resolvingSymlinksInPath().path
-        guard let actual = executablePath(of: pid),
-              URL(fileURLWithPath: actual).resolvingSymlinksInPath().path == expected
-        else {
-            return nil
-        }
-        return pid
+        return record.liveProcess(expectedExecutable: targetBinary)
     }
 
     public static func isRunning(instanceSlug: String, targetBinary: String) -> Bool {

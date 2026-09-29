@@ -200,7 +200,7 @@ extension InstanceCreator {
         let fm = FileManager.default
         let from = Paths.instanceDir(slug: source.slug)
         let to = Paths.instanceDir(slug: destination.slug)
-        let skipped: Set<String> = ["instance.json", "instance.pid"]
+        let skipped: Set<String> = ["instance.json", "instance.pid", "instance.pid.lock"]
         for item in (try? fm.contentsOfDirectory(atPath: from.path)) ?? []
         where !skipped.contains(item) && !item.hasPrefix("custom-icon.") {
             let target = to.appendingPathComponent(item)

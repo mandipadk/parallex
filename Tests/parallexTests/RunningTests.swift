@@ -65,7 +65,26 @@ final class RunningTests: XCTestCase {
         XCTAssertTrue(Running.isRunning(instanceSlug: "moved", targetBinary: "/Applications/Old.app/Contents/MacOS/Old"))
     }
 
+    /// The same executable at a recycled PID (a wrapper's executable is the
+    /// original app's) is told apart by when the process started.
+    func testAProcessThatStartedLaterIsNotTheInstance() throws {
+        let url = Paths.pidFile(slug: "recycled")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let started = try XCTUnwrap(PidFileRecord.startTime(of: getpid()))
+        try Data(PidFileRecord(pid: getpid(), executablePath: ownBinary, started: started).serialized.utf8).write(to: url)
+        XCTAssertTrue(Running.isRunning(instanceSlug: "recycled", targetBinary: ownBinary))
+        try Data(PidFileRecord(pid: getpid(), executablePath: ownBinary, started: "1.0").serialized.utf8).write(to: url)
+        XCTAssertFalse(Running.isRunning(instanceSlug: "recycled", targetBinary: ownBinary))
+    }
+
     func testPidFileRecordParsing() {
+        XCTAssertEqual(
+            PidFileRecord(parsing: "42\n/Applications/A.app/Contents/MacOS/A\n1790000000.123456\n"),
+            PidFileRecord(pid: 42, executablePath: "/Applications/A.app/Contents/MacOS/A", started: "1790000000.123456")
+        )
+        let record = PidFileRecord(pid: 7, executablePath: "/x", started: "5.6")
+        XCTAssertEqual(PidFileRecord(parsing: record.serialized), record)
+        XCTAssertEqual(PidFileRecord(pid: 7, executablePath: "/x").serialized, "7\n/x\n")
         XCTAssertEqual(PidFileRecord(parsing: "42"), PidFileRecord(pid: 42, executablePath: nil))
         XCTAssertEqual(
             PidFileRecord(parsing: "42\n/Applications/My App.app/Contents/MacOS/My App\n"),
