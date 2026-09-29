@@ -82,6 +82,24 @@ final class SigningIdentityTests: XCTestCase {
         XCTAssertTrue(identities.contains(identity.hash), identities)
     }
 
+    /// Where codesign finds identities only on the keychain search list
+    /// (macOS 26), the signing keychain is put there just while signing,
+    /// and the list is left as it was.
+    func testSigningFromTheSearchListLeavesItAsItWas() throws {
+        let before = try searchList()
+        _ = SigningIdentity.usable()
+        let decided = SigningIdentity.mode
+        SigningIdentity.mode = .fromSearchList
+        defer { SigningIdentity.mode = decided }
+        let target = try Fixtures.makeApp(named: "Listy", bundleID: "com.fake.listy", in: tempDir)
+        var request = CreateRequest(appReference: target.path, name: "Listy Work", outputDirectory: outDir)
+        request.cloneApp = true
+        let result = try InstanceCreator.create(request, builderOptions: options)
+        let identity = try XCTUnwrap(SigningIdentity.existing())
+        XCTAssertTrue(try requirement(result.wrapperURL).contains("certificate leaf = H\"\(identity.hash.lowercased())\""))
+        XCTAssertEqual(try searchList(), before)
+    }
+
     func testTurnedOffCopiesAreSignedAdHoc() throws {
         setenv("PARALLEX_SIGNING", "adhoc", 1)
         let target = try Fixtures.makeApp(named: "Loose", bundleID: "com.fake.loose", in: tempDir)

@@ -167,6 +167,27 @@ enum Fixtures {
             if let path = getenv("PARALLEX_SIGNING_DIR") {
                 try? FileManager.default.removeItem(atPath: String(cString: path))
             }
+            // Never leave a test keychain on the keychain search list, however
+            // a test ended.
+            let list = Process()
+            list.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+            list.arguments = ["list-keychains", "-d", "user"]
+            let pipe = Pipe()
+            list.standardOutput = pipe
+            try? list.run()
+            list.waitUntilExit()
+            let entries = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                .split(separator: "\n")
+                .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+                .filter { !$0.isEmpty }
+            let kept = entries.filter { !$0.contains("/parallex-tests-") }
+            if kept.count != entries.count, !kept.isEmpty {
+                let set = Process()
+                set.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+                set.arguments = ["list-keychains", "-d", "user", "-s"] + kept
+                try? set.run()
+                set.waitUntilExit()
+            }
         }
         return url
     }()

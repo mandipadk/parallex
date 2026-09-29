@@ -57,10 +57,31 @@ public enum SigningIdentity {
         }
     }
 
-    /// Whether copies can be signed with it right now (it exists, or can be
-    /// made, and it unlocks).
+    /// Whether copies can be signed with it right now: it exists (or can be
+    /// made), it unlocks, and `codesign` actually signs with it (tried on a
+    /// small file). When it can't, why is written to stderr.
     public static func usable() -> Bool {
         (try? whileSigning { $0 != nil }) ?? false
+    }
+
+    private static func trialSignature(with identity: Identity, report: Bool) -> Bool {
+        let fm = FileManager.default
+        let trial = fm.temporaryDirectory.appendingPathComponent("parallex-signing-trial-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: trial) }
+        do {
+            try fm.copyItem(at: URL(fileURLWithPath: "/usr/bin/true"), to: trial)
+            try Shell.run("/usr/bin/codesign", [
+                "--force", "--sign", identity.hash, "--keychain", identity.keychain.path, "--timestamp=none", trial.path,
+            ])
+            return true
+        } catch {
+            guard report else { return false }
+            let identities = (try? Shell.run("/usr/bin/security", ["find-identity", "-p", "codesigning", identity.keychain.path])) ?? "?"
+            FileHandle.standardError.write(Data(
+                "parallex: this Mac's signing identity can't sign (\(error)); identities in its keychain:\n\(identities)\n".utf8
+            ))
+            return false
+        }
     }
 
     /// Run `body` with the identity unlocked for `codesign` (nil when there
@@ -70,9 +91,80 @@ public enum SigningIdentity {
         guard let identity = forSigning() else { return try body(nil) }
         let session = try FileLock(directory.appendingPathComponent(".signing.lock"))
         defer { session.release() }
+        // Left on the list by a signing that never finished (a crash): off.
+        removeFromSearchList()
         guard (try? unlock()) != nil else { return try body(nil) }
         defer { lock() }
-        return try body(identity)
+        if mode == nil {
+            mode = workingMode(for: identity)
+        }
+        switch mode {
+        case .direct:
+            return try body(identity)
+        case .fromSearchList:
+            // codesign on some macOS versions (26) finds an identity only in
+            // a keychain on the search list, whatever --keychain says: there,
+            // it's on the list only while signing.
+            addToSearchList()
+            defer { removeFromSearchList() }
+            return try body(identity)
+        case .unusable, nil:
+            return try body(nil)
+        }
+    }
+
+    enum Mode { case direct, fromSearchList, unusable }
+
+    /// How codesign can use the identity on this Mac, found once per
+    /// process by trial signatures.
+    nonisolated(unsafe) static var mode: Mode?
+
+    private static func workingMode(for identity: Identity) -> Mode {
+        if trialSignature(with: identity, report: false) {
+            return .direct
+        }
+        addToSearchList()
+        defer { removeFromSearchList() }
+        if trialSignature(with: identity, report: true) {
+            FileHandle.standardError.write(Data("parallex: signing copies with the identity on the keychain search list\n".utf8))
+            return .fromSearchList
+        }
+        return .unusable
+    }
+
+    @available(macOS, deprecated: 10.10)
+    private static func searchList() -> [SecKeychain] {
+        var list: CFArray?
+        SecKeychainCopyDomainSearchList(.user, &list)
+        return list as? [SecKeychain] ?? []
+    }
+
+    /// Whether `keychain` is the signing keychain (paths compared resolved:
+    /// /var and /private/var are the same place).
+    private static func isSigningKeychain(_ keychain: SecKeychain) -> Bool {
+        var length: UInt32 = UInt32(PATH_MAX)
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        guard SecKeychainGetPath(keychain, &length, &buffer) == errSecSuccess else { return false }
+        let path = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
+        return path == keychainURL.resolvingSymlinksInPath().path
+    }
+
+    private static func addToSearchList() {
+        var keychain: SecKeychain?
+        guard SecKeychainOpen(keychainURL.path, &keychain) == errSecSuccess, let keychain else { return }
+        let list = searchList()
+        guard !list.contains(where: isSigningKeychain) else { return }
+        SecKeychainSetDomainSearchList(.user, (list + [keychain]) as CFArray)
+    }
+
+    /// Takes only this keychain off the list, whatever else changed on it
+    /// meanwhile.
+    private static func removeFromSearchList() {
+        let list = searchList()
+        let kept = list.filter { !isSigningKeychain($0) }
+        if kept.count != list.count {
+            SecKeychainSetDomainSearchList(.user, kept as CFArray)
+        }
     }
 
     /// Lock the signing keychain: only a signing Parallex does may use it.
