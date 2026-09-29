@@ -316,8 +316,10 @@ extension InstanceCreator {
         request.separateHiddenFolders = settings.separateHiddenFolders
         request.webURL = settings.webURL
         request.throwaway = throwaway
-        if includeData {
-            // What's copied was encrypted with the source's key.
+        // What's copied was encrypted with the source's key; the duplicate
+        // uses it where it is. (A key in the source's own keychain can't be
+        // shared: then the duplicate gets one of its own.)
+        if includeData, manifest.safeStorageInKeychain != true {
             request.keychainSuffix = .some(manifest.keychainSuffix)
         }
         let result = try create(request, builderOptions: builderOptions)
@@ -1007,9 +1009,20 @@ public enum InstanceCreator {
         guard assessment.possible else {
             throw ParallexError(assessment.notes.joined(separator: " "))
         }
-        if stageAt == nil, let previous,
-           Running.isRunning(previous) || Running.anythingRunning(inside: previous.wrapperPath) {
-            throw ParallexError("Quit “\(previous.name)” first — its copy of the app is replaced when it's rebuilt.")
+        if stageAt == nil, let previous {
+            if Running.isRunning(previous) {
+                throw ParallexError("Quit “\(previous.name)” first — its copy of the app is replaced when it's rebuilt.")
+            }
+            // Its app quit, but a helper of it (a login item, a menu bar
+            // part) still runs from the copy: say which, to quit it.
+            let helpers = Running.processNames(inside: previous.wrapperPath)
+            if !helpers.isEmpty {
+                throw ParallexError(
+                    "“\(previous.name)” can't be rebuilt while part of it still runs: "
+                    + helpers.map { "“\($0)”" }.joined(separator: ", ")
+                    + ". Quit it (Activity Monitor can), then try again."
+                )
+            }
         }
         let destination = spec.outputDirectory.appendingPathComponent("\(spec.name).app", isDirectory: true)
         // The one foreign app this may replace: this instance's own copy,

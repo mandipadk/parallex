@@ -71,12 +71,23 @@ public enum Running {
     /// Whether any process runs from inside `bundle` (an app's helpers can
     /// outlive it; a launch can be just starting).
     public static func anythingRunning(inside bundle: String) -> Bool {
+        !processNames(inside: bundle).isEmpty
+    }
+
+    /// The names of the programs running from inside `bundle`.
+    public static func processNames(inside bundle: String) -> [String] {
         // (/private/tmp and /tmp are the same place, spelled either way.)
         func plain(_ path: String) -> String { path.hasPrefix("/private/") ? String(path.dropFirst("/private".count)) : path }
         let prefix = plain(URL(fileURLWithPath: bundle).standardizedFileURL.path) + "/"
-        return IsolationCheck.allPIDs().contains { pid in
-            executablePath(of: pid).map { plain($0).hasPrefix(prefix) } ?? false
+        var names: [String] = []
+        for pid in IsolationCheck.allPIDs() {
+            guard let path = executablePath(of: pid), plain(path).hasPrefix(prefix) else { continue }
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            if !names.contains(name) {
+                names.append(name)
+            }
         }
+        return names
     }
 
     static func executablePath(of pid: pid_t) -> String? {

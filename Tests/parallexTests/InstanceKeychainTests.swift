@@ -302,6 +302,8 @@ final class InstanceKeychainTests: XCTestCase {
         XCTAssertEqual(other.safeStorageInKeychain, true)
         let second = try InstanceCreator.duplicate(other, includeData: true, builderOptions: options)
         XCTAssertTrue(second.warnings.contains { $0.contains("sign in there again") })
+        XCTAssertNotEqual(second.manifest.keychainSuffix, other.keychainSuffix, "a key of its own, not one to share")
+        XCTAssertEqual(second.manifest.safeStorageInKeychain, true)
     }
 
     func testADuplicateStartsWithAKeychainOfItsOwn() throws {
