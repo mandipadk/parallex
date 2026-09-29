@@ -956,11 +956,18 @@ final class AppModel {
                 busy.insert(entry.id)
                 do {
                     _ = try await Task.detached(priority: .utility) {
+                        // Something (a helper, a launch) still runs from it:
+                        // next time, not under it.
+                        if manifest.clone != nil, Running.anythingRunning(inside: manifest.wrapperPath) {
+                            return
+                        }
                         // A refresh built while it ran takes over in an
                         // instant; otherwise it's rebuilt now.
-                        if InstanceCreator.stagedRefreshIsCurrent(for: manifest),
-                           try InstanceCreator.installStagedRefresh(manifest) != nil {
-                            return
+                        if InstanceCreator.stagedRefreshIsCurrent(for: manifest) {
+                            switch try InstanceCreator.installStagedRefreshNow(manifest) {
+                            case .installed, .notNow: return
+                            case .nothing: break
+                            }
                         }
                         _ = try InstanceCreator.update(manifest)
                     }.value

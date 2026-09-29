@@ -77,8 +77,9 @@ final class StagedRefreshTests: XCTestCase {
         try InstanceCreator.stageRefresh(result.manifest, builderOptions: options)
         XCTAssertTrue(InstanceCreator.stagedRefreshIsCurrent(for: result.manifest))
         XCTAssertEqual(version(of: result.wrapperURL), "1.0", "the running copy is left alone")
-        XCTAssertNil(try InstanceCreator.installStagedRefresh(result.manifest, builderOptions: options),
-                     "nothing takes its place while it runs")
+        guard case .notNow = try InstanceCreator.installStagedRefreshNow(result.manifest, builderOptions: options) else {
+            return XCTFail("nothing takes its place while it runs")
+        }
 
         running.terminate()
         running.waitUntilExit()
@@ -148,6 +149,25 @@ final class StagedRefreshTests: XCTestCase {
         XCTAssertNil(try InstanceCreator.installStagedRefresh(changed, builderOptions: options))
         XCTAssertNil(InstanceCreator.stagedRefresh(of: changed))
         XCTAssertEqual(version(of: result.wrapperURL), "1.0")
+    }
+
+    /// A copy made by 1.0 keeps sharing your keychain through a refresh
+    /// (and the rebuild after it): its sign-ins are there.
+    func testAnOlderCopyKeepsYourKeychainThroughARefresh() throws {
+        let (target, result) = try makeCopy("Veteran", seconds: "0")
+        var old = result.manifest
+        old.parallexVersion = "1.0.0"
+        old.instanceKeychain = nil
+        old.safeStorageInKeychain = nil
+        old.settings?.separateKeychain = nil
+        try InstanceStore.save(old)
+        try updateOriginal(target, to: "2.0")
+        try InstanceCreator.stageRefresh(old, builderOptions: options)
+        let installed = try XCTUnwrap(try InstanceCreator.installStagedRefresh(old, builderOptions: options))
+        XCTAssertEqual(installed.settings?.separateKeychain, false)
+        XCTAssertNil(installed.instanceKeychain)
+        let rebuilt = try InstanceCreator.update(installed, builderOptions: options)
+        XCTAssertNil(rebuilt.manifest.instanceKeychain, "not signed out after the next rebuild either")
     }
 
     func testARebuildDiscardsAWaitingRefresh() throws {

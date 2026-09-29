@@ -167,18 +167,39 @@ extension InstanceCreator {
             && staged.wrapperPath == manifest.wrapperPath
     }
 
+    /// What became of a waiting refresh.
+    public enum StagedInstall: Sendable {
+        /// It took the copy's place.
+        case installed(InstanceManifest)
+        /// None waiting (or it was out of date and dropped).
+        case nothing
+        /// The copy, or something from it, is running: try again later
+        /// (and don't rebuild it now either).
+        case notNow
+    }
+
     /// Put a waiting refresh in place of the copy, which must not be
-    /// running. Returns the instance as it now is, or nil when there was
-    /// nothing (usable) waiting.
+    /// running. Returns the instance as it now is, or nil when nothing
+    /// took its place (see `installStagedRefreshNow` for why).
     @discardableResult
     public static func installStagedRefresh(
         _ manifest: InstanceManifest,
         builderOptions: BundleBuilder.Options = BundleBuilder.Options()
     ) throws -> InstanceManifest? {
+        if case .installed(let installed) = try installStagedRefreshNow(manifest, builderOptions: builderOptions) {
+            return installed
+        }
+        return nil
+    }
+
+    public static func installStagedRefreshNow(
+        _ manifest: InstanceManifest,
+        builderOptions: BundleBuilder.Options = BundleBuilder.Options()
+    ) throws -> StagedInstall {
         let fm = FileManager.default
         let staged = Paths.stagedCopy(slug: manifest.slug)
         defer { clearLeftovers(slug: manifest.slug) }
-        guard var refreshed = stagedRefresh(of: manifest) else { return nil }
+        guard var refreshed = stagedRefresh(of: manifest) else { return .nothing }
         let live = InstanceStore.load(slug: manifest.slug) ?? manifest
         // Built for another place or name, or with settings that have
         // changed since in a way a rebuild would show: out of date.
@@ -186,15 +207,29 @@ extension InstanceCreator {
               !live.effectiveSettings.requiresRebuild(toReach: refreshed.effectiveSettings)
         else {
             discardStagedRefresh(slug: manifest.slug)
-            return nil
+            return .nothing
         }
-        // Everything else the user set since (a shortcut, throwaway, …) stays.
-        refreshed.settings = live.settings
+        // The refresh keeps the settings it was built with (for an older
+        // record, the ones it's been using all along, like its shared
+        // keychain); what the user changed since that needs no rebuild (a
+        // shortcut, throwaway, …) comes from now.
+        var settings = refreshed.effectiveSettings
+        let current = live.effectiveSettings
+        settings.openAtLaunch = current.openAtLaunch
+        settings.shortcut = current.shortcut
+        settings.menuBarIcon = current.menuBarIcon
+        settings.throwaway = current.throwaway
+        settings.throwawaySince = current.throwawaySince
+        settings.quitWhenUnused = current.quitWhenUnused
+        if settings.badgeText == nil {
+            settings.badgeColorHex = current.badgeColorHex
+        }
+        refreshed.settings = settings
         // Not while it runs, or a launch of it is under way (the launcher
         // holds this until it becomes the app), or anything runs from it.
         let lock = try FileLock(URL(fileURLWithPath: Paths.pidFile(slug: manifest.slug).path + ".lock"))
         defer { lock.release() }
-        guard !Running.isRunning(live), !Running.anythingRunning(inside: live.wrapperPath) else { return nil }
+        guard !Running.isRunning(live), !Running.anythingRunning(inside: live.wrapperPath) else { return .notNow }
         let copy = URL(fileURLWithPath: manifest.wrapperPath)
         let previous = Paths.stagingDir(slug: manifest.slug).appendingPathComponent("previous-\(UUID().uuidString).app")
         let hadCopy = fm.fileExists(atPath: copy.path)
@@ -215,7 +250,7 @@ extension InstanceCreator {
         if builderOptions.registerWithLaunchServices, let lsregister = BundleBuilder.lsregisterPath {
             Shell.runAllowingFailure(lsregister, ["-f", copy.path])
         }
-        return refreshed
+        return .installed(refreshed)
     }
 
     /// Drop a waiting refresh (a rebuild supersedes it).
@@ -295,6 +330,18 @@ extension InstanceCreator {
                 )
             }
             try copyData(from: manifest, to: result.manifest)
+            if manifest.safeStorageInKeychain == true {
+                // Its key is in its own keychain, which opens only for it.
+                return CreateResult(
+                    manifest: result.manifest, wrapperURL: result.wrapperURL,
+                    frameworkDisplayName: result.frameworkDisplayName, dataDirectories: result.dataDirectories,
+                    homeDirectory: result.homeDirectory, notes: result.notes,
+                    warnings: result.warnings + [
+                        "What “\(manifest.name)” keeps encrypted with its own key (cookies, saved sign-ins) can't be "
+                        + "read by the duplicate; sign in there again.",
+                    ]
+                )
+            }
         }
         return result
     }
@@ -801,7 +848,7 @@ public enum InstanceCreator {
         // it's signed with this Mac's identity: that's what lets its launcher
         // read the keychain's password without asking after every refresh.
         let wantsKeychain = redirectHome != nil && settings.separateKeychain != false
-        let identityAvailable = wantsKeychain && builderOptions.sign && SigningIdentity.forSigning() != nil
+        let identityAvailable = wantsKeychain && builderOptions.sign && SigningIdentity.usable()
         // One that has its own keychain never loses it quietly: signed any
         // other way, it couldn't open what it keeps there.
         if wantsKeychain, previous?.instanceKeychain != nil, !identityAvailable {
@@ -813,8 +860,10 @@ public enum InstanceCreator {
         let instanceKeychain = wantsKeychain && identityAvailable ? Paths.instanceKeychain(slug: slug).path : nil
         // Its own encryption key goes in that keychain too, for copies that
         // had it from the start (older ones' data needs their renamed key).
+        // A copy given a key to use (its data was copied from another
+        // instance, or the original) finds that one where it is.
         let safeStorageInKeychain = instanceKeychain != nil && keychainSuffix != nil
-            && (previous == nil || previous?.safeStorageInKeychain == true)
+            && (previous == nil ? requestedKeychainSuffix == nil : previous?.safeStorageInKeychain == true)
         // A dedicated home mirrors yours, except for the app's own folders
         // (and what the user shares explicitly). Home mode keeps its promise
         // of a home of its own, shared items aside.
@@ -958,7 +1007,8 @@ public enum InstanceCreator {
         guard assessment.possible else {
             throw ParallexError(assessment.notes.joined(separator: " "))
         }
-        if stageAt == nil, let previous, Running.isRunning(previous) {
+        if stageAt == nil, let previous,
+           Running.isRunning(previous) || Running.anythingRunning(inside: previous.wrapperPath) {
             throw ParallexError("Quit “\(previous.name)” first — its copy of the app is replaced when it's rebuilt.")
         }
         let destination = spec.outputDirectory.appendingPathComponent("\(spec.name).app", isDirectory: true)

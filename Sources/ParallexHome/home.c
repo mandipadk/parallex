@@ -348,22 +348,17 @@ static char *renamed_service(UInt32 length, const char *name, bool names_keychai
 }
 
 // The copy's own keychain, opened on first use (Security can't be used from
-// the library's constructor), with the access new items get. NULL when the
-// copy has none, or it isn't unlocked (the launcher couldn't prepare it):
-// then items stay where they were, rather than prompting for a password
-// nobody knows.
+// the library's constructor), with the access new items get.
 static SecKeychainRef instance_keychain;
 static SecAccessRef instance_access;
 
+static bool expects_own_keychain(void) {
+    return active && instance_keychain_path[0] != '\0';
+}
+
 static void open_instance_keychain(void) {
-    if (!active || instance_keychain_path[0] == '\0') {
-        return;
-    }
     SecKeychainRef keychain = NULL;
-    SecKeychainStatus status = 0;
-    if (SecKeychainOpen(instance_keychain_path, &keychain) != errSecSuccess
-        || SecKeychainGetStatus(keychain, &status) != errSecSuccess || !(status & kSecUnlockStateStatus)) {
-        if (keychain != NULL) CFRelease(keychain);
+    if (SecKeychainOpen(instance_keychain_path, &keychain) != errSecSuccess) {
         return;
     }
     // Every executable in the copy (the app, its helpers and services).
@@ -389,9 +384,20 @@ static void open_instance_keychain(void) {
     instance_keychain = keychain;
 }
 
+// The copy's own keychain when it's open (unlocked); NULL when the copy has
+// none, or it isn't open right now (see `expects_own_keychain`: then the
+// copy's items are refused rather than looked for in your keychain).
 static SecKeychainRef own_keychain(void) {
+    if (!expects_own_keychain()) {
+        return NULL;
+    }
     static dispatch_once_t once;
     dispatch_once(&once, ^{ open_instance_keychain(); });
+    SecKeychainStatus status = 0;
+    if (instance_keychain == NULL || SecKeychainGetStatus(instance_keychain, &status) != errSecSuccess
+        || !(status & kSecUnlockStateStatus)) {
+        return NULL;
+    }
     return instance_keychain;
 }
 
@@ -402,7 +408,9 @@ static void copy_entry(const void *key, const void *value, void *into) {
 // A SecItem query or attribute dictionary, as the copy should send it. NULL
 // when it stays as it is; the caller releases it. (A fresh dictionary with
 // CF's retaining callbacks, whatever the caller built theirs with.)
-static CFDictionaryRef translated(CFDictionaryRef query, bool adding) {
+// `refuse` is set when the item belongs in the copy's own keychain and that
+// isn't open: better an error than the original's item.
+static CFDictionaryRef translated(CFDictionaryRef query, bool adding, bool *refuse) {
     if (!active || query == NULL) {
         return NULL;
     }
@@ -458,6 +466,9 @@ static CFDictionaryRef translated(CFDictionaryRef query, bool adding) {
     }
     SecKeychainRef own = kind != NULL ? own_keychain() : NULL;
     if (own == NULL) {
+        if (kind != NULL && expects_own_keychain() && refuse != NULL) {
+            *refuse = true;
+        }
         return NULL;
     }
     CFMutableDictionaryRef moved = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
@@ -492,20 +503,26 @@ static CFDictionaryRef translated_changes(CFDictionaryRef changes) {
         || !CFStringHasSuffix((CFStringRef)service, CFSTR(" Safe Storage"))) {
         return NULL;
     }
-    return translated(changes, true);
+    return translated(changes, true, NULL);
 }
 
 // The legacy API: "no keychain" means the default ones. For the copy's
-// password items (not Safe Storage) that's its own keychain.
-static CFTypeRef legacy_keychains(CFTypeRef requested, UInt32 service_length, const char *service) {
+// password items that's its own keychain. Returns false (refuse) when that
+// keychain is expected but isn't open.
+static bool legacy_where(CFTypeRef requested, UInt32 service_length, const char *service, CFTypeRef *where) {
+    *where = requested;
     if (requested != NULL || !active) {
-        return requested;
+        return true;
     }
     if (is_safe_storage(service_length, service) && (!safe_storage_own || is_kept(service, service_length))) {
-        return requested;
+        return true;
     }
     SecKeychainRef own = own_keychain();
-    return own != NULL ? own : requested;
+    if (own == NULL) {
+        return !expects_own_keychain();
+    }
+    *where = own;
+    return true;
 }
 
 // Items made through the legacy API trust the whole copy too.
@@ -518,8 +535,11 @@ static void share_with_copy(SecKeychainItemRef item) {
 static OSStatus parallex_find_generic(CFTypeRef keychains, UInt32 service_length, const char *service,
                                       UInt32 account_length, const char *account, UInt32 *password_length,
                                       void **password, SecKeychainItemRef *item) {
+    CFTypeRef where = NULL;
+    if (!legacy_where(keychains, service_length, service, &where)) {
+        return errSecNotAvailable;
+    }
     char *renamed = renamed_service(service_length, service, keychains != NULL);
-    CFTypeRef where = legacy_keychains(keychains, service_length, service);
     OSStatus status = renamed != NULL
         ? SecKeychainFindGenericPassword(where, (UInt32)strlen(renamed), renamed, account_length, account,
                                          password_length, password, item)
@@ -532,8 +552,12 @@ static OSStatus parallex_find_generic(CFTypeRef keychains, UInt32 service_length
 static OSStatus parallex_add_generic(SecKeychainRef keychain, UInt32 service_length, const char *service,
                                      UInt32 account_length, const char *account, UInt32 password_length,
                                      const void *password, SecKeychainItemRef *item) {
+    CFTypeRef found = NULL;
+    if (!legacy_where(keychain, service_length, service, &found)) {
+        return errSecNotAvailable;
+    }
+    SecKeychainRef where = (SecKeychainRef)found;
     char *renamed = renamed_service(service_length, service, keychain != NULL);
-    SecKeychainRef where = (SecKeychainRef)legacy_keychains(keychain, service_length, service);
     SecKeychainItemRef made = NULL;
     OSStatus status = renamed != NULL
         ? SecKeychainAddGenericPassword(where, (UInt32)strlen(renamed), renamed, account_length, account,
@@ -562,7 +586,10 @@ static OSStatus parallex_find_internet(CFTypeRef keychains, UInt32 server_length
                                        const char *account, UInt32 path_length, const char *path, UInt16 port,
                                        SecProtocolType protocol, SecAuthenticationType authentication,
                                        UInt32 *password_length, void **password, SecKeychainItemRef *item) {
-    CFTypeRef where = is_proxy(protocol) ? keychains : legacy_keychains(keychains, 0, NULL);
+    CFTypeRef where = keychains;
+    if (!is_proxy(protocol) && !legacy_where(keychains, 0, NULL, &where)) {
+        return errSecNotAvailable;
+    }
     return SecKeychainFindInternetPassword(where, server_length, server, domain_length,
                                            domain, account_length, account, path_length, path, port, protocol,
                                            authentication, password_length, password, item);
@@ -573,7 +600,11 @@ static OSStatus parallex_add_internet(SecKeychainRef keychain, UInt32 server_len
                                       const char *account, UInt32 path_length, const char *path, UInt16 port,
                                       SecProtocolType protocol, SecAuthenticationType authentication,
                                       UInt32 password_length, const void *password, SecKeychainItemRef *item) {
-    SecKeychainRef where = is_proxy(protocol) ? keychain : (SecKeychainRef)legacy_keychains(keychain, 0, NULL);
+    CFTypeRef found = keychain;
+    if (!is_proxy(protocol) && !legacy_where(keychain, 0, NULL, &found)) {
+        return errSecNotAvailable;
+    }
+    SecKeychainRef where = (SecKeychainRef)found;
     SecKeychainItemRef made = NULL;
     OSStatus status = SecKeychainAddInternetPassword(where, server_length, server, domain_length, domain,
                                                      account_length, account, path_length, path, port, protocol,
@@ -591,21 +622,27 @@ static OSStatus parallex_add_internet(SecKeychainRef keychain, UInt32 server_len
 #pragma clang diagnostic pop
 
 static OSStatus parallex_item_copy(CFDictionaryRef query, CFTypeRef *result) {
-    CFDictionaryRef moved = translated(query, false);
+    bool refuse = false;
+    CFDictionaryRef moved = translated(query, false, &refuse);
+    if (refuse) return errSecNotAvailable;
     OSStatus status = SecItemCopyMatching(moved != NULL ? moved : query, result);
     if (moved != NULL) CFRelease(moved);
     return status;
 }
 
 static OSStatus parallex_item_add(CFDictionaryRef attributes, CFTypeRef *result) {
-    CFDictionaryRef moved = translated(attributes, true);
+    bool refuse = false;
+    CFDictionaryRef moved = translated(attributes, true, &refuse);
+    if (refuse) return errSecNotAvailable;
     OSStatus status = SecItemAdd(moved != NULL ? moved : attributes, result);
     if (moved != NULL) CFRelease(moved);
     return status;
 }
 
 static OSStatus parallex_item_update(CFDictionaryRef query, CFDictionaryRef changes) {
-    CFDictionaryRef moved = translated(query, false);
+    bool refuse = false;
+    CFDictionaryRef moved = translated(query, false, &refuse);
+    if (refuse) return errSecNotAvailable;
     CFDictionaryRef moved_changes = translated_changes(changes);
     OSStatus status = SecItemUpdate(moved != NULL ? moved : query, moved_changes != NULL ? moved_changes : changes);
     if (moved != NULL) CFRelease(moved);
@@ -614,7 +651,9 @@ static OSStatus parallex_item_update(CFDictionaryRef query, CFDictionaryRef chan
 }
 
 static OSStatus parallex_item_delete(CFDictionaryRef query) {
-    CFDictionaryRef moved = translated(query, false);
+    bool refuse = false;
+    CFDictionaryRef moved = translated(query, false, &refuse);
+    if (refuse) return errSecNotAvailable;
     OSStatus status = SecItemDelete(moved != NULL ? moved : query);
     if (moved != NULL) CFRelease(moved);
     return status;

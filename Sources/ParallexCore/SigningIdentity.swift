@@ -57,6 +57,12 @@ public enum SigningIdentity {
         }
     }
 
+    /// Whether copies can be signed with it right now (it exists, or can be
+    /// made, and it unlocks).
+    public static func usable() -> Bool {
+        (try? whileSigning { $0 != nil }) ?? false
+    }
+
     /// Run `body` with the identity unlocked for `codesign` (nil when there
     /// is none), then lock it again. One signing at a time across Parallex
     /// and the command line, so neither locks it under the other.
@@ -81,6 +87,8 @@ public enum SigningIdentity {
     public static func existing() -> Identity? {
         guard !isDisabled,
               FileManager.default.fileExists(atPath: keychainURL.path),
+              // Without its password it can't be unlocked: made anew.
+              FileManager.default.fileExists(atPath: passwordURL.path),
               let hash = try? String(contentsOf: identityURL, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               hash.count == 40

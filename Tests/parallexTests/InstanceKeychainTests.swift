@@ -273,6 +273,37 @@ final class InstanceKeychainTests: XCTestCase {
         XCTAssertEqual(InstanceStore.load(slug: "keep-work")?.instanceKeychain, result.manifest.instanceKeychain)
     }
 
+    /// Its keychain not open (a helper macOS starts before the copy's
+    /// launcher ran, say): its items are refused, never looked for in yours.
+    func testWithoutItsKeychainOpenACopyGetsNothingFromYours() throws {
+        let target = try makeTokenApp(named: "Shut")
+        let result = try makeCopy(of: target, name: "Shut Work")
+        XCTAssertEqual(try launch(result.wrapperURL, "add"), "0 ")
+        var keychain: SecKeychain?
+        XCTAssertEqual(SecKeychainOpen(Paths.instanceKeychain(slug: "shut-work").path, &keychain), errSecSuccess)
+        SecKeychainLock(keychain)
+        XCTAssertEqual(try runHelper(of: result.wrapperURL, named: "Shut"), "\(errSecNotAvailable) ")
+    }
+
+    /// Duplicated with its data, a copy whose key is renamed in your
+    /// keychain shares that key, so the copied data can be read.
+    func testADuplicateWithDataUsesTheKeyItsDataNeeds() throws {
+        let target = try makeTokenApp(named: "Pair")
+        var source = try makeCopy(of: target, name: "Pair Work").manifest
+        source.safeStorageInKeychain = nil
+        try InstanceStore.save(source)
+        let twin = try InstanceCreator.duplicate(source, includeData: true, builderOptions: options)
+        XCTAssertEqual(twin.manifest.keychainSuffix, source.keychainSuffix)
+        XCTAssertNil(twin.manifest.safeStorageInKeychain)
+        XCTAssertTrue(twin.warnings.isEmpty)
+
+        // A source whose key is in its own keychain can't lend it: said so.
+        let other = try makeCopy(of: target, name: "Pair Home").manifest
+        XCTAssertEqual(other.safeStorageInKeychain, true)
+        let second = try InstanceCreator.duplicate(other, includeData: true, builderOptions: options)
+        XCTAssertTrue(second.warnings.contains { $0.contains("sign in there again") })
+    }
+
     func testADuplicateStartsWithAKeychainOfItsOwn() throws {
         let target = try makeTokenApp(named: "Twin")
         let result = try makeCopy(of: target, name: "Twin Work")

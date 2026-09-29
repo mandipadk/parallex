@@ -148,7 +148,8 @@ func installStagedRefresh(pidFile: String, config: [String: Any]) {
           let liveRecord = jsonObject(at: instanceDir.appendingPathComponent("instance.json")),
           stagedRecord["name"] as? String == liveRecord["name"] as? String,
           stagedRecord["wrapperPath"] as? String == liveRecord["wrapperPath"] as? String,
-          (stagedRecord["settings"] as? NSDictionary) == (liveRecord["settings"] as? NSDictionary)
+          (stagedRecord["settings"] as? NSDictionary) == (liveRecord["settings"] as? NSDictionary),
+          !anythingElseRuns(inside: Bundle.main.bundleURL)
     else {
         return
     }
@@ -169,6 +170,26 @@ func installStagedRefresh(pidFile: String, config: [String: Any]) {
     argv.append(nil)
     execv(launcher, argv)
     fail("Could not start the refreshed copy: \(String(cString: strerror(errno)))")
+}
+
+/// Whether a process other than this one runs from inside `bundle` (a
+/// helper that outlived the app, say).
+func anythingElseRuns(inside bundle: URL) -> Bool {
+    let prefix = bundle.resolvingSymlinksInPath().path + "/"
+    let estimate = proc_listallpids(nil, 0)
+    guard estimate > 0 else { return false }
+    var pids = [pid_t](repeating: 0, count: Int(estimate) + 64)
+    let count = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+    var buffer = [UInt8](repeating: 0, count: Int(MAXPATHLEN) * 4)
+    for pid in pids.prefix(Int(max(count, 0))) where pid > 0 && pid != getpid() {
+        let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+        guard length > 0 else { continue }
+        let path = URL(fileURLWithPath: String(decoding: buffer[..<Int(length)], as: UTF8.self)).resolvingSymlinksInPath().path
+        if path.hasPrefix(prefix) {
+            return true
+        }
+    }
+    return false
 }
 
 func jsonObject(at url: URL) -> [String: Any]? {

@@ -218,6 +218,9 @@ public enum InstanceArchive {
         manifest.arguments = []
         manifest.environment = ["PARALLEX_INSTANCE": slug]
         manifest.redirectedHome = manifest.redirectedHome.map(rebase)
+        // Its keychain wasn't brought along (it opens only for the copy it
+        // came from): the imported copy starts with a keychain of its own.
+        manifest.instanceKeychain = nil
         if let suffix = manifest.keychainSuffix, !KeychainNames.isValidSuffix(suffix) {
             manifest.keychainSuffix = nil
         }
