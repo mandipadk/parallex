@@ -18,6 +18,23 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "1.1.0", highlights: [
+            Highlight(
+                symbol: "hand.raised",
+                title: "Copies keep your permissions",
+                detail: "Camera, microphone, screen recording and folder access you give a copy now stay when its app updates. Copies made before ask once more after their next refresh."
+            ),
+            Highlight(
+                symbol: "key",
+                title: "A keychain of their own",
+                detail: "New copies keep their sign-ins in their own keychain, so they never find or replace the original's, and keep them through updates. For older copies, turn on Separate keychain in Isolation."
+            ),
+            Highlight(
+                symbol: "arrow.triangle.2.circlepath",
+                title: "Always up to date, even while in use",
+                detail: "When an app updates, its copy is refreshed in the background and takes over the moment you quit it. The app's own updater stays off in copies, so it can never turn one back into the original."
+            ),
+        ]),
         Release(version: "1.0.0", highlights: [
             Highlight(
                 symbol: "sparkles",
