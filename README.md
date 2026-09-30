@@ -422,6 +422,7 @@ parallex edit <name> [options] [-- replacement extra args]
 parallex repair <name> | --all [--app <path>]
 parallex check <name> [--verbose] [--json]
 parallex storage [<name>] [--clean-caches] [--remove-unused]
+parallex health [--json]                 # every instance: version, isolation, Guard, snapshots
 parallex snapshot [list | take [--label <text>] | restore | rename | delete] <name> [<snapshot>]
 parallex versions [list | use [--current] [--with-data] | remove] <name> [<version>]
 parallex links [status | enable [--ask] | disable]
