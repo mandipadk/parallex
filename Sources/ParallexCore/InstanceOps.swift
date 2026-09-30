@@ -396,7 +396,7 @@ extension InstanceCreator {
         // duplicate starts with a keychain of its own.
         for item in (try? fm.contentsOfDirectory(atPath: from.path)) ?? []
         where !skipped.contains(item) && !item.hasPrefix("custom-icon.") && !item.hasPrefix("Instance.keychain")
-            && item != ParallexConfig.stagingFolder {
+            && item != ParallexConfig.stagingFolder && !AccessRecord.fileNames.contains(item) {
             let target = to.appendingPathComponent(item)
             if fm.fileExists(atPath: target.path) {
                 try fm.removeItem(at: target)

@@ -8,3 +8,9 @@
 /// Whether this process is part of the copy the library serves (its
 /// executable lives inside the copy) and the redirect is on.
 bool parallex_home_active(void);
+
+/// The instance's home, your real home, and the copy's bundle (NULL when
+/// the library isn't active in this process).
+const char *parallex_home_redirect(void);
+const char *parallex_home_real(void);
+const char *parallex_home_scope(void);

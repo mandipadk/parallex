@@ -4,11 +4,14 @@ import ParallexCore
 
 struct Check: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Verify a running instance's isolation from the files it has open.",
+        abstract: "Verify an instance's isolation from the files it uses.",
         discussion: """
         Lists files the instance's processes have open in your home folder and \
-        flags any that belong to the original app's data. It's a snapshot: use \
-        the instance for a bit first, and re-run after sign-in or heavy use.
+        flags any that belong to the original app's data. A copy with its own \
+        Library also records everything of yours it opens, from its first \
+        launch on, so its check covers all of that too, and works while it \
+        isn't running. Other instances are checked from a snapshot: use them \
+        for a bit first.
         """
     )
 
@@ -23,7 +26,8 @@ struct Check: ParsableCommand {
 
     mutating func run() throws {
         let manifest = try lookupInstance(instance)
-        let report = try IsolationCheck.run(manifest)
+        let running = Running.isRunning(manifest)
+        let report = try !running ? (IsolationCheck.recorded(manifest) ?? IsolationCheck.run(manifest)) : IsolationCheck.run(manifest)
 
         if json {
             struct Output: Codable {
@@ -31,13 +35,15 @@ struct Check: ParsableCommand {
                 var processes: Int
                 var files: Int
                 var clean: Bool
+                var recordedSince: Date?
                 var findings: [IsolationReport.Finding]
             }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            encoder.dateEncodingStrategy = .iso8601
             let output = Output(
                 instance: manifest.name, processes: report.processCount, files: report.fileCount,
-                clean: report.isClean, findings: report.findings
+                clean: report.isClean, recordedSince: report.recordedSince, findings: report.findings
             )
             print(String(decoding: try encoder.encode(output), as: UTF8.self))
             if !report.isClean { throw ExitCode(2) }
@@ -45,8 +51,16 @@ struct Check: ParsableCommand {
         }
 
         let isolated = report.findings(in: .isolated).count
-        print("\(Term.bold(manifest.name)): \(report.processCount) processes, "
-            + "\(isolated) open files inside the instance directory")
+        let since = report.recordedSince.map { $0.formatted(date: .abbreviated, time: .shortened) }
+        if running {
+            print("\(Term.bold(manifest.name)): \(report.processCount) processes, "
+                + "\(isolated) open files inside the instance directory")
+        } else {
+            print("\(Term.bold(manifest.name)) isn't running: what it opened of yours, as its recorder noted it")
+        }
+        if let since {
+            print(Term.dim("Recorded since \(since)."))
+        }
         let sections: [(IsolationReport.Category, String)] = [
             (.leak, Term.red("Leaks — the original's data in use")),
             (.sharedByIdentity, Term.yellow("Shared, can't be separated")),

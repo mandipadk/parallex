@@ -88,6 +88,7 @@ enum Fixtures {
         process.arguments = [
             "-dynamiclib", "-O2", "-fobjc-arc", "-I", source.appendingPathComponent("include").path,
             source.appendingPathComponent("home.c").path, source.appendingPathComponent("updates.m").path,
+            source.appendingPathComponent("recorder.c").path,
             "-o", output.path,
             "-framework", "Security", "-framework", "CoreFoundation", "-framework", "Foundation",
         ]

@@ -707,6 +707,8 @@ private struct VerifyRow: View {
     let entry: InstanceEntry
     @Environment(AppModel.self) private var model
     @State private var showDetails = false
+    /// The flight recorder's findings, shown until a check is run.
+    @State private var recorded: IsolationReport?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
@@ -718,12 +720,55 @@ private struct VerifyRow: View {
                 result
                 Spacer(minLength: 0)
             }
-            if showDetails, case .report(let report) = model.isolation[entry.id] {
+            if showDetails, let report = shownReport {
                 ReportDetails(report: report)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .animation(Theme.Motion.snappy, value: showDetails)
+        .task(id: "\(entry.id)|\(entry.pid.map(String.init) ?? "-")") {
+            let manifest = entry.manifest
+            recorded = await Task.detached(priority: .utility) { IsolationCheck.recorded(manifest) }.value
+        }
+    }
+
+    private var shownReport: IsolationReport? {
+        if case .report(let report) = model.isolation[entry.id] { return report }
+        return recorded
+    }
+
+    private static let sinceFormat: Date.FormatStyle = .dateTime.month(.abbreviated).day()
+
+    @ViewBuilder private func summary(_ report: IsolationReport, snapshot: Bool) -> some View {
+        Button {
+            showDetails.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: report.isClean ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                    .foregroundStyle(report.isClean ? Theme.running : Theme.failure)
+                    .symbolEffect(.bounce, value: report.findings.count)
+                Text(summaryText(report, snapshot: snapshot))
+                    .font(Theme.Font.callout.weight(.medium))
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(showDetails ? 90 : 0))
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func summaryText(_ report: IsolationReport, snapshot: Bool) -> String {
+        let since = report.recordedSince.map { $0.formatted(Self.sinceFormat) }
+        if !report.isClean {
+            return "Using \(entry.targetName)'s own data"
+        }
+        switch (snapshot, since) {
+        case (true, .some(let since)): return "No leaks since \(since), including what it has open now."
+        case (true, nil): return "No leaks — \(report.findings(in: .isolated).count) open files, all its own."
+        case (false, .some(let since)): return "Watched since \(since): nothing of \(entry.targetName)'s used."
+        case (false, nil): return "Nothing of \(entry.targetName)'s used."
+        }
     }
 
     private var isChecking: Bool {
@@ -734,9 +779,13 @@ private struct VerifyRow: View {
     @ViewBuilder private var result: some View {
         switch model.isolation[entry.id] {
         case .none:
-            Text(entry.running ? "Checks the files it has open right now." : "Open it to verify.")
-                .font(Theme.Font.callout)
-                .foregroundStyle(.tertiary)
+            if let recorded {
+                summary(recorded, snapshot: false)
+            } else {
+                Text(entry.running ? "Checks the files it has open right now." : "Open it to verify.")
+                    .font(Theme.Font.callout)
+                    .foregroundStyle(.tertiary)
+            }
         case .checking:
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
@@ -745,24 +794,7 @@ private struct VerifyRow: View {
         case .failed(let message):
             Text(message).font(Theme.Font.callout).foregroundStyle(.secondary).lineLimit(2)
         case .report(let report):
-            Button {
-                showDetails.toggle()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: report.isClean ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
-                        .foregroundStyle(report.isClean ? Theme.running : Theme.failure)
-                        .symbolEffect(.bounce, value: report.findings.count)
-                    Text(report.isClean
-                         ? "No leaks — \(report.findings(in: .isolated).count) open files, all its own."
-                         : "Using \(entry.targetName)'s own data")
-                        .font(Theme.Font.callout.weight(.medium))
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(showDetails ? 90 : 0))
-                }
-            }
-            .buttonStyle(.plain)
+            summary(report, snapshot: true)
         }
     }
 }

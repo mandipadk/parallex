@@ -181,7 +181,11 @@ Parallex, so it is separate from Safari and from every other instance.
 
 `parallex check <name>` verifies a running instance: it lists the files the
 instance's processes have open and flags any that belong to the original app's
-data, so isolation is something you can see rather than assume.
+data, so isolation is something you can see rather than assume. A copy with
+its own Library also keeps a record, from its first launch on, of every file
+of yours outside the instance that it opens, creates or renames (`access.log`
+in its instance folder), so its check covers all of that, and works while it
+isn't running.
 
 ## Install
 

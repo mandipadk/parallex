@@ -452,6 +452,12 @@ if let redirectHome = config[ParallexConfig.Key.redirectHome] as? String,
         unsetenv("PARALLEX_KEYCHAIN_SUFFIX")
         unsetenv("PARALLEX_KEYCHAIN_KEEP")
     }
+    // The flight recorder's log (recorder.c) starts with the first launch,
+    // so "watched since" counts from then even while nothing is noted.
+    let accessLog = URL(fileURLWithPath: redirectHome).deletingLastPathComponent().appendingPathComponent("access.log").path
+    if !FileManager.default.fileExists(atPath: accessLog) {
+        FileManager.default.createFile(atPath: accessLog, contents: nil, attributes: [.posixPermissions: 0o600])
+    }
     setenv("PARALLEX_HOME_REDIRECT", redirectHome, 1)
     setenv("PARALLEX_HOME_SCOPE", bundle, 1)
     let existing = (ProcessInfo.processInfo.environment["DYLD_INSERT_LIBRARIES"] ?? "")

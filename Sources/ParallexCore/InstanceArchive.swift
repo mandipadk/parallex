@@ -35,7 +35,8 @@ public enum InstanceArchive {
         // Its keychain opens only for this Mac's copy; the imported one
         // starts with its own.
         for item in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? []
-        where item.hasPrefix("Instance.keychain") || item == ParallexConfig.stagingFolder {
+        where item.hasPrefix("Instance.keychain") || item == ParallexConfig.stagingFolder
+            || AccessRecord.fileNames.contains(item) {
             try? fm.removeItem(at: folder.appendingPathComponent(item))
         }
         InstanceCreator.removeRunState(in: folder)

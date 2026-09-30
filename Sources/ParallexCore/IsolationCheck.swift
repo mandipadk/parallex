@@ -38,6 +38,9 @@ public struct IsolationReport: Sendable {
     public let processCount: Int
     public let fileCount: Int
     public let findings: [Finding]
+    /// Since when the copy's flight recorder has been noting what it opens
+    /// of yours (nil: no recorder, the findings are only a snapshot).
+    public var recordedSince: Date? = nil
 
     public func findings(in category: Category) -> [Finding] {
         findings.filter { $0.category == category }
@@ -63,11 +66,30 @@ public enum IsolationCheck {
         for member in pids {
             paths.formUnion(openFiles(of: member))
         }
+        // Everything the copy has opened of yours since it was first
+        // opened, not only what's open now.
+        let recorded = AccessRecord.entries(for: manifest)
+        paths.formUnion(recorded.map(\.path))
         let rules = Rules(manifest: manifest, home: FileManager.default.homeDirectoryForCurrentUser.path)
         let findings = (paths.compactMap { rules.classify($0) } + inactiveLibraries(manifest, pid: pid))
             .sorted { ($0.category.rawValue, $0.path) < ($1.category.rawValue, $1.path) }
-        let report = IsolationReport(processCount: pids.count, fileCount: paths.count, findings: findings)
+        var report = IsolationReport(processCount: pids.count, fileCount: paths.count, findings: findings)
+        report.recordedSince = AccessRecord.since(for: manifest, entries: recorded)
         Verification.record(manifest, report: report)
+        return report
+    }
+
+    /// The flight recorder's findings alone, for a copy that isn't running
+    /// (nil when it has no recorder).
+    public static func recorded(_ manifest: InstanceManifest) -> IsolationReport? {
+        guard AccessRecord.exists(for: manifest) else { return nil }
+        let recorded = AccessRecord.entries(for: manifest)
+        let paths = Set(recorded.map(\.path))
+        let rules = Rules(manifest: manifest, home: FileManager.default.homeDirectoryForCurrentUser.path)
+        let findings = paths.compactMap { rules.classify($0) }
+            .sorted { ($0.category.rawValue, $0.path) < ($1.category.rawValue, $1.path) }
+        var report = IsolationReport(processCount: 0, fileCount: paths.count, findings: findings)
+        report.recordedSince = AccessRecord.since(for: manifest, entries: recorded)
         return report
     }
 

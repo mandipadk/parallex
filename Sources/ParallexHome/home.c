@@ -181,6 +181,18 @@ bool parallex_home_active(void) {
     return active;
 }
 
+const char *parallex_home_redirect(void) {
+    return parallex_home_active() ? redirect_home : NULL;
+}
+
+const char *parallex_home_real(void) {
+    return parallex_home_active() && real_home_entry[0] != '\0' ? real_home_entry + 5 : NULL;
+}
+
+const char *parallex_home_scope(void) {
+    return parallex_home_active() ? scope_path : NULL;
+}
+
 static void redirect(struct passwd *entry) {
     if (active && entry != NULL && entry->pw_uid == getuid()) {
         entry->pw_dir = redirect_home;
