@@ -38,7 +38,8 @@ export function parseLab(body: unknown): LabRun | null {
 
 export async function latestLab(): Promise<LabRun | null> {
   try {
-    const response = await fetch(LAB_URL, {
+    // Keyed by the hour, so no answer (a missing file, say) outlives it.
+    const response = await fetch(`${LAB_URL}?hour=${Math.floor(Date.now() / 3_600_000)}`, {
       // An hour for the results; a minute for anything else (the branch
       // missing, say), so it's picked up soon after it appears.
       cf: { cacheTtlByStatus: { "200-299": 3600, "400-599": 60 }, cacheEverything: true },
