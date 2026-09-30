@@ -12,8 +12,9 @@
   "d1_databases": [
     { "binding": "DB", "database_name": "parallex-mission-control", "database_id": "203d8528-5417-4888-a9dd-c460d8a9539c", "migrations_dir": "migrations" }
   ],
-  // GitHub numbers, twice a day.
-  "triggers": { "crons": ["17 */12 * * *"] },
+  // Hourly: rollout guardrails; GitHub numbers twice a day and housekeeping
+  // once (see scheduled() in worker/index.ts).
+  "triggers": { "crons": ["17 * * * *"] },
   // A burst of checks from one address isn't Macs checking once a day, and
   // sign-in attempts are few. Counters live a minute in memory.
   "ratelimits": [

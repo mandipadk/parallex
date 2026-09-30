@@ -6,6 +6,7 @@ import { latestLab } from "./lab"
 import type { Env } from "./env"
 import { latestRelease, loadRollout, publishedReleases, versionOf, type Rollout } from "./feed"
 import { apps, community, crashes, exportCSV, growth, logAction, overview, releases, windowOf } from "./mission"
+import { consider, runGuardrails, setGuardrails } from "./guard"
 import { summarize } from "./summary"
 import { report, retain } from "./report"
 import { usage } from "./usage"
@@ -59,13 +60,18 @@ async function changeRollout(env: Env, ctx: ExecutionContext, action: string, ve
       break
     case "share":
       if (![1, 10, 25, 50, 100].includes(percent)) return
-      Object.assign(rollout, { version, percent, paused: false })
+      Object.assign(rollout, { version, percent, paused: false, pausedBy: undefined, changedAt: new Date().toISOString() })
       break
     case "pause":
-      Object.assign(rollout, { version, paused: true, percent: rollout.version === version ? rollout.percent : 100 })
+      Object.assign(rollout, { version, paused: true, pausedBy: "hand", percent: rollout.version === version ? rollout.percent : 100 })
       break
     case "resume":
-      if (rollout.version === version) rollout.paused = false
+      if (rollout.version === version) {
+        // Resuming what a guardrail paused: they won't pause it again for
+        // the same trouble.
+        const overriding = rollout.pausedBy === "guardrail" ? version : rollout.resumedByHand
+        Object.assign(rollout, { paused: false, pausedBy: undefined, resumedByHand: overriding, changedAt: new Date().toISOString() })
+      }
       break
     case "pull":
       if (!rollout.pulled.includes(version)) rollout.pulled.push(version)
@@ -157,6 +163,10 @@ async function admin(request: Request, env: Env, ctx: ExecutionContext, path: st
     await changeRollout(env, ctx, String(form?.get("action") ?? ""), String(form?.get("version") ?? ""), Number(form?.get("percent")))
     return done(request, "/admin#releases")
   }
+  if (path === "/admin/guardrails" && request.method === "POST") {
+    await setGuardrails(env, ctx, await request.formData().catch(() => null))
+    return done(request, "/admin#releases")
+  }
   if (path === "/admin/list" && request.method === "POST") {
     const form = await request.formData().catch(() => null)
     await listApp(env, String(form?.get("action") ?? ""), String(form?.get("bundle") ?? ""), String(form?.get("name") ?? ""))
@@ -176,7 +186,10 @@ async function admin(request: Request, env: Env, ctx: ExecutionContext, path: st
     const days = windowOf(request)
     switch (path.slice("/admin/api/".length)) {
       case "overview": return json(await overview(env, ctx, days))
-      case "releases": return json(await releases(env, ctx, days))
+      case "releases": {
+        const [data, guard] = await Promise.all([releases(env, ctx, days), consider(env, ctx)])
+        return json({ ...data, guardrails: { ...guard.config, decision: guard.decision } })
+      }
       case "crashes": return json(await crashes(env, days))
       case "apps": return json(await apps(env, days))
       case "growth": return json(await growth(env, days))
@@ -224,8 +237,15 @@ export default {
     return env.ASSETS.fetch(request)
   },
 
-  async scheduled(_controller, env, ctx) {
-    // Independent: GitHub being down mustn't keep old rows past 90 days.
-    ctx.waitUntil(Promise.allSettled([collect(env), retain(env)]).then(() => undefined))
+  async scheduled(controller, env, ctx) {
+    // Hourly: the guardrails. Twice a day: GitHub's numbers. Once a day:
+    // what's older than 90 days goes (independently, so GitHub being down
+    // can't keep it).
+    const hour = new Date(controller.scheduledTime).getUTCHours()
+    ctx.waitUntil(Promise.allSettled([
+      runGuardrails(env, ctx),
+      hour % 12 === 0 ? collect(env) : Promise.resolve(),
+      hour === 0 ? retain(env) : Promise.resolve(),
+    ]).then(() => undefined))
   },
 } satisfies ExportedHandler<Env>

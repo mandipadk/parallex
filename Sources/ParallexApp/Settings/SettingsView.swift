@@ -436,7 +436,7 @@ private struct AboutSettings: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Parallex looks for a new version once a day. Updates are verified against Parallex's signing key before they're installed.")
-                    Text("The check goes to parallex.mandip.dev and says only which Parallex, macOS and chip this is, whether it's the first check today, this week or this month, and a random number from 0 to 99 for staged releases. Active Macs can be counted, but nothing identifies you or this Mac.")
+                    Text("The check goes to parallex.mandip.dev and says only which Parallex, macOS and chip this is, whether it's the first check today, this week or this month, a random number from 0 to 99 for staged releases, and a random number picked once so this Mac is counted once. Nothing in it identifies you, and it's never tied to the usage report.")
                     Link("What leaves your Mac", destination: URL(string: "https://parallex.mandip.dev/privacy")!)
                 }
                 .font(Theme.Font.caption)

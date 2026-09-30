@@ -1,4 +1,5 @@
 import type { Env } from "./env"
+import { notesSince } from "./notes.ts"
 
 const REPO = "mandipadk/parallex"
 const PERIODS = new Set(["new", "day", "week", "month"])
@@ -59,6 +60,12 @@ export interface Rollout {
   pulled: string[]
   /** The share a new release starts at, until it's given one of its own. */
   startPercent: number
+  /** When the share last changed (ISO), for the guardrails' timing. */
+  changedAt?: string
+  /** Who paused it: only a guardrail's pause is theirs to keep. */
+  pausedBy?: "guardrail" | "hand"
+  /** A release resumed by hand after a guardrail paused it. */
+  resumedByHand?: string
 }
 
 /** The stored rollout; when it can't be read, releases go out as usual. */
@@ -69,6 +76,7 @@ export async function loadRollout(env: Env): Promise<Rollout> {
     return {
       version: stored.version, percent: stored.percent ?? 100, paused: stored.paused ?? false,
       pulled: stored.pulled ?? [], startPercent: stored.startPercent ?? 100,
+      changedAt: stored.changedAt, pausedBy: stored.pausedBy, resumedByHand: stored.resumedByHand,
     }
   } catch {
     return { percent: 100, paused: false, pulled: [], startPercent: 100 }
@@ -86,9 +94,11 @@ export function choose(releases: GitHubRelease[], rollout: Rollout, bucket: numb
   const available = releases.filter((r) => !rollout.pulled.includes(versionOf(r)))
   const [newest, previous] = available
   if (!newest) return undefined
-  // A release the rollout doesn't name yet starts at the starting share.
+  // The newest release, when the rollout doesn't name it yet, starts at the
+  // starting share. One that's newest only because a newer one was pulled
+  // had its time: everyone.
   const steered = versionOf(newest) === rollout.version
-  const percent = steered ? rollout.percent : rollout.startPercent
+  const percent = steered ? rollout.percent : newest === releases[0] ? rollout.startPercent : 100
   if (steered && rollout.paused) return previous ?? newest
   if (percent >= 100) return newest
   const included = bucket !== null && bucket < percent
@@ -112,7 +122,10 @@ export async function latestRelease(request: Request, env: Env, ctx: ExecutionCo
     ctx.waitUntil(record(request, env, new Set(releases.map(versionOf))))
     return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } })
   }
-  const body = chosen ? JSON.stringify(chosen) : await fromGitHub(`/repos/${REPO}/releases/latest`, "latest", env, ctx, 300)
+  // A Mac more than one release behind sees the notes of all it missed.
+  const current = (request.headers.get("X-Parallex-Version") ?? "").trim()
+  const offered = chosen ? { ...chosen, body: notesSince(releases, chosen, current, `https://github.com/${REPO}/releases`) } : null
+  const body = offered ? JSON.stringify(offered) : await fromGitHub(`/repos/${REPO}/releases/latest`, "latest", env, ctx, 300)
   if (!body) return new Response("GitHub didn't answer", { status: 502 })
   ctx.waitUntil(record(request, env, new Set(releases.map(versionOf))))
   return new Response(body, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } })
@@ -154,4 +167,36 @@ async function record(request: Request, env: Env, released: Set<string>): Promis
      ON CONFLICT (day, version, os, arch, period) DO UPDATE SET count = count + 1`,
   )
   await env.DB.batch(periods.map((period) => statement.bind(day, version, os, arch, period)))
+  // Separately, so trouble here can't lose the counts above.
+  try {
+    const counted = await countMac(request.headers, env, day, version, os, arch, periods.includes("new"))
+    if (counted.length) await env.DB.batch(counted)
+  } catch {
+    // Counted once today already, or not at all: the check still went through.
+  }
+}
+
+const MAC = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+/** New Mac numbers taken a day; beyond it, only Macs already known. */
+const NEW_MACS_PER_DAY = 20_000
+
+/**
+ * A check from 1.7 on carries the Mac's random number: each Mac is counted
+ * once a day, and "Macs ever" goes up the first time a number is seen.
+ */
+async function countMac(headers: Headers, env: Env, day: string, version: string, os: string, arch: string, fresh: boolean): Promise<D1PreparedStatement[]> {
+  const mac = (headers.get("X-Parallex-Mac") ?? "").trim()
+  if (!MAC.test(mac)) return []
+  const known = await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM macs WHERE mac = ?1) AS known,
+      (SELECT COUNT(*) FROM macs WHERE first_day = ?2) AS today`).bind(mac, day).first<{ known: number; today: number }>()
+  if (!known?.known && (known?.today ?? 0) >= NEW_MACS_PER_DAY) return []
+  return [
+    env.DB.prepare(`INSERT OR IGNORE INTO macs (mac, first_day, last_day, version, os, arch, fresh) VALUES (?1, ?2, ?2, ?3, ?4, ?5, ?6)`)
+      .bind(mac, day, version, os, arch, fresh ? 1 : 0),
+    env.DB.prepare(`INSERT INTO settings (key, value) SELECT 'macs_ever', '1' WHERE changes() = 1
+      ON CONFLICT (key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`),
+    env.DB.prepare(`UPDATE macs SET last_day = ?2, version = ?3, os = ?4, arch = ?5 WHERE mac = ?1`).bind(mac, day, version, os, arch),
+    env.DB.prepare(`INSERT INTO mac_days (day, mac, version) VALUES (?1, ?2, ?3) ON CONFLICT (day, mac) DO UPDATE SET version = ?3`)
+      .bind(day, mac, version),
+  ]
 }

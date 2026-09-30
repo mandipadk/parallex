@@ -32,9 +32,10 @@ final class AppWindows {
         }
     }
 
-    func showWhatsNew() {
+    /// `since`: the version last seen, to show every release after it.
+    func showWhatsNew(since lastSeen: String? = nil) {
         present(id: "whats-new", title: "What's New") { [weak self] in
-            WhatsNewView { self?.close("whats-new") }
+            WhatsNewView(releases: ReleaseHighlights.since(lastSeen)) { self?.close("whats-new") }
         }
     }
 

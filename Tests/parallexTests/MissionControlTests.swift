@@ -42,6 +42,13 @@ final class MissionControlTests: XCTestCase {
         XCTAssertEqual(withBucket.last?.0, "X-Parallex-Bucket")
         XCTAssertEqual(withBucket.last?.1, "42")
         XCTAssertTrue((0..<100).contains(CheckActivity.pickBucket()))
+
+        let number = CheckActivity.pickMacNumber()
+        XCTAssertNotNil(number.range(of: "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", options: .regularExpression))
+        XCTAssertNotEqual(number, CheckActivity.pickMacNumber(), "random, not derived from the Mac")
+        let withMac = CheckActivity.headers(periods: [], bucket: 42, mac: number)
+        XCTAssertEqual(withMac.last?.0, "X-Parallex-Mac")
+        XCTAssertEqual(withMac.last?.1, number)
     }
 
     /// Parallex's server first; GitHub when it doesn't answer. Only the

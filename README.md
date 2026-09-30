@@ -548,8 +548,9 @@ try with `--env`. Recipes live in `Presets.recipes`.
 
 Parallex keeps everything on your Mac. The one thing it sends is the daily
 update check, to `parallex.mandip.dev`: this Parallex's version, the macOS
-version, the chip, and whether it's the first check today, this week or this
-month, so active Macs can be counted without an identifier. Updates are
+version, the chip, whether it's the first check today, this week or this
+month, and a random number picked once so each Mac is counted once (kept 90
+days, never tied to the usage report). Updates are
 verified against a key built into the app, and if the server doesn't answer,
 Parallex asks GitHub directly. The server's code is in
 [site/worker](site/worker), and [the privacy page](https://parallex.mandip.dev/privacy)

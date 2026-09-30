@@ -15,7 +15,8 @@
     "noEmit": true,
     "verbatimModuleSyntax": true,
     "noUnusedLocals": true,
-    "noUnusedParameters": true
+    "noUnusedParameters": true,
+    "allowImportingTsExtensions": true
   },
   "include": [
     "worker"

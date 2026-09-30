@@ -1,4 +1,5 @@
 import AppKit
+import ParallexCore
 import ParallexKit
 import SwiftUI
 
@@ -18,6 +19,23 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "1.7.0", highlights: [
+            Highlight(
+                symbol: "list.bullet.rectangle",
+                title: "Everything you missed",
+                detail: "Updating past a few releases at once now shows what came in each of them, here and in the update window, not just the newest."
+            ),
+            Highlight(
+                symbol: "shield.lefthalf.filled",
+                title: "Releases that can stop themselves",
+                detail: "Parallex's server can now send a new release to a few Macs first, then more each day it stays healthy, and stop it on its own if it starts crashing or breaking copies."
+            ),
+            Highlight(
+                symbol: "gearshape",
+                title: "Settings comes forward",
+                detail: "Settings… in the menu bar now opens Settings in front of your other windows."
+            ),
+        ]),
         Release(version: "1.6.0", highlights: [
             Highlight(
                 symbol: "chart.bar.xaxis",
@@ -344,13 +362,34 @@ enum ReleaseHighlights {
     static var current: Release? {
         releases.first { $0.version == ParallexConfig.version } ?? releases.first
     }
+
+    /// Every release after `lastSeen`, up to this one, newest first: what
+    /// someone who skipped a few hasn't seen. Just this one without
+    /// `lastSeen` (or when nothing in between has highlights).
+    static func since(_ lastSeen: String?) -> [Release] {
+        let current = ParallexConfig.version
+        guard let lastSeen else { return self.current.map { [$0] } ?? [] }
+        let missed = releases.filter {
+            UpdateFeed.isNewer($0.version, than: lastSeen) && !UpdateFeed.isNewer($0.version, than: current)
+        }
+        return missed.isEmpty ? (self.current.map { [$0] } ?? []) : missed
+    }
 }
 
-/// Shown once after Parallex updates, and from Settings › About.
+/// Shown once after Parallex updates (with every release since the one
+/// last seen), and from Settings › About.
 struct WhatsNewView: View {
+    var releases: [ReleaseHighlights.Release] = ReleaseHighlights.current.map { [$0] } ?? []
     var onContinue: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
+
+    private var subtitle: String {
+        guard releases.count > 1, let newest = releases.first, let oldest = releases.last else {
+            return "Version \(releases.first?.version ?? ParallexConfig.version)"
+        }
+        return "Everything from \(oldest.version) to \(newest.version)"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -364,7 +403,7 @@ struct WhatsNewView: View {
                 VStack(spacing: 6) {
                     Text("What's new in Parallex")
                         .font(Theme.Font.display)
-                    Text("Version \(ReleaseHighlights.current?.version ?? ParallexConfig.version)")
+                    Text(subtitle)
                         .font(Theme.Font.callout)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
@@ -374,28 +413,42 @@ struct WhatsNewView: View {
             .padding(.top, Theme.Space.xxl)
             .padding(.bottom, Theme.Space.xl)
 
-            VStack(alignment: .leading, spacing: Theme.Space.l) {
-                ForEach(Array((ReleaseHighlights.current?.highlights ?? []).enumerated()), id: \.element.id) { index, item in
-                    HighlightRow(item: item)
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.Space.xl) {
+                    ForEach(Array(releases.enumerated()), id: \.element.version) { index, release in
+                        VStack(alignment: .leading, spacing: Theme.Space.l) {
+                            if releases.count > 1 {
+                                Text("Parallex \(release.version)")
+                                    .font(Theme.Font.callout.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                            ForEach(release.highlights) { item in
+                                HighlightRow(item: item)
+                            }
+                        }
                         .opacity(appeared ? 1 : 0)
                         .offset(y: appeared || reduceMotion ? 0 : 10)
                         .animation(
-                            reduceMotion ? Theme.Motion.fade : Theme.Motion.smooth.delay(0.12 + Double(index) * 0.06),
+                            reduceMotion ? Theme.Motion.fade : Theme.Motion.smooth.delay(0.12 + Double(min(index, 4)) * 0.06),
                             value: appeared
                         )
+                    }
                 }
+                .padding(.horizontal, Theme.Space.xxl + Theme.Space.s)
+                .padding(.top, Theme.Space.xs)
+                .padding(.bottom, Theme.Space.l)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, Theme.Space.xxl + Theme.Space.s)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Spacer(minLength: Theme.Space.xl)
+            .scrollIndicators(.automatic)
+            .scrollBounceBehavior(.basedOnSize)
 
             Button("Continue", action: onContinue)
                 .keyboardShortcut(.defaultAction)
                 .prominentAction()
-                .padding(.bottom, Theme.Space.xl)
+                .padding(.vertical, Theme.Space.xl)
         }
-        .frame(width: 500, height: 560)
+        .frame(width: 500, height: releases.count > 1 ? 620 : 560)
         .background(WindowGlassBackground().ignoresSafeArea())
         .animation(reduceMotion ? Theme.Motion.fade : Theme.Motion.smooth, value: appeared)
         .onAppear { appeared = true }

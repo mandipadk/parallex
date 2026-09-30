@@ -27,6 +27,12 @@ test("paused and pulled releases stop going out", () => {
   assert.equal(choose(releases, { ...everyone, pulled: ["0.21.0", "0.20.0", "0.19.0"] }, 1), undefined, "nothing left: nothing offered")
 })
 
+test("the release before a pulled one goes to everyone, whatever the starting share", () => {
+  const cautious: Rollout = { version: "0.21.0", percent: 10, paused: false, pulled: ["0.21.0"], startPercent: 10 }
+  assert.equal(tag(choose(releases, cautious, 50)), "v0.20.0")
+  assert.equal(tag(choose(releases, cautious, null)), "v0.20.0")
+})
+
 test("a new release starts at the starting share until it has its own", () => {
   const staged: Rollout = { version: "0.20.0", percent: 100, paused: false, pulled: [], startPercent: 10 }
   assert.equal(tag(choose(releases, staged, 5)), "v0.21.0")

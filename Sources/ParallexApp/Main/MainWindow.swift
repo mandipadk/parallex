@@ -14,9 +14,11 @@ struct MainWindow: View {
     var body: some View {
         #if DEBUG
         if DebugRoute.showsWhatsNew {
-            WhatsNewView {}
+            WhatsNewView(releases: ReleaseHighlights.since(DebugRoute.whatsNewSince)) {}
         } else if let phase = DebugRoute.updatePhase {
             UpdateView {}.onAppear { updater.debugShow(phase) }
+        } else if DebugRoute.value == "settingsFromMenuBar" {
+            SettingsFromMenuBarCheck()
         } else if DebugRoute.value == "usageConsent" {
             UsageConsentSheet()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -325,3 +327,21 @@ struct EmptyInstancesView: View {
         }
     }
 }
+
+#if DEBUG
+/// Opens Settings the way the menu bar panel does, a few seconds after a
+/// launch in the background, so it can be checked that it comes forward.
+private struct SettingsFromMenuBarCheck: View {
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Text("Opening Settings in 3 seconds").task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            NSApp.keyWindow?.close()
+            NSApp.activate()
+            openSettings()
+            SettingsWindow.bringForward()
+        }
+    }
+}
+#endif

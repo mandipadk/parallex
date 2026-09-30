@@ -12,10 +12,17 @@ export interface Overview {
   /** From update checks: every Mac with automatic checks on. */
   active: { day: number; week: number; month: number }
   newThisWeek: number
+  /**
+   * Each Mac once, from the random number update checks carry from 1.7 on
+   * (days: today, 7, 30, 90; ever: since 1.7). Macs on older versions only
+   * as the checks' "first this month" (roughly; one that updated this month
+   * can count twice).
+   */
+  macs: { day: number; week: number; month: number; quarter: number; ever: number; newThisWeek: number; olderThisMonth: number }
   /** From usage reports: Macs that share, counted once each. */
   sharing: { day: number; week: number; month: number; newThisWeek: number }
   /** Every day of the window: checks, new Macs, sharing Macs, crashes. */
-  series: { day: string; active: number; fresh: number; sharing: number; crashes: number }[]
+  series: { day: string; active: number; macs: number; fresh: number; sharing: number; crashes: number }[]
   latest: { version: string; health: Health; macs: number; adoption: number } | null
   alerts: Alert[]
   totals: { instances: number; copies: number; web: number; created: number; snapshots: number }
@@ -55,6 +62,14 @@ export interface Releases {
   adoption: { day: string; versions: Record<string, number> }[]
   downloads: { tag: string; downloads: number }[]
   updateSteps: Named[]
+  /** Automatic ramp and pause, and what they'd do now. */
+  guardrails?: {
+    enabled: boolean
+    steps: number[]
+    hours: number
+    minMacs: number
+    decision: { action: "adopt" | "advance" | "pause" | "hold"; reason: string; percent?: number }
+  }
 }
 
 export interface CrashGroup {

@@ -5,6 +5,8 @@ export interface Env {
   ADMIN_TOKEN?: string
   /** Optional: a GitHub token for higher rate limits and Sponsors totals. */
   GITHUB_TOKEN?: string
+  /** Optional: where guardrail changes are posted (a Slack or Discord webhook). */
+  ALERT_WEBHOOK?: string
   /** Ko-fi's webhook verification token. */
   KOFI_TOKEN?: string
   /** Rate limits by address (kept in memory for a minute, never stored). */

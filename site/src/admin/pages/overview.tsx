@@ -35,8 +35,16 @@ export function OverviewPage({ days, go }: PageProps) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat label="Macs today" value={number(data.active.day)} note={`${number(data.active.week)} this week, ${number(data.active.month)} this month`} />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
+        <Stat
+          label="Macs, last 30 days"
+          value={number(data.macs.month + data.macs.olderThisMonth)}
+          tone="brand"
+          note={data.macs.olderThisMonth
+            ? `${number(data.macs.month)} counted once each, and about ${number(data.macs.olderThisMonth)} on versions before 1.7 this month`
+            : `each counted once; ${number(data.macs.quarter)} in 90 days, ${number(data.macs.ever)} since 1.7`}
+        />
+        <Stat label="Macs today" value={number(data.active.day)} note={`${number(data.macs.week)} in the last 7 days`} />
         <Stat label="New this week" value={number(data.newThisWeek)} note={`${number(data.sharing.newThisWeek)} of them sharing usage`} />
         <Stat label="Sharing usage" value={number(data.sharing.week)} note={`in the last 7 days; ${number(data.sharing.day)} today`} />
         <Stat

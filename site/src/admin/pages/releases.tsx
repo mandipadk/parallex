@@ -4,7 +4,7 @@ import { post, useApi } from "../api"
 import { StackedBars } from "../charts"
 import { number, percent, plural, rate } from "../format"
 import type { PageProps } from "../main"
-import { Bars, Button, Card, Loading, PageHead, Problem, Table, Tag, VerdictTag } from "../ui"
+import { Bars, Button, Card, Loading, PageHead, Problem, Segmented, Table, Tag, VerdictTag } from "../ui"
 
 const SHARES = [1, 10, 25, 50, 100]
 
@@ -70,7 +70,7 @@ export function ReleasesPage({ days }: PageProps) {
                 <ul className="grid gap-1 text-[12.5px] text-muted">{newestRow.health.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
               )}
             </div>
-            <div className="flex items-center gap-2 text-[12.5px] text-muted">
+            {!data.guardrails?.enabled && <div className="flex items-center gap-2 text-[12.5px] text-muted">
               New releases start at
               {[10, 100].map((p) => (
                 <Button key={p} tone={rollout.startPercent === p ? "current" : "plain"} disabled={busy}
@@ -78,10 +78,23 @@ export function ReleasesPage({ days }: PageProps) {
                   {p === 100 ? "Everyone" : `${p}%`}
                 </Button>
               ))}
-            </div>
+            </div>}
           </div>
         </Card>
       )}
+
+      {data.guardrails && <GuardrailsCard guardrails={data.guardrails} busy={busy} act={async (fields) => {
+        setBusy(true)
+        setFailure(null)
+        try {
+          await post("guardrails", fields)
+          reload()
+        } catch (problem) {
+          setFailure(problem instanceof Error ? problem.message : String(problem))
+        } finally {
+          setBusy(false)
+        }
+      }} />}
 
       <Card title="Scorecard" note={`Last ${days} days. Rates are failures out of attempts; each release is judged against the one below it.`} flush>
         <Table
@@ -137,3 +150,57 @@ function scoreRow(r: ReleaseRow, pulled: boolean) {
     <VerdictTag verdict={r.health.verdict} />,
   ]
 }
+
+const ACTIONS: Record<string, string> = {
+  adopt: "Next check: start it", advance: "Next check: move it on", pause: "Next check: pause it", hold: "Holding",
+}
+
+function GuardrailsCard({ guardrails, busy, act }: {
+  guardrails: NonNullable<Releases["guardrails"]>
+  busy: boolean
+  act: (fields: Record<string, string | number>) => Promise<void>
+}) {
+  const { enabled, steps, hours, minMacs, decision } = guardrails
+  return (
+    <Card
+      title="Guardrails"
+      note={`The newest release goes ${steps.join("% → ")}% by itself while nothing wrong is reported, and pauses by itself when it fails. Checked every hour. With fewer Macs reporting than asked for, a step passes after three times its hours with nothing wrong. A pause or pull by hand stands, and so does resuming what they paused.`}
+      action={
+        <Segmented
+          label="Guardrails"
+          value={enabled ? "on" : "off"}
+          onChange={(value) => { if (!busy) void act({ enabled: value === "on" ? "1" : "0" }) }}
+          options={[{ value: "off", label: "Off" }, { value: "on", label: "On" }]}
+        />
+      }
+    >
+      <div className="grid gap-4 md:grid-cols-[auto_auto_minmax(0,1fr)] md:items-center">
+        <label className="flex items-center gap-2 text-[12.5px] text-muted">
+          At least
+          <Segmented
+            label="Hours at each step"
+            value={hours}
+            onChange={(value) => { if (!busy) void act({ hours: value }) }}
+            options={[6, 12, 24, 48].map((h) => ({ value: h, label: `${h} h` }))}
+          />
+          a step
+        </label>
+        <label className="flex items-center gap-2 text-[12.5px] text-muted">
+          and
+          <Segmented
+            label="Macs reporting before a step"
+            value={minMacs}
+            onChange={(value) => { if (!busy) void act({ minMacs: value }) }}
+            options={[5, 10, 25, 50].map((n) => ({ value: n, label: String(n) }))}
+          />
+          Macs
+        </label>
+        <p className="text-[12.5px] md:text-right">
+          <span className="font-medium">{enabled ? ACTIONS[decision.action] : "Off"}</span>
+          <span className="text-muted">{enabled ? `: ${decision.reason}` : ": releases go out as set above"}</span>
+        </p>
+      </div>
+    </Card>
+  )
+}
+

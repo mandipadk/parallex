@@ -98,7 +98,8 @@ public enum UpdateFeed {
     /// taken the check (and the activity it was told), even when the rest
     /// of the check then fails, so it's never told twice.
     public static func fetchLatest(
-        activity: [String] = [], bucket: Int? = nil, session: URLSession = .shared, counted: (@Sendable () -> Void)? = nil
+        activity: [String] = [], bucket: Int? = nil, mac: String? = nil, session: URLSession = .shared,
+        counted: (@Sendable () -> Void)? = nil
     ) async throws -> (release: ReleaseInfo, counted: Bool) {
         var lastError: Error = ParallexError("The update server didn't answer.")
         for url in latestURLs {
@@ -107,7 +108,7 @@ public enum UpdateFeed {
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             request.setValue("Parallex/\(ParallexConfig.version)", forHTTPHeaderField: "User-Agent")
             if ours {
-                for (field, value) in CheckActivity.headers(periods: activity, bucket: bucket) {
+                for (field, value) in CheckActivity.headers(periods: activity, bucket: bucket, mac: mac) {
                     request.setValue(value, forHTTPHeaderField: field)
                 }
             }
@@ -149,8 +150,9 @@ public enum UpdateFeed {
 /// this version, the macOS version, the chip, which of "first check
 /// ever / today / this week / this month" it is, and a number from 0 to 99
 /// this Mac picked at random once (a release can go out to the Macs under
-/// a number first; about one Mac in a hundred shares each). No identifier,
-/// so the server can count Macs without being able to tell them apart.
+/// a number first; about one Mac in a hundred shares each). From 1.7, also
+/// a random number this Mac picked once, so it's counted once however often
+/// it checks: made here, derived from nothing, never tied to the usage report.
 public struct CheckActivity: Codable, Equatable, Sendable {
     public var day: String?
     public var week: String?
@@ -186,8 +188,12 @@ public struct CheckActivity: Codable, Equatable, Sendable {
     /// A new Mac's rollout number.
     public static func pickBucket() -> Int { Int.random(in: 0..<100) }
 
+    /// A Mac's number for being counted once: random, made once, and sent
+    /// only with update checks to Parallex's server.
+    public static func pickMacNumber() -> String { UUID().uuidString.lowercased() }
+
     /// The request headers that carry it.
-    public static func headers(periods: [String], bucket: Int? = nil) -> [(String, String)] {
+    public static func headers(periods: [String], bucket: Int? = nil, mac: String? = nil) -> [(String, String)] {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         #if arch(arm64)
         let arch = "arm64"
@@ -199,7 +205,7 @@ public struct CheckActivity: Codable, Equatable, Sendable {
             ("X-Parallex-OS", "\(os.majorVersion).\(os.minorVersion)"),
             ("X-Parallex-Arch", arch),
             ("X-Parallex-Active", periods.joined(separator: ",")),
-        ] + (bucket.map { [("X-Parallex-Bucket", String($0))] } ?? [])
+        ] + (bucket.map { [("X-Parallex-Bucket", String($0))] } ?? []) + (mac.map { [("X-Parallex-Mac", $0)] } ?? [])
     }
 }
 

@@ -40,6 +40,7 @@ final class Updater {
         static let skipped = "skippedUpdateVersion"
         static let activity = "updateCheckActivity"
         static let bucket = "updateRolloutNumber"
+        static let mac = "updateCheckMacNumber"
     }
 
     init() {
@@ -131,6 +132,17 @@ final class Updater {
         return picked
     }
 
+    /// This Mac's number for being counted once by Parallex's server,
+    /// picked at random once (see `CheckActivity.pickMacNumber`).
+    static var macNumber: String {
+        if let stored = UserDefaults.standard.string(forKey: Keys.mac), UUID(uuidString: stored) != nil {
+            return stored
+        }
+        let picked = CheckActivity.pickMacNumber()
+        UserDefaults.standard.set(picked, forKey: Keys.mac)
+        return picked
+    }
+
     func check(userInitiated: Bool) {
         switch phase {
         case .checking, .downloading, .installing: return
@@ -147,7 +159,7 @@ final class Updater {
         Task {
             do {
                 let next = activity.next
-                let (release, _) = try await UpdateFeed.fetchLatest(activity: activity.periods, bucket: Self.rolloutNumber) {
+                let (release, _) = try await UpdateFeed.fetchLatest(activity: activity.periods, bucket: Self.rolloutNumber, mac: Self.macNumber) {
                     if let data = try? JSONEncoder().encode(next) {
                         UserDefaults.standard.set(data, forKey: Keys.activity)
                     }

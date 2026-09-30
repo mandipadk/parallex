@@ -49,7 +49,12 @@ enum DebugRoute {
         }
     }
 
-    static var showsWhatsNew: Bool { value == "whatsnew" }
+    static var showsWhatsNew: Bool { value == "whatsnew" || value?.hasPrefix("whatsnew:") == true }
+    /// `whatsnew:1.3.0`: What's New as after an update from that version.
+    static var whatsNewSince: String? {
+        guard let value, value.hasPrefix("whatsnew:") else { return nil }
+        return String(value.dropFirst("whatsnew:".count))
+    }
 
     /// `update:available`, `update:downloading`, `update:current`, `update:failed`.
     static var updatePhase: String? {

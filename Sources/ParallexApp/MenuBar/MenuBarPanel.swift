@@ -8,6 +8,7 @@ struct MenuBarPanel: View {
     let showSwitcher: () -> Void
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     @Environment(Updater.self) private var updater
     @Environment(\.checkForUpdates) private var checkForUpdates
 
@@ -62,7 +63,7 @@ struct MenuBarPanel: View {
                     showSwitcher()
                 }
                 PanelAction(title: "Open Parallex", symbol: "macwindow", shortcut: nil) { showMainWindow() }
-                SettingsLink {
+                Button(action: showSettings) {
                     PanelActionLabel(title: "Settings…", symbol: "gearshape", shortcut: "⌘,")
                 }
                 .buttonStyle(PanelRowButtonStyle())
@@ -72,8 +73,11 @@ struct MenuBarPanel: View {
             HStack {
                 if let release = updater.available {
                     Button {
-                        closePanel()
+                        // Opened while the panel still makes Parallex the
+                        // active app, so it comes up in front.
+                        let panel = MenuBarPanelWindow.current
                         checkForUpdates()
+                        panel?.close()
                     } label: {
                         HStack(spacing: 5) {
                             Circle().fill(Theme.accent).frame(width: 6, height: 6)
@@ -148,8 +152,55 @@ struct MenuBarPanel: View {
         openWindow(id: SceneID.main)
     }
 
+    /// Settings, in front. The panel is what makes Parallex the active app
+    /// for a moment: closing it first hands focus back to the app before,
+    /// and Settings opens behind it. So Settings opens while the panel is
+    /// up, and the panel closes once Settings is in front.
+    private func showSettings() {
+        let panel = MenuBarPanelWindow.current
+        NSApp.activate()
+        openSettings()
+        SettingsWindow.bringForward { panel?.close() }
+    }
+
     private func closePanel() {
         NSApp.keyWindow?.close()
+    }
+}
+
+/// The menu bar panel's own window: the key window, when it's neither
+/// Settings nor the main window nor one of Parallex's own (so closing it
+/// can't close something else).
+enum MenuBarPanelWindow {
+    @MainActor static var current: NSWindow? {
+        guard let window = NSApp.keyWindow, !SettingsWindow.matches(window), !AppDelegate.isMainWindow(window),
+              !(window.identifier?.rawValue.hasPrefix("parallex-") ?? false)
+        else { return nil }
+        return window
+    }
+}
+
+/// SwiftUI's Settings window.
+enum SettingsWindow {
+    static func matches(_ window: NSWindow) -> Bool {
+        window.identifier?.rawValue == "com_apple_SwiftUI_Settings_window"
+    }
+
+    /// In front and key, once SwiftUI has made it (the first time it opens
+    /// that takes a moment).
+    @MainActor static func bringForward(then done: @escaping @MainActor () -> Void = {}) {
+        Task { @MainActor in
+            defer { done() }
+            for _ in 0..<20 {
+                if let window = NSApp.windows.first(where: matches), window.isVisible {
+                    NSApp.activate()
+                    window.makeKeyAndOrderFront(nil)
+                    window.orderFrontRegardless()
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
     }
 }
 

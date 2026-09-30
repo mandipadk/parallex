@@ -227,9 +227,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showWhatsNew() {
+        let lastSeen = UserDefaults.standard.string(forKey: PreferenceKey.lastSeenVersion)
         UserDefaults.standard.set(ParallexConfig.version, forKey: PreferenceKey.lastSeenVersion)
         whatsNewPending = false
-        windows.showWhatsNew()
+        windows.showWhatsNew(since: lastSeen)
     }
 
     // MARK: - Links

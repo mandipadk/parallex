@@ -2,6 +2,7 @@ import type { IssueReport } from "./compatibility"
 import type { Env } from "./env"
 import { loadRollout, publishedReleases, versionOf } from "./feed"
 import { cohorts, judge, mondayOfWeek, type Outcome, type ReleaseCounts } from "./health"
+import { isLater } from "./notes.ts"
 import type { Alert, AppRow, Apps, Community, CrashGroup, Crashes, Growth, Named, Overview, ReleaseRow, Releases } from "./mission-types"
 
 /**
@@ -439,7 +440,21 @@ export async function overview(env: Env, ctx: ExecutionContext, days: number, no
     db.prepare(`SELECT COALESCE(SUM(n), 0) AS n FROM events WHERE name = 'instance.created' AND json_extract(props, '$.result') = 'ok' AND day >= ?1`).bind(since),
     db.prepare(`SELECT COALESCE(SUM(n), 0) AS n FROM events WHERE name = 'snapshot.taken' AND day >= ?1`).bind(since),
   ])
+  // Each Mac once, from the number checks carry from 1.7 on; Macs on older
+  // versions only have the check's own "first this month".
+  const macsSince = (from: string) => db.prepare(`SELECT COUNT(DISTINCT mac) AS n FROM mac_days WHERE day >= ?1`).bind(from)
+  const [mDay, mWeek, mMonth, mQuarter, mEver, mNew, mSeries, olderMonth] = await db.batch<Row>([
+    macsSince(today), macsSince(week), macsSince(daysAgo(now, 29)), macsSince(daysAgo(now, 89)),
+    db.prepare(`SELECT CAST(value AS INTEGER) AS n FROM settings WHERE key = 'macs_ever'`),
+    db.prepare(`SELECT COUNT(*) AS n FROM macs WHERE first_day >= ?1 AND fresh = 1`).bind(week),
+    db.prepare(`SELECT day, COUNT(*) AS n FROM mac_days WHERE day >= ?1 GROUP BY day`).bind(since),
+    db.prepare(`SELECT version, SUM(count) AS n FROM checks WHERE period = 'month' AND day >= ?1 GROUP BY version`).bind(starts.month),
+  ])
   const n = (result: D1Result<Row>) => num(result.results[0]?.n)
+  const macsByDay = new Map(mSeries.results.map((r) => [str(r.day), num(r.n)]))
+  const older = olderMonth.results
+    .filter((r) => !/^\d+\.\d+/.test(str(r.version)) || !isLater(str(r.version), "1.6.999"))
+    .reduce((total, r) => total + num(r.n), 0)
   const byDay = (result: D1Result<Row>, key = "n") => new Map(result.results.map((r) => [str(r.day), num(r[key])]))
   const [activeByDay, freshByDay, sharingByDay, crashesByDay] = [byDay(series, "active"), byDay(series, "fresh"), byDay(sharingSeries), byDay(crashSeries)]
 
@@ -471,9 +486,11 @@ export async function overview(env: Env, ctx: ExecutionContext, days: number, no
     generated: now.toISOString(),
     active: { day: n(day), week: n(weekly), month: n(monthly) },
     newThisWeek: n(fresh),
+    macs: { day: n(mDay), week: n(mWeek), month: n(mMonth), quarter: n(mQuarter), ever: n(mEver), newThisWeek: n(mNew), olderThisMonth: older },
     sharing: { day: n(sDay), week: n(sWeek), month: n(sMonth), newThisWeek: n(sNew) },
     series: Array.from({ length: days }, (_, i) => daysAgo(now, days - 1 - i)).map((d) => ({
-      day: d, active: activeByDay.get(d) ?? 0, fresh: freshByDay.get(d) ?? 0, sharing: sharingByDay.get(d) ?? 0, crashes: crashesByDay.get(d) ?? 0,
+      day: d, active: activeByDay.get(d) ?? 0, macs: macsByDay.get(d) ?? 0, fresh: freshByDay.get(d) ?? 0,
+      sharing: sharingByDay.get(d) ?? 0, crashes: crashesByDay.get(d) ?? 0,
     })),
     latest: latestRow
       ? { version: latestRow.version, health: latestRow.health, macs: latestRow.macs, adoption: checksToday ? latestRow.checksToday / checksToday : 0 }

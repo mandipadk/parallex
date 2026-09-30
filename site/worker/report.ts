@@ -204,5 +204,8 @@ export async function retain(env: Env, now = new Date()): Promise<void> {
     env.DB.prepare(`DELETE FROM crashes WHERE day < ?1`).bind(cutoff),
     env.DB.prepare(`DELETE FROM install_days WHERE day < ?1`).bind(cutoff),
     env.DB.prepare(`DELETE FROM installs WHERE last_day < ?1`).bind(cutoff),
+    env.DB.prepare(`INSERT OR REPLACE INTO mac_totals (day, macs) SELECT day, COUNT(*) FROM mac_days WHERE day < ?1 GROUP BY day`).bind(cutoff),
+    env.DB.prepare(`DELETE FROM mac_days WHERE day < ?1`).bind(cutoff),
+    env.DB.prepare(`DELETE FROM macs WHERE last_day < ?1`).bind(cutoff),
   ])
 }
