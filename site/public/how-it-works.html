@@ -124,6 +124,7 @@ footer { color: var(--subtle); font-size: 13px; border-top: 1px solid var(--rule
       <li>It's active only in processes that run from inside the copy. Tools the app starts, like a shell or <code>git</code>, get your real home back.</li>
       <li>Your Documents, Desktop, Downloads and dotfiles stay shared through links, so files you open or save are where you expect. The app's own folders, like <code>~/.vscode</code>, stay with the copy.</li>
       <li>It keeps a record of every file of yours outside the instance that the copy opens, creates or renames, so Verify Isolation covers everything since the copy first opened, not only what it has open at that moment.</li>
+      <li>Guard keeps the copy out of the original app's data: its Application Support folder, container, preferences, caches and cookies. The copy can't open, create, rename or remove anything there, even by its full path, and Verify Isolation lists each attempt. It's a safety net for the app's own code, not a sandbox against software set on getting around it.</li>
       <li>Before a copy opens, the launcher checks that macOS loaded the library. If macOS refused it, the copy doesn't open, rather than quietly using your real data. If the check can't run at all, the copy opens, and Verify Isolation can check it while it runs.</li>
       <li>The library is kept in Parallex's folder, <code>~/Library/Application Support/Parallex/lib</code>, and every copy loads it from there.</li>
     </ul>

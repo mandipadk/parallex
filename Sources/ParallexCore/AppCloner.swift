@@ -244,6 +244,9 @@ public enum AppCloner {
             if spec.launcherConfig[ParallexConfig.Key.redirectPrivate] != nil {
                 variables["PARALLEX_HOME_ENV"] = "1"
             }
+            if let guarded = spec.launcherConfig[ParallexConfig.Key.guardedPaths] as? [String] {
+                variables["PARALLEX_GUARD"] = guarded.joined(separator: "\n")
+            }
             if let keychain = spec.launcherConfig[ParallexConfig.Key.instanceKeychain] as? String {
                 variables["PARALLEX_INSTANCE_KEYCHAIN"] = keychain
                 if spec.launcherConfig[ParallexConfig.Key.safeStorageInKeychain] as? Bool == true {

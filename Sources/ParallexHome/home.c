@@ -20,6 +20,8 @@
 //   PARALLEX_HOME_ENV       "1": also answer getenv("HOME") with the
 //                           instance's home (apps built on Node, Chromium
 //                           or Rust find "~" through $HOME, not the account)
+//   PARALLEX_GUARD          "\n"-separated paths of the original's data,
+//                           which the copy may not touch (recorder.c)
 // Only processes whose executable lives inside the scope are redirected
 // (the app, its helpers and services). Any other process that inherits this
 // library — a shell or tool the app started — takes it and the variables
@@ -62,6 +64,8 @@ static char keychain_suffix[128];
 // "\n"-separated "… Safe Storage" names left alone (other browsers' keys).
 static char keychain_keep[1024];
 static char instance_keychain_path[PATH_MAX];
+// Guard's list, as given (see recorder.c).
+static char *guarded_paths = NULL;
 // "Safe Storage" keys go to the copy's own keychain as well (copies made
 // with it), instead of being renamed in the login keychain.
 static bool safe_storage_own = false;
@@ -110,6 +114,7 @@ static void leave_environment(void) {
     unsetenv("PARALLEX_KEYCHAIN_KEEP");
     unsetenv("PARALLEX_INSTANCE_KEYCHAIN");
     unsetenv("PARALLEX_SAFE_STORAGE_OWN");
+    unsetenv("PARALLEX_GUARD");
 }
 
 // Runs once, from the constructor (or earlier, if another part of the
@@ -164,6 +169,10 @@ static void set_up(void) {
         const char *own = getenv("PARALLEX_SAFE_STORAGE_OWN");
         safe_storage_own = own != NULL && strcmp(own, "1") == 0;
     }
+    const char *guarded = getenv("PARALLEX_GUARD");
+    if (guarded != NULL && guarded[0] == '/') {
+        guarded_paths = strdup(guarded);
+    }
     // Calls from this library aren't interposed: this is the real account.
     struct passwd *account = getpwuid(getuid());
     if (account != NULL && account->pw_dir != NULL) {
@@ -191,6 +200,10 @@ const char *parallex_home_real(void) {
 
 const char *parallex_home_scope(void) {
     return parallex_home_active() ? scope_path : NULL;
+}
+
+const char *parallex_home_guarded(void) {
+    return parallex_home_active() ? guarded_paths : NULL;
 }
 
 static void redirect(struct passwd *entry) {

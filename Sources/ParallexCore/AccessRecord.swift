@@ -2,7 +2,8 @@ import Foundation
 
 /// What a copy's flight recorder noted (see recorder.c in ParallexHome):
 /// every file in your home outside the instance that a copy with its own
-/// Library opened, created or renamed, once per path per process. Read by
+/// Library opened, created or renamed, once per path per process, and what
+/// Guard kept it out of. Read by
 /// the isolation check, so a check covers everything since the copy was
 /// first opened, not only the files it has open at that moment.
 public enum AccessRecord {
@@ -10,9 +11,11 @@ public enum AccessRecord {
         public let date: Date
         public let pid: Int32
         public let program: String
-        /// "read", "write" or "create".
+        /// "read", "write" or "create", or "blocked": Guard refused it.
         public let operation: String
         public let path: String
+
+        public var wasBlocked: Bool { operation == "blocked" }
     }
 
     /// Current file, then the one it rolled over from (2 MB each).
@@ -45,6 +48,12 @@ public enum AccessRecord {
             }
         }
         return entries
+    }
+
+    /// What Guard refused, each path once, in the order first refused.
+    static func blockedPaths(in entries: [Entry]) -> [String] {
+        var seen = Set<String>()
+        return entries.filter(\.wasBlocked).map(\.path).filter { seen.insert($0).inserted }
     }
 
     /// When recording began: the copy's first launch with a recorder (the

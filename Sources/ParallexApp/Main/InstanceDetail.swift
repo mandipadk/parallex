@@ -573,6 +573,12 @@ private struct IsolationSection: View {
                             isOn: separateKeychainBinding
                         )
                         .transition(.opacity.combined(with: .move(edge: .top)))
+                        ExplainedToggle(
+                            title: "Guard the original's data",
+                            detail: "Nothing in this instance can open what \(entry.targetName) keeps in your Library, even by its full path. An attempt fails, and shows up under Verify Isolation.",
+                            isOn: guardBinding
+                        )
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 } else if draft.settings.isClone, targetHasGroups {
                     ExplainedToggle(
@@ -621,6 +627,16 @@ private struct IsolationSection: View {
             set: { on in
                 let stored = entry.manifest.effectiveSettings.separateKeychain
                 draft.settings.separateKeychain = on ? (stored == nil ? nil : true) : false
+            }
+        )
+    }
+
+    private var guardBinding: Binding<Bool> {
+        Binding(
+            get: { draft.settings.guardOriginalData != false },
+            set: { on in
+                let stored = entry.manifest.effectiveSettings.guardOriginalData
+                draft.settings.guardOriginalData = on ? (stored == nil ? nil : true) : false
             }
         )
     }
@@ -763,11 +779,16 @@ private struct VerifyRow: View {
         if !report.isClean {
             return "Using \(entry.targetName)'s own data"
         }
-        switch (snapshot, since) {
-        case (true, .some(let since)): return "No leaks since \(since), including what it has open now."
-        case (true, nil): return "No leaks — \(report.findings(in: .isolated).count) open files, all its own."
-        case (false, .some(let since)): return "Watched since \(since): nothing of \(entry.targetName)'s used."
-        case (false, nil): return "Nothing of \(entry.targetName)'s used."
+        let verdict: String = switch (snapshot, since) {
+        case (true, .some(let since)): "No leaks since \(since), including what it has open now."
+        case (true, nil): "No leaks — \(report.findings(in: .isolated).count) open files, all its own."
+        case (false, .some(let since)): "Watched since \(since): nothing of \(entry.targetName)'s used."
+        case (false, nil): "Nothing of \(entry.targetName)'s used."
+        }
+        switch report.blocked.count {
+        case 0: return verdict
+        case 1: return verdict + " Guard kept it out of one of its files."
+        case let count: return verdict + " Guard kept it out of \(count) of its files."
         }
     }
 
@@ -807,10 +828,26 @@ private struct ReportDetails: View {
             group(.leak, "Using the original's data", Theme.failure)
             group(.sharedByIdentity, "Shared, can't be separated", .secondary)
             group(.sharedByChoice, "Shared on purpose", .secondary)
+            paths(report.blocked, "Kept out by Guard", .secondary)
         }
         .padding(Theme.Space.m)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.Radius.tile))
+    }
+
+    @ViewBuilder private func paths(_ paths: [String], _ title: String, _ color: Color) -> some View {
+        if !paths.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(Theme.Font.caption.weight(.semibold)).foregroundStyle(color)
+                ForEach(paths, id: \.self) { path in
+                    Text(Paths.abbreviate(path))
+                        .font(Theme.Font.mono)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+            }
+        }
     }
 
     @ViewBuilder private func group(_ category: IsolationReport.Category, _ title: String, _ color: Color) -> some View {

@@ -189,6 +189,13 @@ of yours outside the instance that it opens, creates or renames (`access.log`
 in its instance folder), so its check covers all of that, and works while it
 isn't running.
 
+Such a copy is also kept out of the original app's data by **Guard**: its
+Application Support folder, container, preferences, caches and cookies can't
+be opened, created, renamed or removed from inside the copy, even by their
+full path (one saved in data copied from the original, say). The attempt
+fails as a sandbox would refuse it, and the check lists it under "Kept out by
+Guard". Turn it off with `parallex edit <name> --no-guard`.
+
 ## Install
 
 **[Download Parallex for Mac](https://github.com/mandipadk/parallex/releases/latest/download/Parallex.dmg)**

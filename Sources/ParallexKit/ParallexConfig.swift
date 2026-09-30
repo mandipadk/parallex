@@ -83,6 +83,10 @@ public enum ParallexConfig {
         /// too (copies made with their own keychain); older copies keep
         /// theirs, renamed, in the login keychain, where their data's key is.
         public static let safeStorageInKeychain = "SafeStorageInKeychain"
+        /// Guard: the original app's data, which nothing in the copy may
+        /// open, create, rename or remove (absolute paths; a folder ends in
+        /// "/"). See recorder.c in ParallexHome.
+        public static let guardedPaths = "GuardedPaths"
         /// The Parallex version that built this instance. A copy's
         /// CFBundleShortVersionString is its app's, so this is what says
         /// whether it has the current launcher.

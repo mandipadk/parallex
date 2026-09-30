@@ -458,6 +458,12 @@ if let redirectHome = config[ParallexConfig.Key.redirectHome] as? String,
     if !FileManager.default.fileExists(atPath: accessLog) {
         FileManager.default.createFile(atPath: accessLog, contents: nil, attributes: [.posixPermissions: 0o600])
     }
+    // Guard: the original's data is off limits (recorder.c).
+    if let guarded = config[ParallexConfig.Key.guardedPaths] as? [String], !guarded.isEmpty {
+        setenv("PARALLEX_GUARD", guarded.joined(separator: "\n"), 1)
+    } else {
+        unsetenv("PARALLEX_GUARD")
+    }
     setenv("PARALLEX_HOME_REDIRECT", redirectHome, 1)
     setenv("PARALLEX_HOME_SCOPE", bundle, 1)
     let existing = (ProcessInfo.processInfo.environment["DYLD_INSERT_LIBRARIES"] ?? "")

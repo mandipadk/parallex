@@ -14,3 +14,7 @@ bool parallex_home_active(void);
 const char *parallex_home_redirect(void);
 const char *parallex_home_real(void);
 const char *parallex_home_scope(void);
+
+/// Guard's list: "\n"-separated absolute paths of the original's data (a
+/// folder ends in "/"), or NULL when Guard is off.
+const char *parallex_home_guarded(void);

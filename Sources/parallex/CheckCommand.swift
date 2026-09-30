@@ -37,13 +37,15 @@ struct Check: ParsableCommand {
                 var clean: Bool
                 var recordedSince: Date?
                 var findings: [IsolationReport.Finding]
+                var blocked: [String]
             }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             encoder.dateEncodingStrategy = .iso8601
             let output = Output(
                 instance: manifest.name, processes: report.processCount, files: report.fileCount,
-                clean: report.isClean, recordedSince: report.recordedSince, findings: report.findings
+                clean: report.isClean, recordedSince: report.recordedSince, findings: report.findings,
+                blocked: report.blocked
             )
             print(String(decoding: try encoder.encode(output), as: UTF8.self))
             if !report.isClean { throw ExitCode(2) }
@@ -72,6 +74,12 @@ struct Check: ParsableCommand {
             print("\n\(title)")
             for finding in findings {
                 print("  \(Paths.abbreviate(finding.path))  \(Term.dim(finding.reason))")
+            }
+        }
+        if !report.blocked.isEmpty {
+            print("\nKept out by Guard")
+            for path in report.blocked {
+                print("  \(Paths.abbreviate(path))")
             }
         }
         let other = report.findings(in: .other)

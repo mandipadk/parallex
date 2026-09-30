@@ -70,6 +70,11 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     /// would find and could overwrite the original's. `nil` means on;
     /// `false` shares your keychain, as copies made before 1.1 do.
     public var separateKeychain: Bool?
+    /// With its own Library, nothing in the copy may open the original's
+    /// data (its Application Support folder, container, caches, cookies…)
+    /// even by its full path: the attempt fails and is recorded. `nil`
+    /// means on; `false` turns Guard off.
+    public var guardOriginalData: Bool?
 
     public var isClone: Bool { cloneApp == true }
 
@@ -199,6 +204,9 @@ public struct InstanceManifest: Codable, Sendable {
     /// the login keychain): true for copies that had their own keychain
     /// from the start.
     public var safeStorageInKeychain: Bool?
+    /// Guard's list: the original's data the copy may not touch (see
+    /// `Guard`). Nil: Guard is off, or the copy was built before 1.2.
+    public var guardedPaths: [String]?
 
     public struct CloneRecord: Codable, Sendable, Equatable {
         /// The copy's own bundle identifier.
@@ -232,7 +240,8 @@ public struct InstanceManifest: Codable, Sendable {
         links: [String: String]? = nil,
         keychainSuffix: String? = nil,
         instanceKeychain: String? = nil,
-        safeStorageInKeychain: Bool? = nil
+        safeStorageInKeychain: Bool? = nil,
+        guardedPaths: [String]? = nil
     ) {
         self.name = name
         self.slug = slug
@@ -257,6 +266,7 @@ public struct InstanceManifest: Codable, Sendable {
         self.keychainSuffix = keychainSuffix
         self.instanceKeychain = instanceKeychain
         self.safeStorageInKeychain = safeStorageInKeychain
+        self.guardedPaths = guardedPaths
         if settings != nil {
             schemaVersion = 2
         }

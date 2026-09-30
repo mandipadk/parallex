@@ -396,7 +396,8 @@ extension InstanceCreator {
         // duplicate starts with a keychain of its own.
         for item in (try? fm.contentsOfDirectory(atPath: from.path)) ?? []
         where !skipped.contains(item) && !item.hasPrefix("custom-icon.") && !item.hasPrefix("Instance.keychain")
-            && item != ParallexConfig.stagingFolder && !AccessRecord.fileNames.contains(item) {
+            && item != ParallexConfig.stagingFolder && !AccessRecord.fileNames.contains(item)
+            && item != "signin.log" {
             let target = to.appendingPathComponent(item)
             if fm.fileExists(atPath: target.path) {
                 try fm.removeItem(at: target)
@@ -874,6 +875,14 @@ public enum InstanceCreator {
                 !sharedItems.contains { item == $0 || item.hasPrefix($0 + "/") || $0.hasPrefix(item + "/") }
             }
             : nil
+        // Guard: the original's data is off limits to a copy with its own
+        // Library (the copy's launcher runs it; see `Guard`).
+        let guardedPaths = redirectHome != nil && settings.isClone && settings.guardOriginalData != false
+            ? Guard.locations(
+                for: target, privateHomeItems: privateHomeItems,
+                home: FileManager.default.homeDirectoryForCurrentUser.path
+            )
+            : nil
 
         // Plan recipe first, user-provided vars win, PARALLEX_INSTANCE always set.
         var environment = plan.environment
@@ -915,7 +924,8 @@ public enum InstanceCreator {
             keychainSuffix: redirectHome != nil ? keychainSuffix : nil,
             keychainKeep: redirectHome != nil && keychainSuffix != nil ? KeychainNames.foreignServices(for: target) : [],
             instanceKeychain: instanceKeychain,
-            safeStorageInKeychain: safeStorageInKeychain
+            safeStorageInKeychain: safeStorageInKeychain,
+            guardedPaths: guardedPaths
         )
 
         var notes = plan.notes
@@ -973,7 +983,8 @@ public enum InstanceCreator {
             links: plan.links.isEmpty ? nil : plan.links,
             keychainSuffix: cloneRecord?.usesLauncher == true || previous?.keychainSuffix != nil ? keychainSuffix : nil,
             instanceKeychain: cloneRecord?.usesLauncher == true ? instanceKeychain : nil,
-            safeStorageInKeychain: cloneRecord?.usesLauncher == true && safeStorageInKeychain ? true : nil
+            safeStorageInKeychain: cloneRecord?.usesLauncher == true && safeStorageInKeychain ? true : nil,
+            guardedPaths: cloneRecord?.usesLauncher == true ? guardedPaths : nil
         )
         try InstanceStore.save(manifest, to: stage ? Paths.stagedManifest(slug: slug) : nil)
 

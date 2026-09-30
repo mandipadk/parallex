@@ -16,12 +16,20 @@
 // guarded_open_dprotected_np) and the C library (the $NOCANCEL variants).
 // Checks are prefix tests on the path given; only a path that leads out of
 // the instance through its home's links is resolved.
+//
+// Guard: the same functions (and unlink, unlinkat, rmdir) refuse the
+// original app's data outright (PARALLEX_GUARD, see Guard in ParallexCore),
+// failing with EPERM as a sandbox would and noting "blocked". It works on
+// the path as given, spelled out in full (the way saved paths and paths
+// built from a home folder are); it's a safety net for an app's own code,
+// not a sandbox against code set on getting around it.
 
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <mach-o/dyld.h>
 #include <os/lock.h>
+#include <stdatomic.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -52,8 +60,15 @@ extern int guarded_open_dprotected_np(const char *path, const guardid_t *guard, 
                                       int dpclass, int dpflags, ...);
 
 static os_unfair_lock lock = OS_UNFAIR_LOCK_INIT;
-static bool ready = false;
+static atomic_bool ready = false;
+// Recording stopped (no instance, or its log can't be written).
 static bool off = false;
+// Guard's list, split in place: `guarded_count` paths, folders ending "/".
+#define GUARD_SLOTS 128
+static char *guard_text = NULL;
+static const char *guarded[GUARD_SLOTS];
+static size_t guarded_length[GUARD_SLOTS];
+static unsigned guarded_count = 0;
 static char instance_dir[PATH_MAX];
 static size_t instance_length;
 static char home_prefix[PATH_MAX];     // the instance's home, with "/"
@@ -79,8 +94,42 @@ static bool starts_with(const char *text, const char *prefix, size_t length) {
     return strncmp(text, prefix, length) == 0;
 }
 
-static void prepare(void) {
-    ready = true;
+static void prepare_guard(void) {
+    const char *list = parallex_home_guarded();
+    if (list == NULL || (guard_text = strdup(list)) == NULL) {
+        return;
+    }
+    for (char *entry = guard_text; entry != NULL && *entry != '\0' && guarded_count < GUARD_SLOTS;) {
+        char *end = strchr(entry, '\n');
+        if (end != NULL) {
+            *end = '\0';
+        }
+        size_t length = strlen(entry);
+        if (entry[0] == '/' && length > 1) {
+            guarded[guarded_count] = entry;
+            guarded_length[guarded_count] = length;
+            guarded_count++;
+        }
+        entry = end != NULL ? end + 1 : NULL;
+    }
+}
+
+static void prepare_all(void);
+
+// Everything below is set once, under the lock, before `ready` is.
+static void ensure_ready(void) {
+    if (atomic_load_explicit(&ready, memory_order_acquire)) {
+        return;
+    }
+    os_unfair_lock_lock(&lock);
+    if (!atomic_load_explicit(&ready, memory_order_relaxed)) {
+        prepare_all();
+        atomic_store_explicit(&ready, true, memory_order_release);
+    }
+    os_unfair_lock_unlock(&lock);
+}
+
+static void prepare_all(void) {
     const char *home = parallex_home_redirect();
     const char *real = parallex_home_real();
     const char *scope = parallex_home_scope();
@@ -94,6 +143,7 @@ static void prepare(void) {
     library_length = strlen(library_prefix);
     snprintf(real_prefix, sizeof(real_prefix), "%s/", real);
     real_length = strlen(real_prefix);
+    prepare_guard();
     snprintf(scope_prefix, sizeof(scope_prefix), "%s/", scope);
     scope_length = strlen(scope_prefix);
     // The instance folder holds the home.
@@ -121,12 +171,14 @@ static uint64_t hash(const char *text) {
     return value == 0 ? 1 : value;
 }
 
-// True the first time this process notes `path`.
-static bool first_time(const char *path) {
+// True the first time this process notes `path` (for `salt`: a blocked
+// attempt is noted apart from a read of the same path).
+static bool first_time(const char *path, uint64_t salt) {
     if (seen_count >= SEEN_SLOTS * 3 / 4) {
         return false;
     }
-    uint64_t value = hash(path);
+    uint64_t value = hash(path) ^ salt;
+    value = value == 0 ? 1 : value;
     for (unsigned probe = 0; probe < SEEN_SLOTS; probe++) {
         unsigned slot = (unsigned)((value + probe) % SEEN_SLOTS);
         if (seen[slot] == value) {
@@ -172,10 +224,8 @@ static void note(const char *operation, const char *path) {
     }
     int saved = errno;
     noting = true;
+    ensure_ready();
     os_unfair_lock_lock(&lock);
-    if (!ready) {
-        prepare();
-    }
     if (!off) {
         const char *noted = NULL;
         char resolved[PATH_MAX];
@@ -192,13 +242,99 @@ static void note(const char *operation, const char *path) {
             // (Not the copy itself, nor anything in it.)
             noted = path;
         }
-        if (noted != NULL && first_time(noted)) {
+        if (noted != NULL && first_time(noted, 0)) {
             write_line(operation, noted);
         }
     }
     os_unfair_lock_unlock(&lock);
     noting = false;
     errno = saved;
+}
+
+// `path` with "//", "." and ".." taken out (by name: nothing is resolved),
+// into `out`. False when it doesn't fit.
+static bool tidy(const char *path, char *out, size_t size) {
+    size_t length = 0;
+    const char *part = path;
+    while (*part != '\0') {
+        while (*part == '/') part++;
+        if (*part == '\0') break;
+        const char *end = strchr(part, '/');
+        size_t part_length = end != NULL ? (size_t)(end - part) : strlen(part);
+        if (part_length == 1 && part[0] == '.') {
+            // nothing
+        } else if (part_length == 2 && part[0] == '.' && part[1] == '.') {
+            while (length > 0 && out[length - 1] != '/') length--;
+            if (length > 0) length--;
+        } else {
+            if (length + 1 + part_length + 1 > size) return false;
+            out[length++] = '/';
+            memcpy(out + length, part, part_length);
+            length += part_length;
+        }
+        part += part_length;
+    }
+    if (length == 0) {
+        if (size < 2) return false;
+        out[length++] = '/';
+    }
+    out[length] = '\0';
+    return true;
+}
+
+static bool guarded_path(const char *path) {
+    for (unsigned index = 0; index < guarded_count; index++) {
+        const char *entry = guarded[index];
+        size_t length = guarded_length[index];
+        if (entry[length - 1] == '/') {
+            // A folder: it, or anything in it.
+            if (strncasecmp(path, entry, length) == 0
+                || (strncasecmp(path, entry, length - 1) == 0 && path[length - 1] == '\0')) {
+                return true;
+            }
+        } else if (strncasecmp(path, entry, length) == 0 && (path[length] == '\0' || path[length] == '/')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Whether Guard refuses `path` (then errno is EPERM and it's noted).
+static bool refused(const char *path) {
+    if (noting || path == NULL || path[0] != '/') {
+        return false;
+    }
+    // Getting ready looks up the account, which opens files: those go
+    // straight through.
+    int saved = errno;
+    noting = true;
+    ensure_ready();
+    noting = false;
+    errno = saved;
+    if (guarded_count == 0 || strncasecmp(path, real_prefix, real_length) != 0) {
+        return false;
+    }
+    const char *checked = path;
+    char tidied[PATH_MAX];
+    // (Cheap to test for; hidden folders make it tidy some for nothing.)
+    if (strstr(path, "//") != NULL || strstr(path, "/.") != NULL) {
+        if (!tidy(path, tidied, sizeof(tidied))) {
+            return false;
+        }
+        checked = tidied;
+    }
+    if (!guarded_path(checked)) {
+        return false;
+    }
+    noting = true;
+    os_unfair_lock_lock(&lock);
+    if (!off && first_time(checked, 0x9e3779b97f4a7c15ULL)) {
+        write_line("blocked", checked);
+    }
+    os_unfair_lock_unlock(&lock);
+    noting = false;
+    errno = EPERM;
+    return true;
 }
 
 // The mode follows the flags only when a file may be created.
@@ -216,6 +352,7 @@ static const char *kind(int flags) {
 }
 
 static int parallex_open(const char *path, int flags, ...) {
+    if (refused(path)) return -1;
     MODE_ARGUMENT(flags, flags);
     int result = open(path, flags, mode);
     if (result >= 0) note(kind(flags), path);
@@ -223,6 +360,7 @@ static int parallex_open(const char *path, int flags, ...) {
 }
 
 static int parallex_open_nocancel(const char *path, int flags, ...) {
+    if (refused(path)) return -1;
     MODE_ARGUMENT(flags, flags);
     int result = open_nocancel(path, flags, mode);
     if (result >= 0) note(kind(flags), path);
@@ -230,6 +368,7 @@ static int parallex_open_nocancel(const char *path, int flags, ...) {
 }
 
 static int parallex___open_nocancel(const char *path, int flags, ...) {
+    if (refused(path)) return -1;
     MODE_ARGUMENT(flags, flags);
     int result = __open_nocancel(path, flags, mode);
     if (result >= 0) note(kind(flags), path);
@@ -237,6 +376,7 @@ static int parallex___open_nocancel(const char *path, int flags, ...) {
 }
 
 static int parallex_openat(int fd, const char *path, int flags, ...) {
+    if (refused(path)) return -1;
     MODE_ARGUMENT(flags, flags);
     int result = openat(fd, path, flags, mode);
     if (result >= 0) note(kind(flags), path);
@@ -244,6 +384,7 @@ static int parallex_openat(int fd, const char *path, int flags, ...) {
 }
 
 static int parallex_openat_nocancel(int fd, const char *path, int flags, ...) {
+    if (refused(path)) return -1;
     MODE_ARGUMENT(flags, flags);
     int result = openat_nocancel(fd, path, flags, mode);
     if (result >= 0) note(kind(flags), path);
@@ -251,6 +392,7 @@ static int parallex_openat_nocancel(int fd, const char *path, int flags, ...) {
 }
 
 static int parallex_open_dprotected_np(const char *path, int flags, int dpclass, int dpflags, ...) {
+    if (refused(path)) return -1;
     MODE_ARGUMENT(flags, dpflags);
     int result = open_dprotected_np(path, flags, dpclass, dpflags, mode);
     if (result >= 0) note(kind(flags), path);
@@ -258,6 +400,7 @@ static int parallex_open_dprotected_np(const char *path, int flags, int dpclass,
 }
 
 static int parallex_guarded_open_np(const char *path, const guardid_t *guard, unsigned int guardflags, int flags, ...) {
+    if (refused(path)) return -1;
     MODE_ARGUMENT(flags, flags);
     int result = guarded_open_np(path, guard, guardflags, flags, mode);
     if (result >= 0) note(kind(flags), path);
@@ -266,6 +409,7 @@ static int parallex_guarded_open_np(const char *path, const guardid_t *guard, un
 
 static int parallex_guarded_open_dprotected_np(const char *path, const guardid_t *guard, unsigned int guardflags,
                                                int flags, int dpclass, int dpflags, ...) {
+    if (refused(path)) return -1;
     MODE_ARGUMENT(flags, dpflags);
     int result = guarded_open_dprotected_np(path, guard, guardflags, flags, dpclass, dpflags, mode);
     if (result >= 0) note(kind(flags), path);
@@ -273,27 +417,46 @@ static int parallex_guarded_open_dprotected_np(const char *path, const guardid_t
 }
 
 static int parallex_mkdir(const char *path, mode_t mode) {
+    if (refused(path)) return -1;
     int result = mkdir(path, mode);
     if (result == 0) note("create", path);
     return result;
 }
 
 static int parallex_mkdirat(int fd, const char *path, mode_t mode) {
+    if (refused(path)) return -1;
     int result = mkdirat(fd, path, mode);
     if (result == 0) note("create", path);
     return result;
 }
 
 static int parallex_rename(const char *from, const char *to) {
+    if (refused(from) || refused(to)) return -1;
     int result = rename(from, to);
     if (result == 0) note("write", to);
     return result;
 }
 
 static int parallex_renameat(int from_fd, const char *from, int to_fd, const char *to) {
+    if (refused(from) || refused(to)) return -1;
     int result = renameat(from_fd, from, to_fd, to);
     if (result == 0) note("write", to);
     return result;
+}
+
+static int parallex_unlink(const char *path) {
+    if (refused(path)) return -1;
+    return unlink(path);
+}
+
+static int parallex_unlinkat(int fd, const char *path, int flags) {
+    if (refused(path)) return -1;
+    return unlinkat(fd, path, flags);
+}
+
+static int parallex_rmdir(const char *path) {
+    if (refused(path)) return -1;
+    return rmdir(path);
 }
 
 INTERPOSE(parallex_open, open);
@@ -308,3 +471,6 @@ INTERPOSE(parallex_mkdir, mkdir);
 INTERPOSE(parallex_mkdirat, mkdirat);
 INTERPOSE(parallex_rename, rename);
 INTERPOSE(parallex_renameat, renameat);
+INTERPOSE(parallex_unlink, unlink);
+INTERPOSE(parallex_unlinkat, unlinkat);
+INTERPOSE(parallex_rmdir, rmdir);

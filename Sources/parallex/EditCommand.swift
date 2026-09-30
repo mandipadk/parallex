@@ -65,6 +65,9 @@ struct Edit: ParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Keep an own-identity copy's sign-ins in a keychain of its own (on by default for new copies).")
     var separateKeychain: Bool?
 
+    @Flag(name: .customLong("guard"), inversion: .prefixedNo, help: "Keep an own-identity copy out of the original's data, even by its full path (on by default).")
+    var guardOriginalData: Bool?
+
     @Option(help: ArgumentHelp(
         "Global shortcut that opens the instance, e.g. ctrl+opt+1 or ⌃⌥W (needs the Parallex app running).",
         valueName: "keys"
@@ -146,6 +149,9 @@ struct Edit: ParsableCommand {
         }
         if let separateKeychain {
             settings.separateKeychain = separateKeychain
+        }
+        if let guardOriginalData {
+            settings.guardOriginalData = guardOriginalData
         }
         if let menuBarIcon {
             settings.menuBarIcon = menuBarIcon ? true : nil
