@@ -50,7 +50,7 @@ version=$(printf '%s' "$zip_url" | sed 's/.*Parallex-\([0-9.]*\)\.zip/\1/')
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-say "Downloading Parallex $version…"
+say "Downloading Parallex ${version}…"
 curl -fsSL "$zip_url" -o "$work/Parallex.zip" || fail "the download failed."
 expected=$(curl -fsSL "$sum_url" | awk '{print $1}') || fail "couldn't get the checksum."
 actual=$(shasum -a 256 "$work/Parallex.zip" | awk '{print $1}')
