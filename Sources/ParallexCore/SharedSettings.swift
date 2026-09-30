@@ -28,7 +28,9 @@ public enum SharedSettings {
     /// PARALLEX_SHAREABLE_FOR ("<bundle id>=<item>,<item>") adds some.
     public static func shareable(for bundleID: String) -> [String] {
         var items = known[bundleID] ?? []
-        if let extra = ProcessInfo.processInfo.environment["PARALLEX_SHAREABLE_FOR"] {
+        // (Tests only: they always use a Parallex folder of their own.)
+        if ProcessInfo.processInfo.environment["PARALLEX_HOME"] != nil,
+           let extra = ProcessInfo.processInfo.environment["PARALLEX_SHAREABLE_FOR"] {
             let parts = extra.split(separator: "=", maxSplits: 1).map(String.init)
             if parts.count == 2, parts[0] == bundleID {
                 items += parts[1].split(separator: ",").map(String.init)

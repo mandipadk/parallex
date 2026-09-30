@@ -223,7 +223,10 @@ What the copy had there waits beside the link and comes back when sharing
 stops. Guard lets the copy use exactly those, and the isolation check lists
 them as shared on purpose. Keep Settings Sync off in a copy that shares: a
 sync signed in there would write its account's settings and extensions into
-yours. Only the default profile's settings are shared.
+yours. Only the default profile's settings are shared. An editor that saves
+by replacing the file rather than writing into it cuts the link with each
+save: what it wrote is kept beside it (`settings.json.saved-…`), and the link
+comes back the next time the copy opens.
 
 ### Going back a version
 
