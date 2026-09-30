@@ -37,13 +37,26 @@ final class PersonaTests: XCTestCase {
             XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: home.appendingPathComponent("Documents").path), realHome + "/Documents")
         }
         XCTAssertNil(try? fm.destinationOfSymbolicLink(atPath: home.appendingPathComponent(".aws").path), "its own, not a link to yours")
+        // Always its own, so `git config --global` never writes to yours.
+        let gitconfig = try String(contentsOf: home.appendingPathComponent(".gitconfig"), encoding: .utf8)
         if fm.fileExists(atPath: realHome + "/.gitconfig") {
-            let gitconfig = try String(contentsOf: home.appendingPathComponent(".gitconfig"), encoding: .utf8)
-            XCTAssertTrue(gitconfig.contains("path = \(realHome)/.gitconfig"), "starts from your settings")
+            XCTAssertTrue(gitconfig.contains("path = \"\(realHome)/.gitconfig\""), "starts from your settings")
         }
-        let environment = Personas.environment(for: workspace, base: ["PATH": "/usr/bin:/bin"])
+        // Library is a link that stays put through syncs.
+        let before = try fm.attributesOfItem(atPath: home.appendingPathComponent("Library").path)[.systemFileNumber] as? Int
+        Personas.prepare(workspace)
+        let after = try fm.attributesOfItem(atPath: home.appendingPathComponent("Library").path)[.systemFileNumber] as? Int
+        XCTAssertEqual(before, after)
+        let environment = Personas.environment(for: workspace, base: [
+            "PATH": "/usr/bin:/bin", "GH_TOKEN": "yours", "AWS_PROFILE": "personal",
+            "XDG_CONFIG_HOME": realHome + "/.config", "EDITOR": "vim",
+        ])
         XCTAssertEqual(environment["HOME"], home.path)
         XCTAssertEqual(environment["PARALLEX_WORKSPACE"], "Client A")
+        XCTAssertNil(environment["GH_TOKEN"], "your identity isn't passed on")
+        XCTAssertNil(environment["AWS_PROFILE"])
+        XCTAssertEqual(environment["XDG_CONFIG_HOME"], home.path + "/.config")
+        XCTAssertEqual(environment["EDITOR"], "vim")
 
         // git as the workspace: its email, and yours untouched.
         let yours = try? Shell.run("/usr/bin/git", ["config", "--global", "user.email"])
@@ -65,6 +78,27 @@ final class PersonaTests: XCTestCase {
         XCTAssertEqual(String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines), "me@client-a.example")
         XCTAssertEqual(try? Shell.run("/usr/bin/git", ["config", "--global", "user.email"]), yours)
+    }
+
+    func testDeletingAWorkspaceTrashesItsPersona() throws {
+        setenv("PARALLEX_TRASH", tempDir.appendingPathComponent("trash").path, 1)
+        defer { unsetenv("PARALLEX_TRASH") }
+        var workspace = try WorkspaceStore.create(name: "Gone")
+        workspace = try WorkspaceStore.update(id: workspace.id) { $0.persona = true }
+        let home = Personas.prepare(workspace)
+        let script = try Personas.terminalScript(for: workspace)
+        let text = try String(contentsOf: script, encoding: .utf8)
+        XCTAssertTrue(text.contains("export PARALLEX_WORKSPACE='Gone'"))
+        XCTAssertTrue(text.contains("unset "), "your identity's variables aren't passed on")
+        try WorkspaceStore.delete(id: workspace.id)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.path))
+    }
+
+    func testVersionsCompareByTheirParts() {
+        XCTAssertEqual(AppVersions.compare("4.41.106 (41106)", "4.41.105 (41105)"), .orderedDescending)
+        XCTAssertEqual(AppVersions.compare("1.10 (5)", "1.9 (4)"), .orderedDescending)
+        XCTAssertEqual(AppVersions.compare("2.0 (7)", "2.0 (12)"), .orderedAscending)
+        XCTAssertEqual(AppVersions.compare("2.0 (?)", "2.0 (?)"), .orderedSame)
     }
 
     /// What a copy in a persona workspace starts gets the persona's home.

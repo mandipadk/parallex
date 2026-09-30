@@ -141,8 +141,17 @@ public enum WorkspaceStore {
         }
     }
 
+    /// Its persona's home (with whatever sign-ins it holds) goes to the
+    /// Trash with it.
     public static func delete(id: UUID) throws {
-        try modify { workspaces in workspaces.removeAll { $0.id == id } }
+        let persona = try modify { workspaces -> URL? in
+            let gone = workspaces.first { $0.id == id }
+            workspaces.removeAll { $0.id == id }
+            return gone.map { Personas.home(for: $0).deletingLastPathComponent() }
+        }
+        if let persona, FileManager.default.fileExists(atPath: persona.path) {
+            try? Trash.move(persona)
+        }
     }
 
     /// Forget a removed instance in every workspace.

@@ -109,6 +109,10 @@ struct InstanceDetail: View {
             // the user has pending rebuild edits.
             if !hasRebuildChanges {
                 draft = InstanceDraft(fresh.manifest)
+            } else {
+                // The version it's built from is chosen in Versions, not in
+                // the draft: keep up with it.
+                draft.settings.pinnedVersion = fresh.manifest.effectiveSettings.pinnedVersion
             }
         }
         .task(id: entry.manifest.targetApp) {
@@ -1275,7 +1279,7 @@ private struct VersionsSection: View {
 
     private func isNewer(_ version: AppVersions.Kept) -> Bool {
         guard let inUse else { return false }
-        return InstanceStatus.compareVersions(version.version, inUse) == .orderedDescending
+        return AppVersions.compare(version.version, inUse) == .orderedDescending
     }
 
     private func reload() async {

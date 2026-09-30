@@ -9,8 +9,9 @@ private func personaWorkspace(_ name: String) throws -> Workspace {
     if workspace.persona != true {
         workspace = try WorkspaceStore.update(id: workspace.id) { $0.persona = true }
         FileHandle.standardError.write(Data((
-            "“\(workspace.name)” now has an identity of its own for your tools: its git, gh, cloud and cluster "
-            + "settings start empty. Everything else in your home is shared.\n"
+            "“\(workspace.name)” now has an identity of its own for your tools, for this and from now on: its git "
+            + "settings start as yours (set what differs), its gh, cloud and cluster sign-ins start empty. "
+            + "Everything else in your home is shared. (parallex workspace persona \"\(workspace.name)\" off undoes it.)\n"
         ).utf8))
     }
     Personas.prepare(workspace)
@@ -23,8 +24,13 @@ private func exec(_ arguments: [String], environment: [String: String]) throws -
     let candidates = name.contains("/")
         ? [name]
         : (environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map { "\($0)/\(name)" }
-    guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-        throw ParallexError("Couldn't find \(name) on the PATH.")
+    var isDirectory: ObjCBool = false
+    guard let path = candidates.first(where: {
+        FileManager.default.isExecutableFile(atPath: $0)
+            && FileManager.default.fileExists(atPath: $0, isDirectory: &isDirectory) && !isDirectory.boolValue
+    }) else {
+        FileHandle.standardError.write(Data("parallex: \(name): command not found\n".utf8))
+        Darwin.exit(127)
     }
     let argv = arguments.map { strdup($0) } + [nil]
     let envp = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
@@ -39,8 +45,10 @@ struct RunAs: ParsableCommand {
         discussion: """
         The command gets the workspace's persona as its home: your home, shared, \
         except for what says who you are to your tools (.gitconfig, .config/gh, \
-        .aws, .kube, .docker, .npmrc, …), which is the workspace's own. The first \
-        run turns the persona on. Set it up the way you would your own:
+        .aws, .kube, .config/gcloud, .npmrc, …), which is the workspace's own, and \
+        without variables like GH_TOKEN or AWS_PROFILE that would point them back \
+        at yours. Its git settings start as yours. The first run turns the \
+        persona on. Set it up the way you would your own:
 
           parallex run "Client A" -- git config --global user.email me@client-a.com
           parallex run "Client A" -- gh auth login

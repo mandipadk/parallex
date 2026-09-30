@@ -1108,7 +1108,7 @@ public enum InstanceCreator {
     /// Undo keeping `items` (relative paths) to a copy: its own versions go
     /// to the Trash, and folders on the way that hold only links to your
     /// home are removed, so the launcher links them to yours again.
-    static func releasePrivateItems(_ items: [String], home: URL) {
+    public static func releasePrivateItems(_ items: [String], home: URL) {
         let fm = FileManager.default
         for item in items {
             let parts = item.split(separator: "/").map(String.init)

@@ -46,31 +46,39 @@ public enum Personas {
         return home
     }
 
-    /// Mirror your home into `home`, `items` aside, and link your Library
+    /// Mirror your home into `home`, `items` aside, your Library included
     /// (tools keep caches and app support there; the persona is about who
     /// you are, not where things are).
     public static func prepare(home: URL, items: [String]) {
         let fm = FileManager.default
         let realHome = URL(fileURLWithPath: realHomePath(), isDirectory: true)
-        HomeMirror.sync(home: home, realHome: realHome, privateItems: items)
-        let library = home.appendingPathComponent("Library")
-        if (try? fm.destinationOfSymbolicLink(atPath: library.path)) == nil, !fm.fileExists(atPath: library.path) {
-            try? fm.createSymbolicLink(at: library, withDestinationURL: realHome.appendingPathComponent("Library"))
-        }
-        // Its git settings start as yours (aliases, editor, …): what's set
-        // for the workspace comes after, so it wins.
+        HomeMirror.sync(home: home, realHome: realHome, privateItems: items, linkLibrary: true)
+        // Its git settings start as yours (aliases, editor, …), from both
+        // places git reads them: what's set for the workspace comes after,
+        // so it wins, and `git config --global` always writes here, never
+        // to yours.
         let gitconfig = home.appendingPathComponent(".gitconfig")
-        let yours = realHome.appendingPathComponent(".gitconfig")
-        if items.contains(".gitconfig"), !fm.fileExists(atPath: gitconfig.path), fm.fileExists(atPath: yours.path) {
-            let text = """
-            # Your own settings first; what follows is this workspace's, and wins.
-            [include]
-            \tpath = \(yours.path)
-
-            """
-            fm.createFile(atPath: gitconfig.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600])
+        if items.contains(".gitconfig"), !fm.fileExists(atPath: gitconfig.path) {
+            var text = "# Your own settings first; what follows is this workspace's, and wins.\n"
+            for yours in [realHome.appendingPathComponent(".config/git/config"), realHome.appendingPathComponent(".gitconfig")]
+            where fm.fileExists(atPath: yours.path) {
+                let quoted = yours.path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                text += "[include]\n\tpath = \"\(quoted)\"\n"
+            }
+            fm.createFile(atPath: gitconfig.path, contents: Data((text + "\n").utf8), attributes: [.posixPermissions: 0o600])
         }
     }
+
+    /// Settings in your environment that would take a tool straight to your
+    /// own identity whatever HOME says: not passed on.
+    static let identityVariables: Set<String> = [
+        "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_CONFIG_DIR",
+        "AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+        "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE", "KUBECONFIG", "CLOUDSDK_CONFIG", "CLOUDSDK_CORE_ACCOUNT",
+        "GOOGLE_APPLICATION_CREDENTIALS", "GIT_CONFIG_GLOBAL", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "NPM_CONFIG_USERCONFIG", "npm_config_userconfig",
+        "DOCKER_CONFIG", "NETRC",
+    ]
 
     static func realHomePath() -> String {
         if let account = getpwuid(getuid()), let dir = account.pointee.pw_dir {
@@ -81,8 +89,16 @@ public enum Personas {
 
     /// The environment a command runs with as `workspace`.
     public static func environment(for workspace: Workspace, base: [String: String]) -> [String: String] {
-        var environment = base
-        environment["HOME"] = home(for: workspace).path
+        var environment = base.filter { !identityVariables.contains($0.key) }
+        let home = home(for: workspace).path
+        let real = realHomePath()
+        // XDG folders set to yours become the persona's.
+        for key in ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"] {
+            if let value = environment[key], value == real || value.hasPrefix(real + "/") {
+                environment[key] = home + value.dropFirst(real.count)
+            }
+        }
+        environment["HOME"] = home
         environment["PARALLEX_WORKSPACE"] = workspace.name
         // zsh reads its settings from ZDOTDIR, or HOME: yours, as always.
         if environment["ZDOTDIR"] == nil {
@@ -95,16 +111,20 @@ public enum Personas {
     /// shell` does, without needing the command-line tool).
     public static func terminalScript(for workspace: Workspace) throws -> URL {
         let home = prepare(workspace)
-        let script = home.deletingLastPathComponent().appendingPathComponent("\(workspace.name).command")
+        // Named by the workspace's id, and its name only ever a quoted value:
+        // nothing in a name can be taken for a command.
+        let script = home.deletingLastPathComponent().appendingPathComponent("Open Terminal.command")
         let quote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        let variables = identityVariables.sorted().joined(separator: " ")
         let text = """
         #!/bin/zsh
-        # Opened by Parallex: a shell as the workspace \(workspace.name).
+        # Opened by Parallex: a shell as one of your workspaces.
         export HOME=\(quote(home.path))
         export PARALLEX_WORKSPACE=\(quote(workspace.name))
-        export ZDOTDIR="${ZDOTDIR:-\(realHomePath())}"
+        export ZDOTDIR="${ZDOTDIR:-"\(realHomePath().replacingOccurrences(of: "\"", with: "\\\""))"}"
+        unset \(variables)
         cd "$HOME"
-        echo "You're \(workspace.name) in this shell."
+        printf "You're %s in this shell.\\n" "$PARALLEX_WORKSPACE"
         exec "${SHELL:-/bin/zsh}" -l
 
         """

@@ -248,9 +248,22 @@ Terminals and editors copied into the workspace (own-identity copies with
 their own Library) hand the persona's home to the shells and tools they
 start, so a Ghostty or Cursor copy in "Client A" commits and pushes as
 Client A, while your own terminal stays you. `$PARALLEX_WORKSPACE` names the
-workspace, for your prompt. SSH reads `~/.ssh` from your account, not
-`$HOME`; to use another key, set `core.sshCommand` in the workspace's git
-config.
+workspace, for your prompt. Variables that would point a tool back at your
+own identity (`GH_TOKEN`, `AWS_PROFILE`, `KUBECONFIG`, `XDG_CONFIG_HOME` set
+to yours, …) aren't passed on.
+
+A few tools keep secrets outside `$HOME`, so check how yours do:
+
+- **SSH** reads `~/.ssh` from your account, not `$HOME`. To use another key,
+  set `core.sshCommand` in the workspace's git config, with
+  `-o IdentitiesOnly=yes` so your agent's keys aren't offered first.
+- **gh** keeps its token in your login keychain, where a sign-in in the
+  workspace can replace your own. `gh auth login --insecure-storage` keeps
+  the workspace's in its own `~/.config/gh` instead.
+- **git over HTTPS** with the usual `osxkeychain` helper shares one saved
+  credential per host.
+- `includeIf "gitdir:~/…"` rules in your git config see the workspace's home
+  as `~`, so they don't match your repositories there.
 
 ## Install
 

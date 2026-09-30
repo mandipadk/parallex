@@ -58,6 +58,7 @@ struct WorkspaceCommand: ParsableCommand {
                 let tidy = { (item: String) in item.hasPrefix("~/") ? String(item.dropFirst(2)) : item }
                 let adding = add.map(tidy)
                 let removing = Set(remove.map(tidy))
+                let before = Set(ParallexCore.Personas.items(for: chosen))
                 chosen = try WorkspaceStore.update(id: chosen.id) { workspace in
                     if let state { workspace.persona = state == "on" ? true : nil }
                     if !adding.isEmpty || !removing.isEmpty {
@@ -66,6 +67,12 @@ struct WorkspaceCommand: ParsableCommand {
                         items.removeAll { removing.contains($0) }
                         workspace.personaItems = items
                     }
+                }
+                // Shared again: the persona's own version goes to the Trash,
+                // and its home links to yours there again.
+                let released = before.subtracting(ParallexCore.Personas.items(for: chosen))
+                if !released.isEmpty {
+                    InstanceCreator.releasePrivateItems(released.sorted(), home: ParallexCore.Personas.home(for: chosen))
                 }
             }
             let home = ParallexCore.Personas.home(for: chosen)

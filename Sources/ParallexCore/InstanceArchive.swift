@@ -37,7 +37,7 @@ public enum InstanceArchive {
         for item in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? []
         where item.hasPrefix("Instance.keychain") || item == ParallexConfig.stagingFolder
             || AccessRecord.fileNames.contains(item) || item == "signin.log" || item == Snapshots.folderName
-            || item == AppVersions.folderName {
+            || item == AppVersions.folderName || item == Personas.markerFile {
             try? fm.removeItem(at: folder.appendingPathComponent(item))
         }
         InstanceCreator.removeRunState(in: folder)
@@ -181,6 +181,9 @@ public enum InstanceArchive {
             lock.release()
             throw error
         }
+        // Which workspace's identity its tools use is this Mac's to say (an
+        // older export may carry another's).
+        try? fm.removeItem(at: destination.appendingPathComponent(Personas.markerFile))
         let preferences = destination.appendingPathComponent(preferencesFile)
 
         let newPath = destination.path

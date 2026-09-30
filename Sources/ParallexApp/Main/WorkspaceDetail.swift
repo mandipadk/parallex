@@ -254,7 +254,7 @@ struct WorkspaceDetail: View {
         ) {
             ExplainedToggle(
                 title: "Its own identity for your tools",
-                detail: "Terminals and editors copied into \(workspace.name) commit and sign in as \(workspace.name), and so does whatever you start with parallex run \"\(workspace.name)\". Everything else in your home is shared.",
+                detail: "Terminals and editors in \(workspace.name) that are copies with their own Library commit and sign in as \(workspace.name), and so does whatever you start with parallex run \"\(workspace.name)\". Everything else in your home is shared.",
                 isOn: Binding(
                     get: { workspace.persona == true },
                     set: { on in

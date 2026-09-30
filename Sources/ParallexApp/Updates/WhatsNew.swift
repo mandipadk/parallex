@@ -27,7 +27,7 @@ enum ReleaseHighlights {
             Highlight(
                 symbol: "person.crop.rectangle.stack",
                 title: "Workspaces as identities",
-                detail: "Give a workspace its own git, gh, cloud and cluster identity. Terminals and editors in it, and parallex run, work as that workspace, while yours stays yours. Identity on the workspace's page."
+                detail: "Give a workspace its own git, gh, cloud and cluster identity. Terminal and editor copies in it, and parallex run, work as that workspace, while yours stays yours. Identity on the workspace's page."
             ),
             Highlight(
                 symbol: "clock.arrow.circlepath",

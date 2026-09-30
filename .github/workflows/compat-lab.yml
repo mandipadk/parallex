@@ -1,0 +1,33 @@
+name: Compatibility lab
+
+# Every night, the current Parallex against the current versions of popular
+# apps: each installed fresh, copied (its own Library, keychain, Guard and
+# recorder), opened, and checked for running, crashing and reaching the
+# original's data. Results in the run's summary and as compat-lab.json.
+on:
+  schedule:
+    - cron: "37 7 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: compat-lab
+  cancel-in-progress: true
+
+jobs:
+  lab:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build
+      - name: Lab
+        run: |
+          Support/compat-lab.sh --install --wait 30 --out compat-lab.json \
+            "Obsidian=obsidian" "Visual Studio Code=visual-studio-code" "Zed=zed" "IINA=iina" \
+            "VLC=vlc" "Discord=discord" "Slack=slack" "Spotify=spotify"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compat-lab
+          path: compat-lab.json

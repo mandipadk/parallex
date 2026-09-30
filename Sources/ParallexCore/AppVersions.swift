@@ -67,6 +67,18 @@ public enum AppVersions {
         return matches.count == 1 ? matches.first : nil
     }
 
+    /// Compare two versions as `AppCloner.version(of:)` writes them
+    /// ("4.41.106 (41106)"): by the short version, then the build.
+    public static func compare(_ lhs: String, _ rhs: String) -> ComparisonResult {
+        func parts(_ version: String) -> (short: String, build: String) {
+            let pieces = version.components(separatedBy: " (")
+            return (pieces[0], pieces.count > 1 ? String(pieces[1].dropLast()) : "")
+        }
+        let (left, right) = (parts(lhs), parts(rhs))
+        let short = left.short.compare(right.short, options: .numeric)
+        return short != .orderedSame ? short : left.build.compare(right.build, options: .numeric)
+    }
+
     /// The kept app of `version`, if there is one.
     public static func app(for version: String, slug: String) -> URL? {
         list(slug: slug).first { $0.version == version }.map { app(of: $0, slug: slug) }

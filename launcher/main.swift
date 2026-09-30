@@ -493,19 +493,15 @@ if let redirectHome = config[ParallexConfig.Key.redirectHome] as? String,
         let items = marker["items"] as? [String] ?? []
         HomeMirror.sync(
             home: URL(fileURLWithPath: personaHome, isDirectory: true),
-            realHome: URL(fileURLWithPath: realHome, isDirectory: true), privateItems: items
+            realHome: URL(fileURLWithPath: realHome, isDirectory: true), privateItems: items, linkLibrary: true
         )
-        let library = URL(fileURLWithPath: personaHome).appendingPathComponent("Library")
-        if (try? FileManager.default.destinationOfSymbolicLink(atPath: library.path)) == nil,
-           !FileManager.default.fileExists(atPath: library.path) {
-            try? FileManager.default.createSymbolicLink(atPath: library.path, withDestinationPath: realHome + "/Library")
-        }
         setenv("PARALLEX_CHILD_HOME", personaHome, 1)
         if let workspace = marker["workspace"] as? String {
             setenv("PARALLEX_WORKSPACE", workspace, 1)
         }
     } else {
         unsetenv("PARALLEX_CHILD_HOME")
+        unsetenv("PARALLEX_WORKSPACE")
     }
     // Ports the app finds itself on are the copy's own (ports.c).
     if let ports = config[ParallexConfig.Key.loopbackPorts] as? [String], !ports.isEmpty {

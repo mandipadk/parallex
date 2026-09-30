@@ -13,14 +13,16 @@ public enum HomeMirror {
     /// - Parameter privateItems: relative paths (`.vscode`, `.config/zed`,
     ///   `.local/share/zed`) that stay the copy's own. Folders on the way to
     ///   one become real folders whose other entries are linked.
-    public static func sync(home: URL, realHome: URL, privateItems: [String]) {
+    /// - Parameter linkLibrary: link ~/Library like everything else (a
+    ///   workspace's persona shares it; a copy never does).
+    public static func sync(home: URL, realHome: URL, privateItems: [String], linkLibrary: Bool = false) {
         var tree = Node()
         for item in privateItems {
             let parts = item.split(separator: "/").map(String.init)
             guard !parts.isEmpty, parts.allSatisfy(isPlainName) else { continue }
             tree.insert(parts[...])
         }
-        for name in neverLinked {
+        for name in neverLinked where !(linkLibrary && name == "Library") {
             tree.children[name] = Node(isPrivate: true)
         }
         mirror(home, from: realHome, rules: tree)
