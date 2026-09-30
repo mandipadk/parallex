@@ -44,7 +44,8 @@ public enum Snapshots {
     /// never in a snapshot, and left alone by a restore.
     static func isBookkeeping(_ item: String) -> Bool {
         ["instance.json", "instance.pid", "instance.pid.lock", folderName, ParallexConfig.stagingFolder,
-         "signin.log", ParallexConfig.separationUnavailableMarker, AppVersions.folderName].contains(item)
+         "signin.log", ParallexConfig.separationUnavailableMarker, AppVersions.folderName,
+         Personas.markerFile].contains(item)
             || AccessRecord.fileNames.contains(item) || item.hasPrefix("custom-icon.") || item.hasPrefix(".")
     }
 

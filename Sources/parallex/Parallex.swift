@@ -28,7 +28,7 @@ struct Parallex: AsyncParsableCommand {
         version: ParallexConfig.version,
         subcommands: [
             Create.self, Apps.self, List.self, Open.self, Edit.self, Duplicate.self, CopyData.self,
-            WorkspaceCommand.self, Links.self, Check.self, Storage.self, SnapshotCommand.self, VersionsCommand.self, Export.self, Import.self,
+            WorkspaceCommand.self, RunAs.self, ShellAs.self, Links.self, Check.self, Storage.self, SnapshotCommand.self, VersionsCommand.self, Export.self, Import.self,
             Repair.self, Remove.self, Doctor.self, Report.self, Usage.self, Notices.self,
         ]
     )

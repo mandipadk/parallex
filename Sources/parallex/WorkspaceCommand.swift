@@ -12,7 +12,7 @@ struct WorkspaceCommand: ParsableCommand {
           parallex workspace open Work
           parallex workspace shortcut Work ctrl+opt+w
         """,
-        subcommands: [List.self, Create.self, Add.self, Drop.self, Open.self, Quit.self, Rename.self, Shortcut.self, Browser.self, Delete.self],
+        subcommands: [List.self, Create.self, Add.self, Drop.self, Open.self, Quit.self, Rename.self, Shortcut.self, Browser.self, Persona.self, Delete.self],
         defaultSubcommand: List.self
     )
 
@@ -24,6 +24,63 @@ struct WorkspaceCommand: ParsableCommand {
         throw ParallexError("No workspace named '\(name)'. " + (names.isEmpty
             ? "Create one with: parallex workspace create <name>"
             : "Existing workspaces: \(names.joined(separator: ", "))"))
+    }
+
+    struct Persona: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Give a workspace its own identity for your tools (see `parallex run`), or share yours again.",
+            discussion: """
+            Examples:
+              parallex workspace persona Work on
+              parallex workspace persona Work --item .config/op
+              parallex workspace persona Work off
+            """
+        )
+
+        @Argument(help: "The workspace.")
+        var workspace: String
+
+        @Argument(help: "on or off (leave out to see how it is).")
+        var state: String?
+
+        @Option(name: .customLong("item"), help: ArgumentHelp("One more item in your home that's the workspace's own. Repeatable.", valueName: "item"))
+        var add: [String] = []
+
+        @Option(name: .customLong("no-item"), help: ArgumentHelp("Share an item again. Repeatable.", valueName: "item"))
+        var remove: [String] = []
+
+        mutating func run() throws {
+            var chosen = try WorkspaceCommand.lookup(workspace)
+            if state != nil || !add.isEmpty || !remove.isEmpty {
+                guard state == nil || state == "on" || state == "off" else {
+                    throw ValidationError("Say on or off.")
+                }
+                let tidy = { (item: String) in item.hasPrefix("~/") ? String(item.dropFirst(2)) : item }
+                let adding = add.map(tidy)
+                let removing = Set(remove.map(tidy))
+                chosen = try WorkspaceStore.update(id: chosen.id) { workspace in
+                    if let state { workspace.persona = state == "on" ? true : nil }
+                    if !adding.isEmpty || !removing.isEmpty {
+                        var items = ParallexCore.Personas.items(for: workspace)
+                        items += adding.filter { !items.contains($0) }
+                        items.removeAll { removing.contains($0) }
+                        workspace.personaItems = items
+                    }
+                }
+            }
+            let home = ParallexCore.Personas.home(for: chosen)
+            if chosen.persona == true {
+                ParallexCore.Personas.prepare(chosen)
+                print("\(Term.bold(chosen.name)) has an identity of its own for your tools, at \(Paths.abbreviate(home.path)).")
+                print("Its own: " + ParallexCore.Personas.items(for: chosen).map { "~/\($0)" }.joined(separator: ", "))
+                print(Term.dim("Use it with: parallex run \"\(chosen.name)\" -- <command>, or parallex shell \"\(chosen.name)\"."))
+            } else {
+                print("\(Term.bold(chosen.name)) uses your identity for your tools.")
+                if FileManager.default.fileExists(atPath: home.path) {
+                    print(Term.dim("What its persona had is kept at \(Paths.abbreviate(home.path)), for when it's on again."))
+                }
+            }
+        }
     }
 
     struct List: ParsableCommand {

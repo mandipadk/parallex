@@ -464,6 +464,29 @@ if let redirectHome = config[ParallexConfig.Key.redirectHome] as? String,
     } else {
         unsetenv("PARALLEX_GUARD")
     }
+    // In a workspace with a persona: the shells and tools the copy starts
+    // get the persona's home (home.c), brought up to date here.
+    let personaMarker = URL(fileURLWithPath: redirectHome).deletingLastPathComponent().appendingPathComponent("persona.json")
+    if let data = try? Data(contentsOf: personaMarker),
+       let marker = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+       let personaHome = marker["home"] as? String, personaHome.hasPrefix("/") {
+        let items = marker["items"] as? [String] ?? []
+        HomeMirror.sync(
+            home: URL(fileURLWithPath: personaHome, isDirectory: true),
+            realHome: URL(fileURLWithPath: realHome, isDirectory: true), privateItems: items
+        )
+        let library = URL(fileURLWithPath: personaHome).appendingPathComponent("Library")
+        if (try? FileManager.default.destinationOfSymbolicLink(atPath: library.path)) == nil,
+           !FileManager.default.fileExists(atPath: library.path) {
+            try? FileManager.default.createSymbolicLink(atPath: library.path, withDestinationPath: realHome + "/Library")
+        }
+        setenv("PARALLEX_CHILD_HOME", personaHome, 1)
+        if let workspace = marker["workspace"] as? String {
+            setenv("PARALLEX_WORKSPACE", workspace, 1)
+        }
+    } else {
+        unsetenv("PARALLEX_CHILD_HOME")
+    }
     // Ports the app finds itself on are the copy's own (ports.c).
     if let ports = config[ParallexConfig.Key.loopbackPorts] as? [String], !ports.isEmpty {
         setenv("PARALLEX_LOOPBACK_PORTS", ports.joined(separator: ","), 1)

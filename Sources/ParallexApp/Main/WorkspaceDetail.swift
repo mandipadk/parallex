@@ -1,3 +1,4 @@
+import AppKit
 import ParallexCore
 import SwiftUI
 
@@ -103,6 +104,7 @@ struct WorkspaceDetail: View {
                 }
                 membersSection
                 openingSection
+                identitySection
                 lookSection
                 footer
             }
@@ -242,6 +244,49 @@ struct WorkspaceDetail: View {
                 )
             }
             .onAppear { linkChoices = .load(entries: model.entries) }
+        }
+    }
+
+    private var identitySection: some View {
+        DetailSection(
+            title: "Identity",
+            subtitle: "Who \(workspace.name) is to your command-line tools: git, gh, cloud and cluster sign-ins."
+        ) {
+            ExplainedToggle(
+                title: "Its own identity for your tools",
+                detail: "Terminals and editors copied into \(workspace.name) commit and sign in as \(workspace.name), and so does whatever you start with parallex run \"\(workspace.name)\". Everything else in your home is shared.",
+                isOn: Binding(
+                    get: { workspace.persona == true },
+                    set: { on in
+                        update { $0.persona = on ? true : nil }
+                        if on {
+                            let current = workspace
+                            Task.detached(priority: .utility) { Personas.prepare(current) }
+                        }
+                    }
+                )
+            )
+            if workspace.persona == true {
+                Text("Its own: " + Personas.items(for: workspace).map { "~/\($0)" }.joined(separator: ", "))
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: Theme.Space.s) {
+                    Button("Open Terminal as \(workspace.name)") {
+                        if let script = try? Personas.terminalScript(for: workspace) {
+                            NSWorkspace.shared.open(script)
+                        }
+                    }
+                    .buttonStyle(.secondary)
+                    Button("Show Its Home") {
+                        NSWorkspace.shared.activateFileViewerSelecting([Personas.prepare(workspace)])
+                    }
+                    .buttonStyle(.secondary)
+                }
+                Text("Copies in \(workspace.name) pick this up the next time they open.")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(.tertiary)
+            }
         }
     }
 

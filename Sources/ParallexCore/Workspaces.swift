@@ -18,6 +18,11 @@ public struct Workspace: Codable, Sendable, Identifiable, Equatable {
     /// Its color (one of the instance palette's), shared by the instances
     /// made for it, so a workspace is recognizable everywhere.
     public var colorHex: String?
+    /// Its own identity for command-line tools (see `Personas`): a home of
+    /// its own for them, shared with yours except for `personaItems`.
+    public var persona: Bool? = nil
+    /// What's its own in that home; nil: `Personas.defaultItems`.
+    public var personaItems: [String]? = nil
 
     public init(
         id: UUID = UUID(), name: String, members: [String] = [], shortcut: KeyShortcut? = nil,
@@ -83,6 +88,7 @@ public enum WorkspaceStore {
         var workspaces = load()
         let result = try change(&workspaces)
         try save(workspaces)
+        Personas.syncMarkers(workspaces: workspaces)
         return result
     }
 

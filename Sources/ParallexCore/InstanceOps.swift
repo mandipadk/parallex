@@ -415,7 +415,8 @@ extension InstanceCreator {
         for item in (try? fm.contentsOfDirectory(atPath: from.path)) ?? []
         where !skipped.contains(item) && !item.hasPrefix("custom-icon.") && !item.hasPrefix("Instance.keychain")
             && item != ParallexConfig.stagingFolder && !AccessRecord.fileNames.contains(item)
-            && item != "signin.log" && item != Snapshots.folderName && item != AppVersions.folderName {
+            && item != "signin.log" && item != Snapshots.folderName && item != AppVersions.folderName
+            && item != Personas.markerFile {
             let target = to.appendingPathComponent(item)
             if fm.fileExists(atPath: target.path) {
                 try fm.removeItem(at: target)

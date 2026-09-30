@@ -228,6 +228,30 @@ parallex versions use "Slack Work" --current            # forward again
 Staying on an old version means going without its fixes, security ones
 included, so it's meant for getting past a bad update.
 
+### Workspaces as identities
+
+A workspace can be an identity for your command-line tools too. Turn on its
+persona (Identity on the workspace's page, or `parallex workspace persona
+<name> on`) and it gets a home of its own for them: yours, shared through
+links, except for what says who you are to a tool (`.gitconfig`, `.config/gh`,
+`.aws`, `.kube`, `.config/gcloud`, `.npmrc`, `.netrc`, and anything you add).
+Its `.gitconfig` starts by including yours, so your aliases and settings
+carry over and only what you set as the workspace differs.
+
+```sh
+parallex run "Client A" -- git config --global user.email me@client-a.com
+parallex run "Client A" -- gh auth login
+parallex shell "Client A"          # your shell, as Client A
+```
+
+Terminals and editors copied into the workspace (own-identity copies with
+their own Library) hand the persona's home to the shells and tools they
+start, so a Ghostty or Cursor copy in "Client A" commits and pushes as
+Client A, while your own terminal stays you. `$PARALLEX_WORKSPACE` names the
+workspace, for your prompt. SSH reads `~/.ssh` from your account, not
+`$HOME`; to use another key, set `core.sshCommand` in the workspace's git
+config.
+
 ## Install
 
 **[Download Parallex for Mac](https://github.com/mandipadk/parallex/releases/latest/download/Parallex.dmg)**
@@ -367,7 +391,9 @@ parallex versions [list | use [--current] [--with-data] | remove] <name> [<versi
 parallex links [status | enable [--ask] | disable]
 parallex links web [on | off | status]
 parallex links rule [add <site> <target> | remove <site> | list]
-parallex workspace [list | create | add | remove | open | quit | rename | shortcut | browser | delete]
+parallex workspace [list | create | add | remove | open | quit | rename | shortcut | browser | persona | delete]
+parallex run <workspace> -- <command> [args]
+parallex shell <workspace>
 parallex duplicate <name> [--name <new name>] [--with-data]
 parallex copy-data <name> [--dry-run]
 parallex export <name> [-o <file.parallex>]

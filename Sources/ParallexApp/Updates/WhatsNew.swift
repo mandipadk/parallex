@@ -25,6 +25,11 @@ enum ReleaseHighlights {
                 detail: "A copy keeps the version of its app it was on. If an update gets in the way, go back to it, and stay there while the app moves on. From Versions on the instance's page."
             ),
             Highlight(
+                symbol: "person.crop.rectangle.stack",
+                title: "Workspaces as identities",
+                detail: "Give a workspace its own git, gh, cloud and cluster identity. Terminals and editors in it, and parallex run, work as that workspace, while yours stays yours. Identity on the workspace's page."
+            ),
+            Highlight(
                 symbol: "clock.arrow.circlepath",
                 title: "With its data as it was",
                 detail: "Before a copy moves to another version, Parallex takes a snapshot of its data, so going back can take the data back too, as that version left it."

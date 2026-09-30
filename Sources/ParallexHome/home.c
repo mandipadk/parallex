@@ -22,6 +22,8 @@
 //                           or Rust find "~" through $HOME, not the account)
 //   PARALLEX_GUARD          "\n"-separated paths of the original's data,
 //                           which the copy may not touch (recorder.c)
+//   PARALLEX_CHILD_HOME     the home the copy's shells and tools get (a
+//                           workspace's persona), instead of your real one
 //   PARALLEX_LOOPBACK_PORTS ","-separated ports the app finds itself on,
 //                           which are the copy's own (ports.c)
 // Only processes whose executable lives inside the scope are redirected
@@ -62,6 +64,8 @@ static bool active = false;
 static bool redirect_env = false;
 // For handing your real $HOME back to what the app starts (see below).
 static char real_home_entry[PATH_MAX + 8];
+// What the copy's shells and tools get as HOME: yours, or a persona's.
+static char child_home_entry[PATH_MAX + 8];
 static char scope_path[PATH_MAX];
 static char keychain_suffix[128];
 // "\n"-separated "… Safe Storage" names left alone (other browsers' keys).
@@ -120,6 +124,7 @@ static void leave_environment(void) {
     unsetenv("PARALLEX_SAFE_STORAGE_OWN");
     unsetenv("PARALLEX_GUARD");
     unsetenv("PARALLEX_LOOPBACK_PORTS");
+    unsetenv("PARALLEX_CHILD_HOME");
 }
 
 // Runs once, from the constructor (or earlier, if another part of the
@@ -200,6 +205,12 @@ static void set_up_now(void) {
     struct passwd *account = getpwuid(getuid());
     if (account != NULL && account->pw_dir != NULL) {
         snprintf(real_home_entry, sizeof(real_home_entry), "HOME=%s", account->pw_dir);
+    }
+    const char *child_home = getenv("PARALLEX_CHILD_HOME");
+    if (child_home != NULL && child_home[0] == '/' && strlen(child_home) < PATH_MAX) {
+        snprintf(child_home_entry, sizeof(child_home_entry), "HOME=%s", child_home);
+    } else {
+        strlcpy(child_home_entry, real_home_entry, sizeof(child_home_entry));
     }
     active = true;
 }
@@ -290,16 +301,19 @@ static bool is_in_scope(const char *path) {
     return strncmp(resolved, scope_path, length) == 0 && resolved[length] == '/';
 }
 
-// A copy of `envp` with HOME=<instance home> replaced by your real one, or
+// A copy of `envp` with HOME=<instance home> replaced by your real one (or
+// the persona's, in a workspace with one, which also replaces yours), or
 // NULL when there's nothing to change. The caller frees it.
 static char **with_real_home(char *const envp[]) {
-    if (!active || !redirect_env || envp == NULL || real_home_entry[0] == '\0') {
+    bool persona = strcmp(child_home_entry, real_home_entry) != 0;
+    if (!active || (!redirect_env && !persona) || envp == NULL || child_home_entry[0] == '\0') {
         return NULL;
     }
     size_t count = 0;
     size_t home_index = (size_t)-1;
     for (; envp[count] != NULL; count++) {
-        if (strncmp(envp[count], "HOME=", 5) == 0 && strcmp(envp[count] + 5, redirect_home) == 0) {
+        if (strncmp(envp[count], "HOME=", 5) == 0
+            && (strcmp(envp[count] + 5, redirect_home) == 0 || (persona && strcmp(envp[count], real_home_entry) == 0))) {
             home_index = count;
         }
     }
@@ -311,7 +325,7 @@ static char **with_real_home(char *const envp[]) {
         return NULL;
     }
     for (size_t index = 0; index < count; index++) {
-        copy[index] = index == home_index ? real_home_entry : envp[index];
+        copy[index] = index == home_index ? child_home_entry : envp[index];
     }
     copy[count] = NULL;
     return copy;
