@@ -18,6 +18,23 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "1.4.0", highlights: [
+            Highlight(
+                symbol: "person.2.badge.key",
+                title: "Who you are, at a glance",
+                detail: "A workspace with its own identity shows who git, GitHub, AWS, Kubernetes, Google Cloud and npm think you are there, beside who they think you are everywhere else."
+            ),
+            Highlight(
+                symbol: "network",
+                title: "A network per workspace",
+                detail: "Give a workspace a proxy, a client's or a tunnel of your own: its apps and what they start go through it, and nothing else does. Network on the workspace's page."
+            ),
+            Highlight(
+                symbol: "calendar.badge.clock",
+                title: "Daily snapshots",
+                detail: "Turn on Take one every day in an instance's Snapshots, and it keeps a week of days to go back to, taken while it isn't running."
+            ),
+        ]),
         Release(version: "1.3.0", highlights: [
             Highlight(
                 symbol: "arrow.uturn.backward.circle",

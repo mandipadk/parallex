@@ -301,7 +301,7 @@ private struct WorkspaceChip: View {
     @State private var hovering = false
 
     var body: some View {
-        Button(action: open) {
+        Button(action: members.isEmpty && workspace.persona == true ? openTerminal : open) {
             HStack(spacing: 6) {
                 WorkspaceGlyph(members: members, size: 18)
                 Text(workspace.name)
@@ -317,6 +317,18 @@ private struct WorkspaceChip: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help(workspace.shortcut.map { "Open \(workspace.name) (\($0.displayString))" } ?? "Open \(workspace.name)")
-        .disabled(members.isEmpty)
+        .disabled(members.isEmpty && workspace.persona != true)
+        .contextMenu {
+            Button("Open All", action: open).disabled(members.isEmpty)
+            if workspace.persona == true {
+                Button("Open Terminal as \(workspace.name)", action: openTerminal)
+            }
+        }
+    }
+
+    private func openTerminal() {
+        if let script = try? Personas.terminalScript(for: workspace) {
+            NSWorkspace.shared.open(script)
+        }
     }
 }
