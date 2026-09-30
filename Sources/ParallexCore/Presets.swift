@@ -171,6 +171,9 @@ public enum Presets {
     /// the original app's own profile.
     public static func originalDataFolders(bundleID: String, names: [String]) -> [String] {
         var folders = knownDataFolders[bundleID] ?? []
+        for folder in Knowledge.dataFolders(for: bundleID) where !folders.contains(folder) {
+            folders.append(folder)
+        }
         for name in names + [bundleID] where !name.isEmpty && !folders.contains(name) {
             folders.append(name)
         }
@@ -194,7 +197,7 @@ public enum Presets {
     /// for an app not listed yet, and tests.
     static func singleInstancePorts(for bundleID: String) -> [Int] {
         // Zed keeps the sum a port: base + uid % (65535 - base).
-        var ports = (knownSingleInstancePorts[bundleID] ?? []).map {
+        var ports = ((knownSingleInstancePorts[bundleID] ?? []) + Knowledge.singleInstancePorts(for: bundleID)).map {
             $0.base + ($0.plusUserID ? Int(getuid()) % (65535 - $0.base) : 0)
         }
         if let extra = ProcessInfo.processInfo.environment["PARALLEX_LOOPBACK_PORTS_FOR"] {
@@ -240,6 +243,9 @@ public enum Presets {
             }
         }
         var items = knownHomeFolders[app.bundleID] ?? []
+        for item in Knowledge.homeFolders(for: app.bundleID) where !items.contains(item) {
+            items.append(item)
+        }
         let shared = Set(defaultSharedItems.map { $0.lowercased() })
         for name in names where !OriginalData.sharedDotfolders.contains(name) && OriginalData.isPlainName(name) {
             for item in [".\(name)", ".config/\(name)"] where !items.contains(item) && !shared.contains(item) {

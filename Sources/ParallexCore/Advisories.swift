@@ -29,9 +29,31 @@ public struct Advisories: Codable, Equatable, Sendable {
         public var link: String?
     }
 
+    /// What Parallex knows about an app beyond what it was built knowing
+    /// (see `Knowledge`): where it keeps its data, its hidden folders, the
+    /// ports it finds itself on. Only ever adds to what's built in.
+    public struct AppKnowledge: Codable, Equatable, Sendable {
+        public var bundleID: String
+        /// Which versions of the app it's about; all when missing.
+        public var versions: String?
+        /// Folder names in ~/Library/Application Support.
+        public var dataFolders: [String]?
+        /// Hidden items in your home (".acme", ".config/acme").
+        public var homeFolders: [String]?
+        /// Single-instance ports (see `Presets.singleInstancePorts`).
+        public var singleInstancePorts: [Port]?
+
+        public struct Port: Codable, Equatable, Sendable {
+            public var base: Int
+            public var plusUserID: Bool?
+        }
+    }
+
     public var issued: Date
     public var apps: [AppNotice]
     public var messages: [Message]
+    /// Missing in files made before 1.4, and ignored by older Parallexes.
+    public var knowledge: [AppKnowledge]?
 
     public static let url = URL(string: "https://parallex.mandip.dev/advisories.json")!
     public static let signatureURL = URL(string: "https://parallex.mandip.dev/advisories.json.sig")!

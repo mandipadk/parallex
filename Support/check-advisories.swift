@@ -55,6 +55,25 @@ for message in object["messages"] as? [[String: Any]] ?? [] {
     if let range = message["parallex"] as? String, !isValidRange(range) { fail("bad parallex range: \(range)") }
     if let link = message["link"] as? String, !link.hasPrefix("https://") { fail("links must be https: \(link)") }
 }
+func isPlainName(_ name: String) -> Bool {
+    !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains(":")
+}
+for entry in object["knowledge"] as? [[String: Any]] ?? [] {
+    guard let bundleID = entry["bundleID"] as? String else { fail("each knowledge entry needs a bundleID") }
+    if let range = entry["versions"] as? String, !isValidRange(range) { fail("bad versions range: \(range)") }
+    for folder in entry["dataFolders"] as? [String] ?? [] where !isPlainName(folder) {
+        fail("\(bundleID): data folders are names in Application Support, not paths: \(folder)")
+    }
+    for item in entry["homeFolders"] as? [String] ?? [] {
+        let parts = item.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.first?.hasPrefix(".") == true, parts.allSatisfy(isPlainName) else {
+            fail("\(bundleID): home folders are hidden items relative to home, like .acme or .config/acme: \(item)")
+        }
+    }
+    for port in entry["singleInstancePorts"] as? [[String: Any]] ?? [] {
+        guard let base = port["base"] as? Int, (1024..<65536).contains(base) else { fail("\(bundleID): bad port \(port)") }
+    }
+}
 if data.count > 256 * 1024 { fail("keep the file under 256 KB") }
 if let published = issued(arguments[2]), FileManager.default.contents(atPath: arguments[2]) != data, newIssued <= published {
     fail("raise \"issued\": it must be newer than the published file's (\(ISO8601DateFormatter().string(from: published)))")

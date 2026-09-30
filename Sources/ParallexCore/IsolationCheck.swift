@@ -194,7 +194,7 @@ public enum IsolationCheck {
                         original.append(("\(home)/\(item)", "the original's ~/\(item)"))
                     }
                 } else {
-                    for item in Presets.knownHomeFolders[bundleID] ?? [] {
+                    for item in (Presets.knownHomeFolders[bundleID] ?? []) + Knowledge.homeFolders(for: bundleID) {
                         choice.append(("\(home)/\(item)", "shared on purpose (Separate hidden folders off)"))
                     }
                 }
