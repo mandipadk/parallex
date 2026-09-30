@@ -151,7 +151,7 @@ print(("clean" if report.get("clean") else "leak") + "\t" + str(len(leaks)) + "\
   leaks=${rest%%$'\t'*}
   blocked=${rest#*$'\t'}
   crashes=$(find "$HOME/Library/Logs/DiagnosticReports" -newer "$started" -type f 2>/dev/null \
-    | xargs grep -l "$lab/apps/$label.app" 2>/dev/null | wc -l | tr -d ' ')
+    | xargs grep -l "$label.app" 2>/dev/null | wc -l | tr -d ' ')
   if (( crashes > 0 )); then result="crashed"
   elif (( processes == 0 )); then result="quit"
   elif [[ $leak_state == leak ]]; then result="leaked"
@@ -165,10 +165,12 @@ print(("clean" if report.get("clean") else "leak") + "\t" + str(len(leaks)) + "\
     {
       print "# $name $version: $result"
       print "\n## The original's entitlements"
-      codesign -d --entitlements - --xml "$original" 2>&1 | plutil -p - 2>&1
+      codesign -d --entitlements - --xml "$original" 2>/dev/null | plutil -p - 2>&1
+      print "\n## Update settings in the original's Info.plist"
+      plutil -p "$original/Contents/Info.plist" 2>/dev/null | grep -iE '"SU|sparkle|squirrel' 
       print "\n## The copy's signature and entitlements"
       codesign -dvv "$copy" 2>&1
-      codesign -d --entitlements - --xml "$copy" 2>&1 | plutil -p - 2>&1
+      codesign -d --entitlements - --xml "$copy" 2>/dev/null | plutil -p - 2>&1
       print "\n## The copy's app, as the launcher starts it"
       ls -la "$copy/Contents/MacOS" 2>&1
       print "\n## System log from the launch"
@@ -177,7 +179,27 @@ print(("clean" if report.get("clean") else "leak") + "\t" + str(len(leaks)) + "\
         2>&1 | tail -400
       print "\n## Crash reports"
       find "$HOME/Library/Logs/DiagnosticReports" -newer "$started" -type f 2>/dev/null | while read -r report; do
-        grep -q "$label" "$report" 2>/dev/null && { print "### $report"; head -120 "$report"; }
+        grep -q "$label" "$report" 2>/dev/null || continue
+        print "### $report"
+        # What the app said as it stopped, and the stack that stopped it.
+        python3 - "$report" <<'PY'
+import json, sys
+text = open(sys.argv[1]).read()
+header, _, body = text.partition("\n")
+try:
+    report = json.loads(body)
+except Exception:
+    print(text[:6000]); sys.exit()
+print("exception:", report.get("exception"), "termination:", report.get("termination"))
+for key in ("asi", "crashInfo", "lastExceptionBacktrace", "ktriageinfo"):
+    if key in report:
+        print(key + ":", json.dumps(report[key])[:3000])
+images = report.get("usedImages", [])
+thread = report.get("threads", [])[report.get("faultingThread", 0)] if report.get("threads") else {}
+for frame in thread.get("frames", [])[:30]:
+    image = images[frame.get("imageIndex", 0)] if frame.get("imageIndex", -1) < len(images) else {}
+    print(" ", image.get("name", "?"), hex(frame.get("imageOffset", 0)), frame.get("symbol", ""), frame.get("sourceFile", ""), frame.get("sourceLine", ""))
+PY
       done
     } > "$diagnose/$name.txt" 2>&1
   fi

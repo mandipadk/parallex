@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: "37 7 * * *"
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Just these apps (names, comma-separated); results aren't published"
+        required: false
+        default: ""
 
 concurrency:
   group: compat-lab
@@ -31,12 +36,21 @@ jobs:
       - name: Build
         run: swift build
       - name: Lab
+        env:
+          ONLY: ${{ inputs.only }}
         run: |
-          Support/compat-lab.sh --install --wait 30 --out compat-lab.json --diagnose diagnostics \
-            "Obsidian=obsidian" "Visual Studio Code=visual-studio-code" "Zed=zed" "IINA=iina" \
-            "VLC=vlc" "Discord=discord" "Slack=slack" "Spotify=spotify" \
-            "Claude=claude" "ChatGPT=chatgpt" "Cursor=cursor" "Notion=notion" "Telegram=telegram" \
-            "Signal=signal" "Figma=figma" "WhatsApp=whatsapp" "Postman=postman" "Linear=linear-linear"
+          apps=("Obsidian=obsidian" "Visual Studio Code=visual-studio-code" "Zed=zed" "IINA=iina"
+            "VLC=vlc" "Discord=discord" "Slack=slack" "Spotify=spotify"
+            "Claude=claude" "ChatGPT=chatgpt" "Cursor=cursor" "Notion=notion" "Telegram=telegram"
+            "Signal=signal" "Figma=figma" "WhatsApp=whatsapp" "Postman=postman" "Linear=linear-linear")
+          if [ -n "$ONLY" ]; then
+            chosen=()
+            for spec in "${apps[@]}"; do
+              case ",$ONLY," in *",${spec%%=*},"*) chosen+=("$spec") ;; esac
+            done
+            apps=("${chosen[@]}")
+          fi
+          Support/compat-lab.sh --install --wait 30 --out compat-lab.json --diagnose diagnostics "${apps[@]}"
           sw_vers -productVersion > macos.txt
           git rev-parse --short HEAD > commit.txt
       - uses: actions/upload-artifact@v4
@@ -53,7 +67,7 @@ jobs:
   # site's compatibility page reads them. Runs nothing but Python and git.
   publish:
     needs: lab
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.only == ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
