@@ -211,6 +211,9 @@ public struct InstanceManifest: Codable, Sendable {
     /// Guard's list: the original's data the copy may not touch (see
     /// `Guard`). Nil: Guard is off, or the copy was built before 1.2.
     public var guardedPaths: [String]?
+    /// The app's single-instance ports and the copy's own for each (see
+    /// `LoopbackPorts`), by the app's port as text.
+    public var loopbackPorts: [String: Int]?
 
     public struct CloneRecord: Codable, Sendable, Equatable {
         /// The copy's own bundle identifier.
@@ -245,7 +248,8 @@ public struct InstanceManifest: Codable, Sendable {
         keychainSuffix: String? = nil,
         instanceKeychain: String? = nil,
         safeStorageInKeychain: Bool? = nil,
-        guardedPaths: [String]? = nil
+        guardedPaths: [String]? = nil,
+        loopbackPorts: [String: Int]? = nil
     ) {
         self.name = name
         self.slug = slug
@@ -271,6 +275,7 @@ public struct InstanceManifest: Codable, Sendable {
         self.instanceKeychain = instanceKeychain
         self.safeStorageInKeychain = safeStorageInKeychain
         self.guardedPaths = guardedPaths
+        self.loopbackPorts = loopbackPorts
         if settings != nil {
             schemaVersion = 2
         }

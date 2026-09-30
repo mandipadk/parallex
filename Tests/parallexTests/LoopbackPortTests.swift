@@ -107,6 +107,23 @@ final class LoopbackPortTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: out, encoding: .utf8), "\(ECONNREFUSED) 0 0 0")
     }
 
+    func testEachCopyHasItsOwnAndKeepsIt() throws {
+        setenv("PARALLEX_LOOPBACK_PORTS_FOR", "com.fake.twin=40123", 1)
+        let app = try Fixtures.makeApp(named: "Twin", bundleID: "com.fake.twin", in: tempDir)
+        var manifests: [InstanceManifest] = []
+        for name in ["Twin One", "Twin Two"] {
+            var request = CreateRequest(appReference: app.path, name: name, mode: .launchOnly, outputDirectory: outDir)
+            request.cloneApp = true
+            manifests.append(try InstanceCreator.create(request, builderOptions: options).manifest)
+        }
+        let one = try XCTUnwrap(manifests[0].loopbackPorts?["40123"])
+        let two = try XCTUnwrap(manifests[1].loopbackPorts?["40123"])
+        XCTAssertNotEqual(one, two)
+        XCTAssertTrue(LoopbackPorts.range.contains(one))
+        let rebuilt = try InstanceCreator.update(manifests[0], builderOptions: options)
+        XCTAssertEqual(rebuilt.manifest.loopbackPorts?["40123"], one, "kept through a rebuild")
+    }
+
     func testZedsPortIsKnown() {
         XCTAssertEqual(Presets.singleInstancePorts(for: "dev.zed.Zed"), [43937 + Int(getuid())])
         XCTAssertEqual(Presets.singleInstancePorts(for: "com.fake.nothing"), [])

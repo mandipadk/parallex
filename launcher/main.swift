@@ -465,8 +465,8 @@ if let redirectHome = config[ParallexConfig.Key.redirectHome] as? String,
         unsetenv("PARALLEX_GUARD")
     }
     // Ports the app finds itself on are the copy's own (ports.c).
-    if let ports = config[ParallexConfig.Key.loopbackPorts] as? [Int], !ports.isEmpty {
-        setenv("PARALLEX_LOOPBACK_PORTS", ports.map(String.init).joined(separator: ","), 1)
+    if let ports = config[ParallexConfig.Key.loopbackPorts] as? [String], !ports.isEmpty {
+        setenv("PARALLEX_LOOPBACK_PORTS", ports.joined(separator: ","), 1)
     } else {
         unsetenv("PARALLEX_LOOPBACK_PORTS")
     }

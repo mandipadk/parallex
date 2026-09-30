@@ -193,7 +193,10 @@ public enum Presets {
     /// PARALLEX_LOOPBACK_PORTS_FOR ("<bundle id>=<port>,<port>") adds some,
     /// for an app not listed yet, and tests.
     static func singleInstancePorts(for bundleID: String) -> [Int] {
-        var ports = (knownSingleInstancePorts[bundleID] ?? []).map { $0.base + ($0.plusUserID ? Int(getuid()) : 0) }
+        // Zed keeps the sum a port: base + uid % (65535 - base).
+        var ports = (knownSingleInstancePorts[bundleID] ?? []).map {
+            $0.base + ($0.plusUserID ? Int(getuid()) % (65535 - $0.base) : 0)
+        }
         if let extra = ProcessInfo.processInfo.environment["PARALLEX_LOOPBACK_PORTS_FOR"] {
             let parts = extra.split(separator: "=", maxSplits: 1).map(String.init)
             if parts.count == 2, parts[0] == bundleID {

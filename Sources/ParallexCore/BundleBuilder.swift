@@ -44,8 +44,8 @@ struct WrapperSpec {
     var safeStorageInKeychain = false
     /// Guard's list (see `Guard`), with its own Library only.
     var guardedPaths: [String]? = nil
-    /// See `Presets.singleInstancePorts`.
-    var loopbackPorts: [Int] = []
+    /// "<app's port>:<copy's own>" (see `LoopbackPorts`).
+    var loopbackPorts: [String] = []
 }
 
 /// Assembles, signs, and registers wrapper bundles. The bundle is built in a

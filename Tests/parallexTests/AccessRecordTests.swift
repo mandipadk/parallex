@@ -191,4 +191,20 @@ final class PrivateSuggestionTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: config.path), "a folder of only links goes, to be linked again")
         XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.path), "links are removed, never what they lead to")
     }
+
+    /// Before the copy has made its own ~/.config, its home's .config is a
+    /// link to yours: sharing an item again must never touch yours.
+    func testSharingAgainNeverReachesYourFolderThroughALink() throws {
+        let yours = tempDir.appendingPathComponent("your-config", isDirectory: true)
+        try FileManager.default.createDirectory(at: yours.appendingPathComponent("acme-cloud"), withIntermediateDirectories: true)
+        try Data("yours".utf8).write(to: yours.appendingPathComponent("acme-cloud/state.json"))
+        let home = tempDir.appendingPathComponent("copy-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: home.appendingPathComponent(".config"), withDestinationURL: yours)
+        setenv("PARALLEX_TRASH", tempDir.appendingPathComponent("trash").path, 1)
+        defer { unsetenv("PARALLEX_TRASH") }
+        InstanceCreator.releasePrivateItems([".config/acme-cloud"], home: home)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: yours.appendingPathComponent("acme-cloud/state.json").path))
+        XCTAssertNotNil(try? FileManager.default.destinationOfSymbolicLink(atPath: home.appendingPathComponent(".config").path))
+    }
 }

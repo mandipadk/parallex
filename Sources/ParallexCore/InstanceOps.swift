@@ -230,6 +230,13 @@ extension InstanceCreator {
         let lock = try FileLock(URL(fileURLWithPath: Paths.pidFile(slug: manifest.slug).path + ".lock"))
         defer { lock.release() }
         guard !Running.isRunning(live), !Running.anythingRunning(inside: live.wrapperPath) else { return .notNow }
+        // Items shared again while it ran (the refresh was built for that).
+        if let home = refreshed.redirectedHome, home == live.redirectedHome {
+            let released = Set(live.effectiveSettings.extraPrivateItems ?? [])
+                .subtracting(refreshed.effectiveSettings.extraPrivateItems ?? [])
+                .subtracting(refreshed.privateHomeItems ?? [])
+            releasePrivateItems(released.sorted(), home: URL(fileURLWithPath: home, isDirectory: true))
+        }
         let copy = URL(fileURLWithPath: manifest.wrapperPath)
         let previous = Paths.stagingDir(slug: manifest.slug).appendingPathComponent("previous-\(UUID().uuidString).app")
         let hadCopy = fm.fileExists(atPath: copy.path)
@@ -893,6 +900,14 @@ public enum InstanceCreator {
             )
             : nil
 
+        // The app's single-instance ports, each with one of the copy's own.
+        let loopbackPorts = redirectHome != nil
+            ? LoopbackPorts.assign(
+                known: Presets.singleInstancePorts(for: target.bundleID), slug: slug,
+                previous: previous?.loopbackPorts ?? [:]
+            )
+            : [:]
+
         // Plan recipe first, user-provided vars win, PARALLEX_INSTANCE always set.
         var environment = plan.environment
         environment.merge(settings.extraEnvironment) { _, user in user }
@@ -935,7 +950,7 @@ public enum InstanceCreator {
             instanceKeychain: instanceKeychain,
             safeStorageInKeychain: safeStorageInKeychain,
             guardedPaths: guardedPaths,
-            loopbackPorts: redirectHome != nil ? Presets.singleInstancePorts(for: target.bundleID) : []
+            loopbackPorts: loopbackPorts.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" }
         )
 
         var notes = plan.notes
@@ -994,7 +1009,9 @@ public enum InstanceCreator {
             keychainSuffix: cloneRecord?.usesLauncher == true || previous?.keychainSuffix != nil ? keychainSuffix : nil,
             instanceKeychain: cloneRecord?.usesLauncher == true ? instanceKeychain : nil,
             safeStorageInKeychain: cloneRecord?.usesLauncher == true && safeStorageInKeychain ? true : nil,
-            guardedPaths: cloneRecord?.usesLauncher == true ? guardedPaths : nil
+            guardedPaths: cloneRecord?.usesLauncher == true ? guardedPaths : nil,
+            loopbackPorts: cloneRecord?.usesLauncher == true && !loopbackPorts.isEmpty
+                ? Dictionary(uniqueKeysWithValues: loopbackPorts.map { ("\($0.key)", $0.value) }) : nil
         )
         try InstanceStore.save(manifest, to: stage ? Paths.stagedManifest(slug: slug) : nil)
 
@@ -1017,8 +1034,23 @@ public enum InstanceCreator {
         for item in items {
             let parts = item.split(separator: "/").map(String.init)
             guard !parts.isEmpty, parts.allSatisfy(OriginalData.isPlainName) else { continue }
-            let path = parts.reduce(home) { $0.appendingPathComponent($1) }
-            if (try? fm.destinationOfSymbolicLink(atPath: path.path)) == nil, fm.fileExists(atPath: path.path) {
+            // Only what's really in the copy's home: a link anywhere on the
+            // way (the home's link to your ~/.config, before the copy made
+            // its own) leads to yours, which is never touched.
+            var path = home
+            var throughLink = false
+            for part in parts {
+                path = path.appendingPathComponent(part)
+                var info = stat()
+                if lstat(path.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFLNK {
+                    throughLink = true
+                    break
+                }
+            }
+            guard !throughLink,
+                  path.resolvingSymlinksInPath().path.hasPrefix(home.resolvingSymlinksInPath().path + "/")
+            else { continue }
+            if fm.fileExists(atPath: path.path) {
                 try? Trash.move(path)
             }
             var parent = path.deletingLastPathComponent()

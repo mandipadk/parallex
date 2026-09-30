@@ -244,8 +244,8 @@ public enum AppCloner {
             if spec.launcherConfig[ParallexConfig.Key.redirectPrivate] != nil {
                 variables["PARALLEX_HOME_ENV"] = "1"
             }
-            if let ports = spec.launcherConfig[ParallexConfig.Key.loopbackPorts] as? [Int] {
-                variables["PARALLEX_LOOPBACK_PORTS"] = ports.map(String.init).joined(separator: ",")
+            if let ports = spec.launcherConfig[ParallexConfig.Key.loopbackPorts] as? [String] {
+                variables["PARALLEX_LOOPBACK_PORTS"] = ports.joined(separator: ",")
             }
             if let guarded = spec.launcherConfig[ParallexConfig.Key.guardedPaths] as? [String] {
                 variables["PARALLEX_GUARD"] = guarded.joined(separator: "\n")

@@ -4,9 +4,11 @@
 // this Mac (Zed: 43737 + 200 + your user ID): a second one that finds the
 // port answering hands over to it and quits. A copy would find the
 // original, or another copy, and never open. So in a copy, the app's known
-// ports (PARALLEX_LOOPBACK_PORTS, from Presets.singleInstancePorts) are a
-// different port of the copy's own, on the way in (bind) and out (connect):
-// the copy finds itself, if it's running, and nothing else.
+// ports are a different port of the copy's own, on the way in (bind) and
+// out (connect): the copy finds itself, if it's running, and nothing else.
+// PARALLEX_LOOPBACK_PORTS: "<app's port>:<copy's port>,…", chosen when the
+// copy was built so no two instances share one (LoopbackPorts in
+// ParallexCore).
 //
 // Only for this Mac's own addresses (127.0.0.0/8, ::1) and listening on
 // every address; anything going elsewhere keeps its port.
@@ -35,42 +37,31 @@
 
 #define PORT_SLOTS 16
 static uint16_t ports[PORT_SLOTS];
+static uint16_t own_ports[PORT_SLOTS];
 static unsigned port_count = 0;
-static uint32_t instance_hash = 0;
 static pthread_mutex_t setup = PTHREAD_MUTEX_INITIALIZER;
 static _Atomic bool ready = false;
 
 static void prepare(void) {
-    const char *list = parallex_home_ports();
-    const char *home = parallex_home_redirect();
-    if (list == NULL || home == NULL) {
-        return;
-    }
-    uint32_t value = 2166136261u;
-    for (const char *c = home; *c != '\0'; c++) {
-        value = (value ^ (uint8_t)*c) * 16777619u;
-    }
-    instance_hash = value;
-    const char *c = list;
-    while (*c != '\0' && port_count < PORT_SLOTS) {
+    const char *c = parallex_home_ports();
+    while (c != NULL && *c != '\0' && port_count < PORT_SLOTS) {
         char *end = NULL;
         long port = strtol(c, &end, 10);
-        if (end == c) {
+        if (end == c || *end != ':') {
             break;
         }
-        if (port > 0 && port < 65536) {
-            ports[port_count++] = (uint16_t)port;
+        const char *own_text = end + 1;
+        long own = strtol(own_text, &end, 10);
+        if (end == own_text) {
+            break;
+        }
+        if (port > 0 && port < 65536 && own > 0 && own < 65536) {
+            ports[port_count] = (uint16_t)port;
+            own_ports[port_count] = (uint16_t)own;
+            port_count++;
         }
         c = *end == ',' ? end + 1 : end;
     }
-}
-
-// The copy's own port for `port` (host order): 30000–39999, below the
-// range macOS hands out for outgoing connections, the same every time for
-// this instance and different for another.
-static uint16_t own_port(uint16_t port) {
-    uint32_t value = (instance_hash ^ port) * 2654435761u;
-    return (uint16_t)(30000 + (value >> 8) % 10000);
 }
 
 static bool is_local(const struct sockaddr *address, bool listening) {
@@ -111,15 +102,17 @@ static const struct sockaddr *remapped(const struct sockaddr *address, socklen_t
     } else {
         return NULL;
     }
-    bool known = false;
-    for (unsigned index = 0; index < port_count; index++) {
-        known = known || ports[index] == port;
+    int found = -1;
+    for (unsigned index = 0; index < port_count && found < 0; index++) {
+        if (ports[index] == port) {
+            found = (int)index;
+        }
     }
-    if (!known || !is_local(address, listening) || (size_t)length > sizeof(*copy)) {
+    if (found < 0 || !is_local(address, listening) || (size_t)length > sizeof(*copy)) {
         return NULL;
     }
     memcpy(copy, address, (size_t)length);
-    uint16_t own = htons(own_port(port));
+    uint16_t own = htons(own_ports[found]);
     if (address->sa_family == AF_INET) {
         ((struct sockaddr_in *)copy)->sin_port = own;
     } else {

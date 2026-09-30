@@ -139,6 +139,8 @@ final class GuardTests: XCTestCase {
             "mkdir:\(originalData)",
             // By the data volume's own path, cloned into, linked to.
             "open:/System/Volumes/Data\(cookies)",
+            "open:/\(cookies)",
+            "open:/./system/volumes/data/\(cookies)",
             "clone:\(originalData)",
             "link:\(cookies)",
             // A folder that only starts with the same name isn't it.
@@ -147,7 +149,8 @@ final class GuardTests: XCTestCase {
             "open:\(realHome)/Library",
         ])
         XCTAssertEqual(results, [
-            "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(ENOENT)", "0", "own:1",
+            "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)",
+            "\(ENOENT)", "0", "own:1",
         ])
         XCTAssertFalse(FileManager.default.fileExists(atPath: originalData))
 

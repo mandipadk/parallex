@@ -212,17 +212,37 @@ static bool first_time(const char *path, uint64_t salt) {
     return false;
 }
 
+// Every so many lines, whether the log is too long (then it rolls over,
+// here or in another of the copy's processes) or has rolled over under us.
+#define CHECK_EVERY 128
+static unsigned since_check = 0;
+
+static void open_log(void) {
+    char log_path[PATH_MAX];
+    snprintf(log_path, sizeof(log_path), "%saccess.log", instance_dir);
+    struct stat info;
+    if (stat(log_path, &info) == 0 && info.st_size > log_limit) {
+        char older[PATH_MAX];
+        snprintf(older, sizeof(older), "%s.1", log_path);
+        rename(log_path, older);
+    }
+    log_fd = open(log_path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0600);
+}
+
 static void write_line(const char *operation, const char *path) {
-    if (log_fd < 0) {
+    if (log_fd >= 0 && ++since_check >= CHECK_EVERY) {
+        since_check = 0;
         char log_path[PATH_MAX];
         snprintf(log_path, sizeof(log_path), "%saccess.log", instance_dir);
-        struct stat info;
-        if (stat(log_path, &info) == 0 && info.st_size > log_limit) {
-            char older[PATH_MAX];
-            snprintf(older, sizeof(older), "%s.1", log_path);
-            rename(log_path, older);
+        struct stat open_info, path_info;
+        if (fstat(log_fd, &open_info) != 0 || stat(log_path, &path_info) != 0 || open_info.st_ino != path_info.st_ino
+            || open_info.st_size > log_limit) {
+            close(log_fd);
+            log_fd = -1;
         }
-        log_fd = open(log_path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0600);
+    }
+    if (log_fd < 0) {
+        open_log();
         if (log_fd < 0) {
             off = true;
             return;
@@ -231,8 +251,23 @@ static void write_line(const char *operation, const char *path) {
     char line[PATH_MAX + 160];
     int length = snprintf(line, sizeof(line), "%ld\t%d\t%s\t%s\t%s\n", (long)time(NULL), (int)getpid(), program,
                           operation, path);
-    if (length > 0 && length < (int)sizeof(line)) {
-        write(log_fd, line, (size_t)length);
+    if (length <= 0 || length >= (int)sizeof(line)) {
+        return;
+    }
+    write(log_fd, line, (size_t)length);
+    // What Guard kept out also goes where rolling over never pushes it out
+    // (up to a limit a copy doesn't reach by accident).
+    if (strcmp(operation, "blocked") == 0) {
+        char guard_path[PATH_MAX];
+        snprintf(guard_path, sizeof(guard_path), "%sguard.log", instance_dir);
+        struct stat info;
+        if (stat(guard_path, &info) != 0 || info.st_size < 256 * 1024) {
+            int fd = open(guard_path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0600);
+            if (fd >= 0) {
+                write(fd, line, (size_t)length);
+                close(fd);
+            }
+        }
     }
 }
 
@@ -332,22 +367,28 @@ static bool refused(const char *path) {
     bool usable = ensure_ready();
     noting = false;
     errno = saved;
-    // The same folder by the data volume's own path.
-    static const char data_volume[] = "/System/Volumes/Data/";
-    if (strncmp(path, data_volume, sizeof(data_volume) - 1) == 0) {
-        path += sizeof(data_volume) - 2;
-    }
-    if (!usable || guarded_count == 0 || strncasecmp(path, real_prefix, real_length) != 0) {
+    if (!usable || guarded_count == 0) {
         return false;
     }
+    // Spelled the plain way first ("//", "." and ".." out), then the same
+    // folder by the data volume's own path.
     const char *checked = path;
     char tidied[PATH_MAX];
-    // (Cheap to test for; hidden folders make it tidy some for nothing.)
-    if (strstr(path, "//") != NULL || strstr(path, "/.") != NULL) {
+    size_t length = strlen(path);
+    bool dotted_end = (length >= 2 && strcmp(path + length - 2, "/.") == 0)
+        || (length >= 3 && strcmp(path + length - 3, "/..") == 0);
+    if (strstr(path, "//") != NULL || strstr(path, "/./") != NULL || strstr(path, "/../") != NULL || dotted_end) {
         if (!tidy(path, tidied, sizeof(tidied))) {
             return false;
         }
         checked = tidied;
+    }
+    static const char data_volume[] = "/System/Volumes/Data/";
+    if (strncasecmp(checked, data_volume, sizeof(data_volume) - 1) == 0) {
+        checked += sizeof(data_volume) - 2;
+    }
+    if (strncasecmp(checked, real_prefix, real_length) != 0) {
+        return false;
     }
     if (!guarded_path(checked)) {
         return false;

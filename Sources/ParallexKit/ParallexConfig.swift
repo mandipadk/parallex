@@ -88,7 +88,8 @@ public enum ParallexConfig {
         /// "/"). See recorder.c in ParallexHome.
         public static let guardedPaths = "GuardedPaths"
         /// Loopback ports the app finds a running copy of itself on, which
-        /// in the copy are ports of its own (see ports.c in ParallexHome).
+        /// in the copy are ports of its own: "<app's>:<copy's>" (see ports.c
+        /// in ParallexHome).
         public static let loopbackPorts = "LoopbackPorts"
         /// The Parallex version that built this instance. A copy's
         /// CFBundleShortVersionString is its app's, so this is what says

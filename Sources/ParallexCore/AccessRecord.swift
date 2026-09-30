@@ -18,15 +18,16 @@ public enum AccessRecord {
         public var wasBlocked: Bool { operation == "blocked" }
     }
 
-    /// Current file, then the one it rolled over from (2 MB each).
+    /// What Guard kept out (never rolls over), the file the record rolled
+    /// over from, then the current one (2 MB each).
     static func files(slug: String) -> [URL] {
         let folder = Paths.instanceDir(slug: slug)
-        return [folder.appendingPathComponent("access.log.1"), folder.appendingPathComponent("access.log")]
+        return ["guard.log", "access.log.1", "access.log"].map { folder.appendingPathComponent($0) }
     }
 
     /// Names that are the record, not the instance's data (left out of
-    /// duplicates and exports).
-    static let fileNames: Set<String> = ["access.log", "access.log.1"]
+    /// duplicates, exports and snapshots).
+    static let fileNames: Set<String> = ["access.log", "access.log.1", "guard.log"]
 
     /// Whether this instance has a recorder (a copy with its own Library
     /// that has been opened since 1.2).
