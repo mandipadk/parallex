@@ -73,13 +73,15 @@ struct VersionsCommand: ParsableCommand {
                 throw ValidationError("Give a version, or --current.")
             }
             let result = try AppVersions.use(chosen, for: manifest, restoreData: withData)
+            let running = result.clone?.sourceVersion ?? chosen
             if result.effectiveSettings.pinnedVersion == nil {
                 print("\(Term.green("✓")) “\(result.name)” runs \(now), and keeps up with the app again.")
             } else {
-                print("\(Term.green("✓")) “\(result.name)” runs \(chosen), and stays there when the app updates.")
+                print("\(Term.green("✓")) “\(result.name)” runs \(running), and stays there when the app updates.")
+                print(Term.dim("It goes without the fixes in newer versions, security ones included, until you move it on."))
             }
             if withData {
-                print(Term.dim("Its data is back as \(chosen) left it; what it had is a snapshot too."))
+                print(Term.dim("Its data is back as \(running) left it; what it had is a snapshot too."))
             }
         }
     }
@@ -95,7 +97,9 @@ struct VersionsCommand: ParsableCommand {
 
         mutating func run() throws {
             let manifest = try lookupInstance(instance)
-            guard let kept = AppVersions.list(manifest).first(where: { $0.version == version }) else {
+            let list = AppVersions.list(manifest)
+            guard let name = AppVersions.resolve(version, among: list.map(\.version)),
+                  let kept = list.first(where: { $0.version == name }) else {
                 throw ParallexError("\(version) isn't kept for “\(manifest.name)”.")
             }
             try AppVersions.remove(kept, of: manifest)

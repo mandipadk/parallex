@@ -159,7 +159,10 @@ struct InstanceDetail: View {
     }
 
     private func apply() {
-        guard let change = draft.update(from: baseline) else { return }
+        guard var change = draft.update(from: baseline) else { return }
+        // Which version it's built from is chosen in Versions, and saved as
+        // it's chosen: never from a draft begun before.
+        change.settings?.pinnedVersion = entry.manifest.effectiveSettings.pinnedVersion
         applying = true
         applyError = nil
         Task {
@@ -189,6 +192,7 @@ struct InstanceDetail: View {
         settings.menuBarIcon = draft.settings.menuBarIcon
         settings.throwaway = draft.settings.throwaway
         settings.quitWhenUnused = draft.settings.quitWhenUnused
+        settings.keepPreviousVersion = draft.settings.keepPreviousVersion
         guard settings != stored || entry.manifest.settings == nil else { return }
         if let saved = model.saveSettings(settings, for: entry) {
             var fresh = InstanceDraft(saved)
@@ -229,7 +233,7 @@ struct InstanceDraft: Equatable {
     var metadataSignature: [String] {
         [settings.openAtLaunch == true ? "1" : "0", settings.badgeColorHex ?? "", settings.shortcut?.displayString ?? "",
          settings.menuBarIcon == true ? "1" : "0", settings.throwaway == true ? "1" : "0",
-         settings.quitWhenUnused.map(String.init) ?? ""]
+         settings.quitWhenUnused.map(String.init) ?? "", settings.keepPreviousVersion == false ? "0" : "1"]
     }
 
     var parsedEnvironment: [String: String]? {
@@ -1218,7 +1222,7 @@ private struct VersionsSection: View {
         }
         .task(id: "\(entry.id)|\(inUse ?? "-")|\(pinned ?? "-")") { await reload() }
         .confirmationDialog(
-            "Go back to \(entry.targetName) \(goingBack?.version ?? "")?",
+            "Use \(entry.targetName) \(goingBack?.version ?? "")?",
             isPresented: Binding(get: { goingBack != nil }, set: { if !$0 { goingBack = nil } }),
             titleVisibility: .visible,
             presenting: goingBack
@@ -1233,9 +1237,10 @@ private struct VersionsSection: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { version in
-            Text(withData.contains(version.version)
+            Text((withData.contains(version.version)
                  ? "\(entry.name) stays on \(version.version) until you choose otherwise. Its data can go back to how \(version.version) left it; what it has now is kept as a snapshot."
                  : "\(entry.name) stays on \(version.version) until you choose otherwise. Newer versions may have changed its data in ways \(version.version) doesn't expect.")
+                + (isNewer(version) ? "" : " It goes without the fixes in newer versions, security ones included, until you move it on."))
         }
     }
 
@@ -1250,7 +1255,7 @@ private struct VersionsSection: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: Theme.Space.l)
-            Button("Go Back…") { goingBack = version }
+            Button(isNewer(version) ? "Use…" : "Go Back…") { goingBack = version }
                 .buttonStyle(.secondary)
                 .disabled(entry.running || working)
             if version.version != pinned {
@@ -1266,6 +1271,11 @@ private struct VersionsSection: View {
             }
         }
         .padding(.vertical, Theme.Space.s)
+    }
+
+    private func isNewer(_ version: AppVersions.Kept) -> Bool {
+        guard let inUse else { return false }
+        return InstanceStatus.compareVersions(version.version, inUse) == .orderedDescending
     }
 
     private func reload() async {

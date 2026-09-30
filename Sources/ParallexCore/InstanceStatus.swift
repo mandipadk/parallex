@@ -144,7 +144,7 @@ public struct InstanceStatus: Sendable {
     }
 
     /// Numeric dotted-version comparison ("0.10.0" > "0.9.1").
-    static func compareVersions(_ lhs: String, _ rhs: String) -> ComparisonResult {
+    public static func compareVersions(_ lhs: String, _ rhs: String) -> ComparisonResult {
         let left = lhs.split(separator: ".").map { Int($0) ?? 0 }
         let right = rhs.split(separator: ".").map { Int($0) ?? 0 }
         for index in 0..<max(left.count, right.count) {

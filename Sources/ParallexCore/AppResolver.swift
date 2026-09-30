@@ -72,6 +72,11 @@ public enum AppResolver {
         onMainThread {
             candidates = NSWorkspace.shared.urlsForApplications(withBundleIdentifier: bundleID)
         }
-        return candidates.first { !BundleBuilder.isParallexWrapper($0) }
+        // Never a version a copy keeps to go back to (in Parallex's folder).
+        let own = Paths.supportRoot.resolvingSymlinksInPath().path + "/"
+        return candidates.first {
+            !BundleBuilder.isParallexWrapper($0) && !$0.resolvingSymlinksInPath().path.hasPrefix(own)
+                && !$0.path.contains("/\(AppVersions.folderName)/")
+        }
     }
 }

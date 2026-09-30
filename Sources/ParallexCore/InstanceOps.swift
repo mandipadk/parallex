@@ -115,6 +115,9 @@ extension InstanceCreator {
         }
         let original = try locateTarget(of: manifest)
         let pinned = pinnedSource(manifest.effectiveSettings, slug: manifest.slug)
+        if let version = manifest.effectiveSettings.pinnedVersion, pinned == nil {
+            throw ParallexError("“\(manifest.name)” stays on \(version), which isn't kept anymore; it's rebuilt once it quits.")
+        }
         let target = try AppInspector.inspect(pinned ?? original)
         if let expected = manifest.knownTargetBundleID, expected != target.bundleID {
             throw ParallexError("\(target.url.path) is \(target.bundleID), but this instance was made for \(expected).")
@@ -234,8 +237,8 @@ extension InstanceCreator {
         defer { lock.release() }
         guard !Running.isRunning(live), !Running.anythingRunning(inside: live.wrapperPath) else { return .notNow }
         // Its data as the version it's leaving left it.
-        if let from = live.clone?.sourceVersion, let to = refreshed.clone?.sourceVersion, from != to,
-           live.redirectedHome != nil {
+        if let from = live.clone?.sourceVersion, !from.isEmpty, let to = refreshed.clone?.sourceVersion, from != to,
+           live.redirectedHome != nil, live.effectiveSettings.keepPreviousVersion != false {
             let app = URL(fileURLWithPath: live.targetApp).deletingPathExtension().lastPathComponent
             _ = try? Snapshots.takeWhileLocked(live, label: "Before moving to \(app) \(to)", reason: .beforeRefresh)
         }
@@ -677,10 +680,13 @@ public enum InstanceCreator {
     /// it the bundle ID and data directory — never changes, so the instance
     /// keeps its data and macOS permissions. Also the repair path: it
     /// regenerates a missing or outdated wrapper.
+    /// `keepingSnapshot`: a snapshot the caller means to restore next, which
+    /// the one taken here mustn't push out.
     public static func update(
         _ manifest: InstanceManifest,
         _ change: InstanceUpdate = InstanceUpdate(),
-        builderOptions: BundleBuilder.Options = BundleBuilder.Options()
+        builderOptions: BundleBuilder.Options = BundleBuilder.Options(),
+        keepingSnapshot: String? = nil
     ) throws -> CreateResult {
         let fm = FileManager.default
         var settings = change.settings ?? manifest.effectiveSettings
@@ -755,10 +761,11 @@ public enum InstanceCreator {
 
         // Moving to another version of its app: first its data as the
         // version it leaves left it, to go back to.
-        if let clone = manifest.clone, settings.isClone, manifest.redirectedHome != nil,
-           AppCloner.version(of: target.url) != clone.sourceVersion {
+        if let clone = manifest.clone, settings.isClone, manifest.redirectedHome != nil, !clone.sourceVersion.isEmpty,
+           settings.keepPreviousVersion != false, AppCloner.version(of: target.url) != clone.sourceVersion {
             _ = try? Snapshots.take(
-                manifest, label: "Before moving to \(target.name) \(AppCloner.version(of: target.url))", reason: .beforeRefresh
+                manifest, label: "Before moving to \(target.name) \(AppCloner.version(of: target.url))",
+                reason: .beforeRefresh, keeping: keepingSnapshot
             )
         }
 
@@ -1056,9 +1063,12 @@ public enum InstanceCreator {
         // The version it's built from, kept to go back to (built from the
         // app in /Applications; a pinned copy's is kept already).
         if settings.isClone, original == nil, settings.webURL == nil, settings.throwaway != true {
+            // The version it was on is the way back: kept, unless keeping
+            // them is off.
+            let leaving = settings.keepPreviousVersion == false ? nil : previous?.clone?.sourceVersion
             AppVersions.keep(
                 original: target.url, slug: slug, previous: settings.keepPreviousVersion == false ? 0 : 1,
-                pinned: settings.pinnedVersion
+                pinned: settings.pinnedVersion, leaving: leaving
             )
         }
         try InstanceStore.save(manifest, to: stage ? Paths.stagedManifest(slug: slug) : nil)

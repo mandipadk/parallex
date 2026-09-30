@@ -101,6 +101,26 @@ final class AppVersionsTests: XCTestCase {
         XCTAssertThrowsError(try AppVersions.use(version("2.0"), for: manifest, builderOptions: options))
     }
 
+    /// On 1.0 (pinned there after 2.0 was bad), the app moves to 3.0 and the
+    /// copy with it: 1.0, the version it left, is the way back, not 2.0.
+    func testTheVersionLeftIsAlwaysTheWayBack() throws {
+        let app = try Fixtures.makeApp(named: "Pinny", bundleID: "com.fake.pinny", in: tempDir)
+        try update(app, to: "1.0")
+        var request = CreateRequest(appReference: app.path, name: "Pinny Work", mode: .launchOnly, outputDirectory: outDir)
+        request.cloneApp = true
+        var manifest = try InstanceCreator.create(request, builderOptions: options).manifest
+        try update(app, to: "2.0")
+        manifest = try InstanceCreator.update(manifest, builderOptions: options).manifest
+        manifest = try AppVersions.use("1.0", for: manifest, builderOptions: options)
+        XCTAssertEqual(manifest.clone?.sourceVersion, version("1.0"), "the short version is enough")
+        try update(app, to: "3.0")
+        manifest = try AppVersions.use("3.0", for: manifest, builderOptions: options)
+        XCTAssertEqual(manifest.clone?.sourceVersion, version("3.0"))
+        XCTAssertEqual(Set(AppVersions.list(manifest).map(\.version)), [version("3.0"), version("1.0")])
+        XCTAssertThrowsError(try AppVersions.use("3.0", for: manifest, restoreData: true, builderOptions: options),
+                             "already on it")
+    }
+
     func testKeptVersionsAreNotTheInstancesData() throws {
         let app = try Fixtures.makeApp(named: "Aparty", bundleID: "com.fake.aparty", in: tempDir)
         var request = CreateRequest(appReference: app.path, name: "Aparty Work", mode: .launchOnly, outputDirectory: outDir)

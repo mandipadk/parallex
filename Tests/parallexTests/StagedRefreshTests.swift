@@ -109,6 +109,11 @@ final class StagedRefreshTests: XCTestCase {
         let record = try XCTUnwrap(PidFileRecord(parsing: String(contentsOf: Paths.pidFile(slug: result.manifest.slug), encoding: .utf8)))
         XCTAssertEqual(record.executablePath, result.wrapperURL.appendingPathComponent("Contents/MacOS/Late").path,
                        "the refreshed copy is the one that ran")
+        // Its data as 1.0 left it, kept by the launcher, and 1.0 itself.
+        let installed = try XCTUnwrap(InstanceStore.load(slug: result.manifest.slug))
+        let before = try XCTUnwrap(AppVersions.snapshotBefore(leaving: "1.0 (?)", of: installed))
+        XCTAssertEqual(before.label, "Before moving to Late 2.0 (?)")
+        XCTAssertEqual(Set(AppVersions.list(installed).map(\.version)), ["1.0 (?)", "2.0 (?)"])
     }
 
     /// What the user set since the refresh was built stays: turning a

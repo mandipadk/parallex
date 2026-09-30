@@ -18,7 +18,9 @@ public enum AppVersions {
         public var id: String { version }
     }
 
-    public static let folderName = "versions"
+    /// ".noindex": Spotlight leaves it alone, so the kept apps (the vendor's
+    /// own, with its bundle ID) aren't offered as the app anywhere.
+    public static let folderName = "versions.noindex"
     static let recordFile = "version.json"
 
     static func folder(slug: String) -> URL {
@@ -56,14 +58,27 @@ public enum AppVersions {
             .appendingPathComponent(kept.appName, isDirectory: true)
     }
 
+    /// The version `input` names among `known`: exactly, or by its short
+    /// form ("4.41.105" for "4.41.105 (41105)") when only one has it.
+    public static func resolve(_ input: String, among known: [String]) -> String? {
+        if known.contains(input) { return input }
+        let short = { (version: String) in version.components(separatedBy: " (").first ?? version }
+        let matches = Set(known.filter { short($0) == input })
+        return matches.count == 1 ? matches.first : nil
+    }
+
     /// The kept app of `version`, if there is one.
     public static func app(for version: String, slug: String) -> URL? {
         list(slug: slug).first { $0.version == version }.map { app(of: $0, slug: slug) }
     }
 
     /// Keep `original` (the app as it is now) if its version isn't kept yet,
-    /// then only the `previous` newest other versions, and always `pinned`.
-    static func keep(original: URL, slug: String, previous: Int, pinned: String?, now: Date = Date()) {
+    /// then only the `previous` newest other versions. Always kept: `pinned`,
+    /// and `leaving`, the version the copy was on (the way back), which
+    /// counts as one of the `previous`.
+    static func keep(
+        original: URL, slug: String, previous: Int, pinned: String?, leaving: String? = nil, now: Date = Date()
+    ) {
         let fm = FileManager.default
         let version = AppCloner.version(of: original)
         let root = folder(slug: slug)
@@ -90,8 +105,10 @@ public enum AppVersions {
         for name in (try? fm.contentsOfDirectory(atPath: root.path)) ?? [] where name.hasPrefix(".") {
             try? fm.removeItem(at: root.appendingPathComponent(name))
         }
-        let others = list(slug: slug).filter { $0.version != version && $0.version != pinned }
-        for old in others.dropFirst(max(0, previous)) {
+        let back = leaving.flatMap { $0 != version && !$0.isEmpty ? $0 : nil }
+        let others = list(slug: slug).filter { $0.version != version && $0.version != pinned && $0.version != back }
+        let room = max(0, previous - (back != nil && list(slug: slug).contains { $0.version == back } ? 1 : 0))
+        for old in others.dropFirst(room) {
             try? fm.removeItem(at: root.appendingPathComponent(directoryName(for: old.version)))
         }
     }
@@ -119,6 +136,12 @@ public enum AppVersions {
             throw ParallexError("“\(manifest.name)” isn't an own-identity copy, so it runs the app as it is.")
         }
         let current = AppCloner.version(of: URL(fileURLWithPath: manifest.targetApp))
+        guard let version = resolve(version, among: list(manifest).map(\.version) + [current]) else {
+            throw ParallexError("\(version) of “\(manifest.name)”'s app isn't kept. See: parallex versions \"\(manifest.name)\"")
+        }
+        if version == manifest.clone?.sourceVersion, restoreData {
+            throw ParallexError("“\(manifest.name)” is on \(version) already. To put its data back, restore a snapshot.")
+        }
         var settings = manifest.effectiveSettings
         if version == current {
             settings.pinnedVersion = nil
@@ -132,7 +155,9 @@ public enum AppVersions {
         if restoreData, snapshot == nil {
             throw ParallexError("No snapshot of how \(version) left “\(manifest.name)”'s data is kept.")
         }
-        var result = try InstanceCreator.update(manifest, InstanceUpdate(settings: settings), builderOptions: builderOptions).manifest
+        var result = try InstanceCreator.update(
+            manifest, InstanceUpdate(settings: settings), builderOptions: builderOptions, keepingSnapshot: snapshot?.id
+        ).manifest
         if let snapshot {
             try Snapshots.restore(snapshot, of: result)
             result = InstanceStore.load(slug: result.slug) ?? result

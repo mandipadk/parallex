@@ -153,6 +153,26 @@ func installStagedRefresh(pidFile: String, config: [String: Any]) {
     else {
         return
     }
+    // Moving to another version of its app: first its data as the version
+    // it leaves left it, as Parallex does, so it can go back.
+    let liveClone = liveRecord["clone"] as? [String: Any]
+    if let from = liveClone?["sourceVersion"] as? String, !from.isEmpty,
+       let to = (stagedRecord["clone"] as? [String: Any])?["sourceVersion"] as? String, from != to,
+       liveRecord["redirectedHome"] is String,
+       (liveRecord["settings"] as? [String: Any])?["keepPreviousVersion"] as? Bool != false {
+        let now = Date()
+        let id = SnapshotWriter.uniqueID(for: now, in: instanceDir.appendingPathComponent(SnapshotWriter.folderName))
+        let app = URL(fileURLWithPath: liveRecord["targetApp"] as? String ?? "App").deletingPathExtension().lastPathComponent
+        let snapshot: [String: Any] = [
+            "id": id, "date": ISO8601DateFormatter().string(from: now), "label": "Before moving to \(app) \(to)",
+            "reason": "before-refresh", "appVersion": from,
+        ]
+        if let record = try? JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys]) {
+            try? SnapshotWriter.capture(
+                instance: instanceDir, id: id, record: record, copyID: liveClone?["bundleIdentifier"] as? String
+            )
+        }
+    }
     let own = Bundle.main.bundleURL
     let previous = staging.appendingPathComponent("previous-\(UUID().uuidString).app")
     // Renames only (the refresh sits on the same disk); if either fails,

@@ -121,6 +121,19 @@ final class SnapshotTests: XCTestCase {
         XCTAssertFalse(trashed.isEmpty, "deleted to the Trash")
     }
 
+    /// The launcher's list of what isn't an instance's data (ParallexKit)
+    /// names everything ParallexCore keeps in an instance folder.
+    func testWhatIsntDataIsListedOnce() {
+        for name in AccessRecord.fileNames.union([
+            Snapshots.folderName, AppVersions.folderName, Personas.markerFile, ParallexConfig.stagingFolder,
+            ParallexConfig.separationUnavailableMarker, "signin.log", "instance.json", "instance.pid", "instance.pid.lock",
+        ]) {
+            XCTAssertTrue(SnapshotWriter.isBookkeeping(name), name)
+        }
+        XCTAssertFalse(SnapshotWriter.isBookkeeping("home"))
+        XCTAssertFalse(SnapshotWriter.isBookkeeping("Instance.keychain-db"))
+    }
+
     func testStorageCountsSnapshotsApart() throws {
         let (manifest, _) = try makeInstance()
         let before = InstanceStorage.report(for: manifest)
