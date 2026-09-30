@@ -178,6 +178,12 @@ print(("clean" if report.get("clean") else "leak") + "\t" + str(len(leaks)) + "\
         "eventMessage CONTAINS[c] \"$label\" OR eventMessage CONTAINS[c] \"${executable:-$name}\" OR process == \"amfid\" OR subsystem == \"com.apple.MobileFileIntegrity\" OR (process == \"kernel\" AND (eventMessage CONTAINS[c] \"AMFI\" OR eventMessage CONTAINS[c] \"sandbox\" OR eventMessage CONTAINS[c] \"code signature\")) OR process == \"taskgated\" OR process == \"syspolicyd\"" \
         2>&1 | tail -400
       print "\n## Crash reports"
+      # macOS writes a report some seconds after the crash.
+      for _ in {1..30}; do
+        find "$HOME/Library/Logs/DiagnosticReports" -newer "$started" -type f 2>/dev/null | xargs grep -l "$label.app" >/dev/null 2>&1 && break
+        [[ $result == quit ]] || break
+        sleep 2
+      done
       find "$HOME/Library/Logs/DiagnosticReports" -newer "$started" -type f 2>/dev/null | while read -r report; do
         grep -q "$label" "$report" 2>/dev/null || continue
         print "### $report"
