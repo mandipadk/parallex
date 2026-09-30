@@ -250,7 +250,10 @@ start, so a Ghostty or Cursor copy in "Client A" commits and pushes as
 Client A, while your own terminal stays you. `$PARALLEX_WORKSPACE` names the
 workspace, for your prompt. Variables that would point a tool back at your
 own identity (`GH_TOKEN`, `AWS_PROFILE`, `KUBECONFIG`, `XDG_CONFIG_HOME` set
-to yours, …) aren't passed on.
+to yours, …) aren't passed on by `parallex run`. A shell reads your startup
+files, though, so one you export there (in `.zshrc`, say) is back in
+`parallex shell` and in the shells copies start: check with `env` if you
+export any.
 
 A few tools keep secrets outside `$HOME`, so check how yours do:
 

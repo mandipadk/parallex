@@ -111,6 +111,15 @@ public enum AppCatalog {
         if Compatibility.refusesCopies(bundleID: info.bundleID, version: fullVersion, records: compatibility) {
             return make(.limited, "Its copy quit right after opening here — it may check its App Store receipt.", clone: false)
         }
+        // Electron apps and editors as copies: their own Dock icon, sign-in
+        // and data, while the original opens as usual (measured with the
+        // compatibility lab). Browsers keep their profiles.
+        let electron = info.framework == .electron || info.framework == .vscodeFamily
+        if electron, !info.isSandboxed {
+            return make(.great, Presets.recipe(for: info.bundleID) != nil
+                ? "Its own copy, tuned for this app: its own sign-in and data, beside the original."
+                : "Its own copy: its own sign-in and data, beside the original.", clone: true)
+        }
         if Presets.recipe(for: info.bundleID) != nil {
             return make(.great, "Separate sign-in and data, tuned for this app.", clone: false)
         }
@@ -127,8 +136,6 @@ public enum AppCatalog {
                 ? "Its own copy gets its own data container."
                 : "Its own copy gets its own containers, including shared ones.", clone: true)
         }
-        // Sign-ins it keeps in the keychain aren't separated yet, so the
-        // promise is the Library, where everything else lives.
-        return make(.ownIdentity, "Its own copy gets its own Library, so its data stays separate.", clone: true)
+        return make(.ownIdentity, "Its own copy gets its own Library and keychain, so its sign-ins and data stay separate.", clone: true)
     }
 }

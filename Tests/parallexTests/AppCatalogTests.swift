@@ -9,11 +9,13 @@ final class AppCatalogTests: XCTestCase {
         tempDir = try Fixtures.makeTempDirectory("catalog")
         setenv("PARALLEX_HOME", tempDir.appendingPathComponent("support").path, 1)
         setenv("PARALLEX_LAUNCHER", Fixtures.launcherBinary.path, 1)
+        setenv("PARALLEX_HOME_LIBRARY", Fixtures.homeLibrary.path, 1)
     }
 
     override func tearDownWithError() throws {
         unsetenv("PARALLEX_HOME")
         unsetenv("PARALLEX_LAUNCHER")
+        unsetenv("PARALLEX_HOME_LIBRARY")
         try? FileManager.default.removeItem(at: tempDir)
     }
 
@@ -33,7 +35,8 @@ final class AppCatalogTests: XCTestCase {
         // Best fit first; apps with a tuned recipe lead their tier.
         XCTAssertEqual(catalog.map(\.name), ["Claude", "Alpha Electron", "Zeta Native", "Notes"])
         XCTAssertEqual(catalog.map(\.fit), [.great, .great, .ownIdentity, .unsupported])
-        XCTAssertFalse(catalog[1].recommendsClone)
+        XCTAssertTrue(catalog[0].recommendsClone, "Electron apps are copies, recipe or not")
+        XCTAssertTrue(catalog[1].recommendsClone)
         XCTAssertTrue(catalog[2].recommendsClone)
     }
 
@@ -83,11 +86,11 @@ final class AppCatalogTests: XCTestCase {
     func testVerifiedOnlyByARealCleanCheck() throws {
         let apps = tempDir.appendingPathComponent("Applications")
         try FileManager.default.createDirectory(at: apps, withIntermediateDirectories: true)
-        let target = try Fixtures.makeApp(named: "Checked", bundleID: "com.fake.checked", in: apps, electron: true)
-        let manifest = try InstanceCreator.create(
-            CreateRequest(appReference: target.path, name: "Checked Work", outputDirectory: tempDir.appendingPathComponent("out")),
-            builderOptions: BundleBuilder.Options(registerWithLaunchServices: false)
-        ).manifest
+        let target = try Fixtures.makeApp(named: "Checked", bundleID: "com.fake.checked", in: apps)
+        // As the catalog recommends it: a copy.
+        var request = CreateRequest(appReference: target.path, name: "Checked Work", outputDirectory: tempDir.appendingPathComponent("out"))
+        request.cloneApp = true
+        let manifest = try InstanceCreator.create(request, builderOptions: BundleBuilder.Options(registerWithLaunchServices: false)).manifest
         func verified() -> Bool { AppCatalog.scan(directories: [apps]).first { $0.name == "Checked" }?.verified == true }
         func report(_ findings: [IsolationReport.Finding]) -> IsolationReport {
             IsolationReport(processCount: 1, fileCount: findings.count, findings: findings)
@@ -104,9 +107,9 @@ final class AppCatalogTests: XCTestCase {
         XCTAssertFalse(verified(), "a leak takes it back")
 
         // An instance with its isolation turned down proves nothing.
-        var launchOnly = manifest
-        launchOnly.mode = .launchOnly
-        Verification.record(launchOnly, report: report([own]))
+        var shared = manifest
+        shared.settings?.separateLibrary = false
+        Verification.record(shared, report: report([own]))
         XCTAssertFalse(verified())
 
         Verification.record(manifest, report: report([own]))

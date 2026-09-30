@@ -60,8 +60,11 @@ public enum Personas {
         let gitconfig = home.appendingPathComponent(".gitconfig")
         if items.contains(".gitconfig"), !fm.fileExists(atPath: gitconfig.path) {
             var text = "# Your own settings first; what follows is this workspace's, and wins.\n"
+            // (Git reads ~/.config/git/config by itself: yours, through the
+            // home's link, unless the persona keeps .config/git its own.)
+            let xdgOwn = items.contains { $0 == ".config/git" || $0 == ".config" }
             for yours in [realHome.appendingPathComponent(".config/git/config"), realHome.appendingPathComponent(".gitconfig")]
-            where fm.fileExists(atPath: yours.path) {
+            where fm.fileExists(atPath: yours.path) && (xdgOwn || yours.lastPathComponent == ".gitconfig") {
                 let quoted = yours.path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
                 text += "[include]\n\tpath = \"\(quoted)\"\n"
             }
