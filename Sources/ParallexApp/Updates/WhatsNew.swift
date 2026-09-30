@@ -30,6 +30,11 @@ enum ReleaseHighlights {
                 title: "Heads-ups sooner",
                 detail: "When an app update breaks copies, a notice can now reach Parallex within hours of it showing up, before a fix does."
             ),
+            Highlight(
+                symbol: "paperplane",
+                title: "Telegram copies work",
+                detail: "Copies of Telegram no longer close a few seconds after they open. Existing ones are rebuilt for you when they're not running."
+            ),
         ]),
         Release(version: "1.7.0", highlights: [
             Highlight(
