@@ -85,6 +85,9 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     /// Build the copy from this kept version of its app instead of the one
     /// in /Applications, and don't refresh it when that one updates.
     public var pinnedVersion: String?
+    /// Take a snapshot of it once a day, when it isn't running (see
+    /// `Snapshots.takeDailyIfDue`). `nil` means off.
+    public var dailySnapshots: Bool?
 
     public var isClone: Bool { cloneApp == true }
 
@@ -142,6 +145,8 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
         rhs.quitWhenUnused = nil
         lhs.keepPreviousVersion = nil
         rhs.keepPreviousVersion = nil
+        lhs.dailySnapshots = nil
+        rhs.dailySnapshots = nil
         if lhs.badgeText == nil && rhs.badgeText == nil {
             lhs.badgeColorHex = nil
             rhs.badgeColorHex = nil

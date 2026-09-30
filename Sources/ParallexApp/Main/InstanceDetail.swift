@@ -66,7 +66,7 @@ struct InstanceDetail: View {
                 if entry.isClone, !entry.manifest.isWeb {
                     VersionsSection(entry: entry, keepPrevious: keepPreviousBinding)
                 }
-                SnapshotsSection(entry: entry)
+                SnapshotsSection(entry: entry, daily: $draft.settings.dailySnapshots.orFalse)
                 StorageSection(entry: entry)
                 AdvancedSection(entry: entry, draft: $draft)
                 RemoveFooter { confirmRemove = true }
@@ -197,6 +197,7 @@ struct InstanceDetail: View {
         settings.throwaway = draft.settings.throwaway
         settings.quitWhenUnused = draft.settings.quitWhenUnused
         settings.keepPreviousVersion = draft.settings.keepPreviousVersion
+        settings.dailySnapshots = draft.settings.dailySnapshots
         guard settings != stored || entry.manifest.settings == nil else { return }
         if let saved = model.saveSettings(settings, for: entry) {
             var fresh = InstanceDraft(saved)
@@ -237,7 +238,8 @@ struct InstanceDraft: Equatable {
     var metadataSignature: [String] {
         [settings.openAtLaunch == true ? "1" : "0", settings.badgeColorHex ?? "", settings.shortcut?.displayString ?? "",
          settings.menuBarIcon == true ? "1" : "0", settings.throwaway == true ? "1" : "0",
-         settings.quitWhenUnused.map(String.init) ?? "", settings.keepPreviousVersion == false ? "0" : "1"]
+         settings.quitWhenUnused.map(String.init) ?? "", settings.keepPreviousVersion == false ? "0" : "1",
+         settings.dailySnapshots == true ? "1" : "0"]
     }
 
     var parsedEnvironment: [String: String]? {
@@ -1296,6 +1298,7 @@ private struct VersionsSection: View {
 
 private struct SnapshotsSection: View {
     let entry: InstanceEntry
+    @Binding var daily: Bool
     @Environment(AppModel.self) private var model
     @State private var snapshots: [Snapshots.Snapshot] = []
     @State private var label = ""
@@ -1323,6 +1326,11 @@ private struct SnapshotsSection: View {
                         .font(Theme.Font.caption)
                         .foregroundStyle(.tertiary)
                 }
+                ExplainedToggle(
+                    title: "Take one every day",
+                    detail: "Once a day, when \(entry.name) isn't running (often right after it quits). The last seven are kept.",
+                    isOn: $daily
+                )
                 if !snapshots.isEmpty {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(snapshots) { snapshot in
@@ -1375,6 +1383,7 @@ private struct SnapshotsSection: View {
 
     private func title(_ snapshot: Snapshots.Snapshot) -> String {
         if let label = snapshot.label { return label }
+        if snapshot.reason == .daily { return snapshot.date.formatted(date: .complete, time: .omitted) }
         return snapshot.reason == .beforeRestore
             ? "Before a restore" : snapshot.date.formatted(date: .abbreviated, time: .shortened)
     }
@@ -1383,6 +1392,7 @@ private struct SnapshotsSection: View {
         let when = snapshot.date.formatted(date: .abbreviated, time: .shortened)
         var text = switch (snapshot.reason, snapshot.label) {
         case (.beforeRestore, _), (.beforeRefresh, _): "Kept for you on \(when)"
+        case (.daily, _): "Taken for you, daily"
         case (.manual, .some): "Taken \(when)"
         case (.manual, nil): "Taken by you"
         }

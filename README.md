@@ -208,7 +208,9 @@ app update that changed your setup, an experiment in a work profile. Taking
 one is instant and takes no space until the data moves on from it (APFS
 clones). Restoring one keeps what the instance had as a snapshot too, so a
 restore can be undone. Both work while the instance isn't running, from its
-page in the app or with `parallex snapshot`.
+page in the app or with `parallex snapshot`. Turn on **Take one every day**
+(or `parallex edit <name> --daily-snapshots`) and Parallex takes one a day
+when the instance isn't running, keeping the last seven.
 
 ### Going back a version
 

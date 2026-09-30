@@ -134,6 +134,24 @@ final class SnapshotTests: XCTestCase {
         XCTAssertFalse(SnapshotWriter.isBookkeeping("Instance.keychain-db"))
     }
 
+    func testDailySnapshotsWhenOnAndDue() throws {
+        let (made, _) = try makeInstance()
+        XCTAssertNil(Snapshots.takeDailyIfDue(made), "off unless turned on")
+        var settings = made.effectiveSettings
+        settings.dailySnapshots = true
+        XCTAssertFalse(made.effectiveSettings.requiresRebuild(toReach: settings), "a preference, not a rebuild")
+        let manifest = try InstanceCreator.update(made, InstanceUpdate(settings: settings), builderOptions: options).manifest
+        let start = Date(timeIntervalSince1970: 1_900_000_000)
+        XCTAssertNotNil(Snapshots.takeDailyIfDue(manifest, now: start))
+        XCTAssertNil(Snapshots.takeDailyIfDue(manifest, now: start.addingTimeInterval(3600)), "one a day")
+        for day in 1...9 {
+            XCTAssertNotNil(Snapshots.takeDailyIfDue(manifest, now: start.addingTimeInterval(Double(day) * 86_400)))
+        }
+        let daily = Snapshots.list(manifest).filter { $0.reason == .daily }
+        XCTAssertEqual(daily.count, Snapshots.keptDaily)
+        XCTAssertEqual(daily.first?.date, start.addingTimeInterval(9 * 86_400))
+    }
+
     func testStorageCountsSnapshotsApart() throws {
         let (manifest, _) = try makeInstance()
         let before = InstanceStorage.report(for: manifest)

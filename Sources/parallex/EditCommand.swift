@@ -77,6 +77,9 @@ struct Edit: ParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Keep the version of the app an own-identity copy was on when the app updates, to go back to (on by default).")
     var keepPreviousVersion: Bool?
 
+    @Flag(inversion: .prefixedNo, help: "Take a snapshot of the instance once a day, when it isn't running (off by default).")
+    var dailySnapshots: Bool?
+
     @Flag(name: .customLong("guard"), inversion: .prefixedNo, help: "Keep an own-identity copy out of the original's data, even by its full path (on by default).")
     var guardOriginalData: Bool?
 
@@ -164,6 +167,9 @@ struct Edit: ParsableCommand {
         }
         if let guardOriginalData {
             settings.guardOriginalData = guardOriginalData
+        }
+        if let dailySnapshots {
+            settings.dailySnapshots = dailySnapshots ? true : nil
         }
         if let keepPreviousVersion {
             settings.keepPreviousVersion = keepPreviousVersion ? nil : false

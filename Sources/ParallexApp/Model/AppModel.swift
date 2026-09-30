@@ -943,6 +943,11 @@ final class AppModel {
                 && !maintenanceFailures.contains(entry.id) && !busy.contains(entry.id) && !staging.contains(entry.id)
         }
         stageRefreshes()
+        // Daily snapshots that are due (right after an instance quits, often).
+        for entry in entries where !entry.running && entry.manifest.effectiveSettings.dailySnapshots == true {
+            let manifest = entry.manifest
+            Task.detached(priority: .utility) { Snapshots.takeDailyIfDue(manifest) }
+        }
         // Items shared again while a copy ran, now that it doesn't.
         for entry in entries where !entry.running && !(entry.manifest.pendingRelease ?? []).isEmpty {
             let manifest = entry.manifest

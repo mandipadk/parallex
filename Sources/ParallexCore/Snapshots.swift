@@ -21,6 +21,8 @@ public enum Snapshots {
             /// What a copy had before it moved to another version of its
             /// app (see `AppVersions`).
             case beforeRefresh = "before-refresh"
+            /// One a day, with daily snapshots on.
+            case daily
         }
 
         /// Its folder's name.
@@ -93,6 +95,20 @@ public enum Snapshots {
         let snapshot = try capture(manifest, label: label, reason: reason, now: now)
         prune(manifest, keeping: keeping)
         return snapshot
+    }
+
+    /// How many daily snapshots are kept.
+    static let keptDaily = 7
+
+    /// With daily snapshots on and none in the last day (give or take),
+    /// take one, unless it's running. Returns it, if one was taken.
+    @discardableResult
+    public static func takeDailyIfDue(_ manifest: InstanceManifest, now: Date = Date()) -> Snapshot? {
+        guard manifest.effectiveSettings.dailySnapshots == true, unavailableReason(manifest) == nil else { return nil }
+        if let last = list(manifest).first(where: { $0.reason == .daily }), now.timeIntervalSince(last.date) < 20 * 3600 {
+            return nil
+        }
+        return try? take(manifest, reason: .daily, now: now)
     }
 
     /// For callers already holding the instance's launch lock.
@@ -241,6 +257,7 @@ public enum Snapshots {
     static func prune(_ manifest: InstanceManifest, keeping: String? = nil) {
         let all = list(manifest).filter { $0.id != keeping }
         var doomed = Array(all.filter { $0.reason == .beforeRestore }.dropFirst(keptAutomatic))
+        doomed += all.filter { $0.reason == .daily }.dropFirst(keptDaily)
         var versions = Set<String>()
         for snapshot in all where snapshot.reason == .beforeRefresh {
             let version = snapshot.appVersion ?? ""
