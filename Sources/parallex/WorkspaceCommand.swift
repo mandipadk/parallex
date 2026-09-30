@@ -123,7 +123,7 @@ struct WorkspaceCommand: ParsableCommand {
                 ParallexCore.Personas.prepare(chosen)
                 print("\(Term.bold(chosen.name)) has an identity of its own for your tools, at \(Paths.abbreviate(home.path)).")
                 print("Its own: " + ParallexCore.Personas.items(for: chosen).map { "~/\($0)" }.joined(separator: ", "))
-                let yours = Identities.read(home: FileManager.default.homeDirectoryForCurrentUser)
+                let yours = Identities.read(home: URL(fileURLWithPath: ParallexCore.Personas.realHomePath()))
                 let theirs = Identities.read(home: home)
                 print("")
                 let width = max(12, (yours.map(\.tool) + ["Tool"]).map(\.count).max() ?? 12) + 2

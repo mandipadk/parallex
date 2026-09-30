@@ -38,7 +38,10 @@ export function parseLab(body: unknown): LabRun | null {
 
 export async function latestLab(): Promise<LabRun | null> {
   try {
-    const response = await fetch(LAB_URL, { cf: { cacheTtl: 3600, cacheEverything: true } } as RequestInit)
+    const response = await fetch(LAB_URL, {
+      cf: { cacheTtl: 3600, cacheEverything: true },
+      signal: AbortSignal.timeout(3000),
+    } as RequestInit)
     if (!response.ok) return null
     return parseLab(await response.json())
   } catch {

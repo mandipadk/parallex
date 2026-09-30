@@ -438,8 +438,9 @@ private struct IdentityTable: View {
         .task(id: workspace) {
             let current = workspace
             rows = await Task.detached(priority: .utility) {
-                let yours = Identities.read(home: URL(fileURLWithPath: NSHomeDirectory()))
-                let theirs = Identities.read(home: Personas.prepare(current))
+                // Looking never changes anything: the persona's home as it is.
+                let yours = Identities.read(home: URL(fileURLWithPath: Personas.realHomePath()))
+                let theirs = Identities.read(home: Personas.home(for: current))
                 return zip(yours, theirs).map { ($0.tool, $0.identity, $1.identity) }
             }.value
         }

@@ -58,20 +58,55 @@ for message in object["messages"] as? [[String: Any]] ?? [] {
 func isPlainName(_ name: String) -> Bool {
     !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains(":")
 }
-for entry in object["knowledge"] as? [[String: Any]] ?? [] {
-    guard let bundleID = entry["bundleID"] as? String else { fail("each knowledge entry needs a bundleID") }
-    if let range = entry["versions"] as? String, !isValidRange(range) { fail("bad versions range: \(range)") }
-    for folder in entry["dataFolders"] as? [String] ?? [] where !isPlainName(folder) {
-        fail("\(bundleID): data folders are names in Application Support, not paths: \(folder)")
-    }
-    for item in entry["homeFolders"] as? [String] ?? [] {
-        let parts = item.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        guard parts.first?.hasPrefix(".") == true, parts.allSatisfy(isPlainName) else {
-            fail("\(bundleID): home folders are hidden items relative to home, like .acme or .config/acme: \(item)")
+// The same rules Parallex applies (Knowledge.swift): what it would drop is
+// an error here, and types are exact (Parallex can't read a file that
+// isn't, and would then miss every notice in it).
+let sharedDotfolders: Set<String> = ["config", "local", "cache", "ssh", "gnupg", "claude", "codex", "aws", "kube", "docker", "npm",
+                                     "cargo", "rustup", "gem", "bundle", "zsh", "oh-my-zsh", "git", "vim", "trash"]
+if let knowledge = object["knowledge"] {
+    guard let entries = knowledge as? [[String: Any]] else { fail("\"knowledge\" must be a list of entries") }
+    let known: Set<String> = ["bundleID", "versions", "dataFolders", "homeFolders", "singleInstancePorts"]
+    for entry in entries {
+        guard let bundleID = entry["bundleID"] as? String, !bundleID.isEmpty else { fail("each knowledge entry needs a bundleID") }
+        if let unknown = entry.keys.first(where: { !known.contains($0) }) { fail("\(bundleID): unknown key \(unknown)") }
+        if let versions = entry["versions"] {
+            guard let range = versions as? String, isValidRange(range) else { fail("\(bundleID): bad versions range") }
         }
-    }
-    for port in entry["singleInstancePorts"] as? [[String: Any]] ?? [] {
-        guard let base = port["base"] as? Int, (1024..<65536).contains(base) else { fail("\(bundleID): bad port \(port)") }
+        if let value = entry["dataFolders"] {
+            guard let folders = value as? [String], folders.count <= 32 else { fail("\(bundleID): dataFolders must be up to 32 names") }
+            for folder in folders {
+                let lower = folder.lowercased()
+                guard isPlainName(folder), !lower.hasPrefix("com.apple."),
+                      !["parallex", "clouddocs", "mobilesync", "addressbook", "icloud", "knowledge"].contains(lower)
+                else { fail("\(bundleID): not an app's data folder: \(folder)") }
+            }
+        }
+        if let value = entry["homeFolders"] {
+            guard let items = value as? [String], items.count <= 32 else { fail("\(bundleID): homeFolders must be up to 32 items") }
+            for item in items {
+                let parts = item.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+                guard let first = parts.first, first.hasPrefix("."), parts.allSatisfy(isPlainName) else {
+                    fail("\(bundleID): home folders are hidden items relative to home, like .acme or .config/acme: \(item)")
+                }
+                let name = String(first.dropFirst()).lowercased()
+                let allowed: Bool
+                switch name {
+                case "config": allowed = parts.count >= 2
+                case "local", "cache": allowed = parts.count >= 3
+                default: allowed = !sharedDotfolders.contains(name) && ![".gitconfig", ".ssh"].contains(item.lowercased())
+                }
+                guard allowed else { fail("\(bundleID): \(item) is shared by everything, not one app's") }
+            }
+        }
+        if let value = entry["singleInstancePorts"] {
+            guard let ports = value as? [[String: Any]], ports.count <= 16 else { fail("\(bundleID): singleInstancePorts must be up to 16") }
+            for port in ports {
+                guard let base = port["base"] as? Int, (1024...65000).contains(base) else { fail("\(bundleID): ports go from 1024 to 65000") }
+                if let plus = port["plusUserID"], !(plus is Bool) || (plus as? NSNumber).map({ CFGetTypeID($0) != CFBooleanGetTypeID() }) == true {
+                    fail("\(bundleID): plusUserID is true or false")
+                }
+            }
+        }
     }
 }
 if data.count > 256 * 1024 { fail("keep the file under 256 KB") }

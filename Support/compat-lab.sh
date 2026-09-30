@@ -84,6 +84,22 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# One JSON object per app, written by Python so any name or version is
+# quoted right: emit key=value ... (numbers for processes, leaks, …).
+emit() {
+  python3 - "$@" >> "$out" <<'PY'
+import json, sys
+entry = {}
+for pair in sys.argv[1:]:
+    key, _, value = pair.partition("=")
+    entry[key] = int(value) if key in ("processes", "leaks", "blocked", "crashes") else value
+print(json.dumps(entry))
+PY
+}
+
+# A name no real instance has (its preferences domain is named after it).
+tag=$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 6)
+
 rows=()
 for spec in "${apps[@]}"; do
   name=${spec%%=*}
@@ -96,17 +112,17 @@ for spec in "${apps[@]}"; do
     [[ -d $original ]] && xattr -dr com.apple.quarantine "$original" 2>/dev/null
   fi
   if [[ ! -d $original ]]; then
-    print -r -- "{\"app\": \"$name\", \"result\": \"not installed\"}" >> "$out"
+    emit "app=$name" "result=not installed"
     rows+=("| $name | not installed | | | |")
     continue
   fi
   version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$original/Contents/Info.plist" 2>/dev/null)
-  label="$name Lab"
+  label="$name Lab $tag"
   copy="$lab/apps/$label.app"
   created=$($parallex create "$original" --clone --name "$label" --out "$lab/apps" 2>&1)
   if [[ ! -d $copy ]]; then
-    reason=$(print -r -- "$created" | tail -1 | tr -d '"\\')
-    print -r -- "{\"app\": \"$name\", \"version\": \"$version\", \"result\": \"not copied\", \"detail\": \"$reason\"}" >> "$out"
+    reason=$(print -r -- "$created" | tail -1 | tr -d '|')
+    emit "app=$name" "version=$version" "result=not copied" "detail=$reason"
     rows+=("| $name | $version | not copied | | $reason |")
     continue
   fi
@@ -133,9 +149,10 @@ print(("clean" if report.get("clean") else "leak") + "\t" + str(len(leaks)) + "\
   if (( crashes > 0 )); then result="crashed"
   elif (( processes == 0 )); then result="quit"
   elif [[ $leak_state == leak ]]; then result="leaked"
-  else result="ran"
+  elif [[ $leak_state == clean ]]; then result="ran"
+  else result="not checked"
   fi
-  print -r -- "{\"app\": \"$name\", \"version\": \"$version\", \"result\": \"$result\", \"processes\": $processes, \"leaks\": $leaks, \"blocked\": $blocked, \"crashes\": $crashes}" >> "$out"
+  emit "app=$name" "version=$version" "result=$result" "processes=$processes" "leaks=$leaks" "blocked=$blocked" "crashes=$crashes"
   rows+=("| $name | $version | $result | $processes | ${leaks} leaks, ${blocked} kept out by Guard |")
   bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$copy/Contents/Info.plist" 2>/dev/null)
   osascript -e "tell application id \"$bundle_id\" to quit" >/dev/null 2>&1

@@ -86,7 +86,7 @@ public enum Personas {
         "DOCKER_CONFIG", "NETRC",
     ]
 
-    static func realHomePath() -> String {
+    public static func realHomePath() -> String {
         if let account = getpwuid(getuid()), let dir = account.pointee.pw_dir {
             return String(cString: dir)
         }

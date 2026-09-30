@@ -949,7 +949,7 @@ public enum InstanceCreator {
         // The app's single-instance ports, each with one of the copy's own.
         let loopbackPorts = redirectHome != nil
             ? LoopbackPorts.assign(
-                known: Presets.singleInstancePorts(for: target.bundleID), slug: slug,
+                known: Presets.singleInstancePorts(for: target.bundleID, version: AppCloner.version(of: target.url)), slug: slug,
                 previous: previous?.loopbackPorts ?? [:]
             )
             : [:]

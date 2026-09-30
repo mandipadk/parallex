@@ -12,9 +12,10 @@ public enum Knowledge {
     /// For tests: used instead of the kept file.
     nonisolated(unsafe) static var override: [Advisories.AppKnowledge]?
 
-    /// What's known about `bundleID` (at `version`, when given).
+    /// What's known about `bundleID` at `version` (entries for certain
+    /// versions only apply when the version is known and in range).
     public static func entries(for bundleID: String, version: String? = nil) -> [Advisories.AppKnowledge] {
-        all().filter { $0.bundleID == bundleID && (version == nil || VersionRange.contains($0.versions, version)) }
+        all().filter { $0.bundleID == bundleID && VersionRange.contains($0.versions, version) }
     }
 
     static func all() -> [Advisories.AppKnowledge] {
@@ -29,20 +30,45 @@ public enum Knowledge {
         return entries
     }
 
-    static func dataFolders(for bundleID: String) -> [String] {
-        entries(for: bundleID).flatMap { $0.dataFolders ?? [] }.filter(OriginalData.isPlainName)
+    /// At most this many of each kind per entry.
+    static let maxFolders = 32
+    static let maxPorts = 16
+
+    /// Never an app's data: Parallex's own folder, and macOS's.
+    static func isAllowedDataFolder(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        return OriginalData.isPlainName(name) && !lower.hasPrefix("com.apple.")
+            && !["parallex", "clouddocs", "mobilesync", "addressbook", "icloud", "knowledge"].contains(lower)
     }
 
-    static func homeFolders(for bundleID: String) -> [String] {
-        entries(for: bundleID).flatMap { $0.homeFolders ?? [] }.filter { item in
-            let parts = item.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-            return !parts.isEmpty && parts[0].hasPrefix(".") && parts.allSatisfy(OriginalData.isPlainName)
+    /// A hidden item that can be one app's: never one everything shares
+    /// (.ssh, .aws, .config itself, …); under .config at least one folder
+    /// down, under .local or .cache two.
+    static func isAllowedHomeFolder(_ item: String) -> Bool {
+        let parts = item.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard let first = parts.first, first.hasPrefix("."), parts.allSatisfy(OriginalData.isPlainName) else { return false }
+        let name = String(first.dropFirst()).lowercased()
+        if Presets.defaultSharedItems.contains(where: { $0.lowercased() == item.lowercased() }) { return false }
+        switch name {
+        case "config": return parts.count >= 2
+        case "local", "cache": return parts.count >= 3
+        default: return !OriginalData.sharedDotfolders.contains { $0.lowercased() == name }
         }
     }
 
-    static func singleInstancePorts(for bundleID: String) -> [(base: Int, plusUserID: Bool)] {
-        entries(for: bundleID).flatMap { $0.singleInstancePorts ?? [] }
-            .filter { (1024..<65536).contains($0.base) }
+    static func dataFolders(for bundleID: String, version: String?) -> [String] {
+        entries(for: bundleID, version: version).flatMap { Array(($0.dataFolders ?? []).prefix(maxFolders)) }
+            .filter(isAllowedDataFolder)
+    }
+
+    static func homeFolders(for bundleID: String, version: String?) -> [String] {
+        entries(for: bundleID, version: version).flatMap { Array(($0.homeFolders ?? []).prefix(maxFolders)) }
+            .filter(isAllowedHomeFolder)
+    }
+
+    static func singleInstancePorts(for bundleID: String, version: String?) -> [(base: Int, plusUserID: Bool)] {
+        entries(for: bundleID, version: version).flatMap { Array(($0.singleInstancePorts ?? []).prefix(maxPorts)) }
+            .filter { (1024...65000).contains($0.base) }
             .map { ($0.base, $0.plusUserID ?? false) }
     }
 }

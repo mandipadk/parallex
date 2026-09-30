@@ -13,15 +13,21 @@ concurrency:
   group: compat-lab
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
+  # Runs other people's apps, so it gets nothing it could push with: a
+  # read-only token, not kept in the checkout.
   lab:
     runs-on: macos-26
     timeout-minutes: 60
-    # To publish the results to the lab-results branch (read by the site).
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Build
         run: swift build
       - name: Lab
@@ -29,33 +35,66 @@ jobs:
           Support/compat-lab.sh --install --wait 30 --out compat-lab.json \
             "Obsidian=obsidian" "Visual Studio Code=visual-studio-code" "Zed=zed" "IINA=iina" \
             "VLC=vlc" "Discord=discord" "Slack=slack" "Spotify=spotify"
+          sw_vers -productVersion > macos.txt
+          git rev-parse --short HEAD > commit.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: compat-lab
-          path: compat-lab.json
-      # The latest results, alone on the lab-results branch, where the
-      # site's compatibility page reads them.
-      - name: Publish results
-        if: success() && github.ref == 'refs/heads/main'
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          path: |
+            compat-lab.json
+            macos.txt
+            commit.txt
+
+  # Publishes the latest results, alone on the lab-results branch, where the
+  # site's compatibility page reads them. Runs nothing but Python and git.
+  publish:
+    needs: lab
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: compat-lab
+          path: results
+      - name: Check
         run: |
-          mkdir publish
-          python3 - <<'PY' > publish/compat-lab.json
-          import datetime, json, platform, subprocess
-          apps = [json.loads(line) for line in open("compat-lab.json") if line.strip()]
-          commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
-          print(json.dumps({
-              "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-              "macos": platform.mac_ver()[0],
-              "parallex": commit,
-              "apps": apps,
-          }, indent=2))
+          python3 - <<'PY'
+          import datetime, json, re
+          allowed = {"ran", "quit", "crashed", "leaked", "not installed", "not copied", "not checked"}
+          apps = []
+          for line in open("results/compat-lab.json"):
+              if not line.strip():
+                  continue
+              entry = json.loads(line)
+              if not isinstance(entry.get("app"), str) or entry.get("result") not in allowed:
+                  raise SystemExit(f"unexpected entry: {entry!r}")
+              apps.append({k: entry[k] for k in ("app", "version", "result", "processes", "leaks", "blocked", "crashes") if k in entry})
+          # A night where nothing could be tried (an outage) isn't a result.
+          if not any(a["result"] in ("ran", "quit", "crashed", "leaked") for a in apps):
+              raise SystemExit("nothing was tried; not publishing")
+          macos = open("results/macos.txt").read().strip()
+          commit = open("results/commit.txt").read().strip()
+          if not re.fullmatch(r"[0-9.]{1,20}", macos) or not re.fullmatch(r"[0-9a-f]{4,40}", commit):
+              raise SystemExit("unexpected run details")
+          run = {"date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                 "macos": macos, "parallex": commit, "apps": apps}
+          json.dump(run, open("compat-lab.json", "w"), indent=2)
           PY
-          cd publish
-          git init -q -b lab-results
+      - uses: actions/checkout@v4
+        with:
+          path: publish
+      - name: Publish
+        working-directory: publish
+        run: |
+          git checkout -q --orphan lab-results
+          git rm -rq --cached .
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp ../compat-lab.json .
           git add compat-lab.json
           git -c user.name="Compatibility lab" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -q -m "Compatibility lab, $(date -u +%Y-%m-%d)"
-          git push -f -q "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" lab-results
+          git push -f -q origin lab-results

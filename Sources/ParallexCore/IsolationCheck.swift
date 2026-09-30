@@ -151,7 +151,8 @@ public enum IsolationCheck {
             }
 
             var original: [(String, String)] = []
-            for folder in Presets.originalDataFolders(bundleID: bundleID, names: names.sorted()) {
+            let version = manifest.clone?.sourceVersion ?? AppCloner.version(of: URL(fileURLWithPath: manifest.targetApp))
+            for folder in Presets.originalDataFolders(bundleID: bundleID, names: names.sorted(), version: version) {
                 original.append(("\(library)/Application Support/\(folder)/", "the original's app data"))
             }
             for name in names {
@@ -194,7 +195,7 @@ public enum IsolationCheck {
                         original.append(("\(home)/\(item)", "the original's ~/\(item)"))
                     }
                 } else {
-                    for item in (Presets.knownHomeFolders[bundleID] ?? []) + Knowledge.homeFolders(for: bundleID) {
+                    for item in (Presets.knownHomeFolders[bundleID] ?? []) + Knowledge.homeFolders(for: bundleID, version: version) {
                         choice.append(("\(home)/\(item)", "shared on purpose (Separate hidden folders off)"))
                     }
                 }

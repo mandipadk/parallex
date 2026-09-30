@@ -166,13 +166,14 @@ final class IdentitiesTests: XCTestCase {
         try write(".kube/config", "apiVersion: v1\ncurrent-context: client-prod\n")
         try write(".config/gcloud/active_config", "work\n")
         try write(".config/gcloud/configurations/config_work", "[core]\naccount = me@client.example\n")
-        try write(".npmrc", "//registry.npmjs.org/:_authToken=abc\n")
+        try write(".npmrc", "//registry.npmjs.org/:_authToken=abc\n//npm.corp.example:_authToken=npm_SECRET\n")
         let found = Dictionary(uniqueKeysWithValues: Identities.read(home: home).map { ($0.tool, $0.identity) })
         XCTAssertEqual(found["git"], "me@client.example", "its own after the included one")
         XCTAssertEqual(found["GitHub CLI"], "me")
         XCTAssertEqual(found["AWS"], "account 123456789012, Dev")
         XCTAssertEqual(found["Kubernetes"], "client-prod")
         XCTAssertEqual(found["Google Cloud"], "me@client.example")
-        XCTAssertEqual(found["npm"], "signed in to registry.npmjs.org")
+        XCTAssertEqual(found["npm"], "signed in to registry.npmjs.org, npm.corp.example")
+        XCTAssertFalse(found.values.contains { $0?.contains("SECRET") == true }, "never a token")
     }
 }

@@ -25,14 +25,28 @@ public enum Identities {
         ]
     }
 
+    /// A regular file's text, if it's small (never a pipe or a device).
     private static func text(_ url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url), data.count < 1_000_000 else { return nil }
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              (attributes[.size] as? Int ?? .max) < 1_000_000,
+              let data = try? Data(contentsOf: url)
+        else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    /// A value without a trailing comment or quotes.
+    private static func clean(_ value: String) -> String {
+        var text = value
+        if !text.hasPrefix("\""), let comment = text.firstIndex(where: { $0 == "#" || $0 == ";" }) {
+            text = String(text[..<comment])
+        }
+        return text.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
     }
 
     /// An INI-style file's `key` in `section` (the last one wins, as git
     /// and the cloud tools read them), with the files it includes first.
-    private static func iniValue(_ url: URL, section: String, key: String, depth: Int = 0) -> String? {
+    private static func iniValue(_ url: URL, section: String, key: String, home: URL? = nil, depth: Int = 0) -> String? {
         guard depth < 4, let text = text(url) else { return nil }
         var current = ""
         var value: String?
@@ -46,13 +60,19 @@ public enum Identities {
             let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             guard parts.count == 2 else { continue }
             if current == "include", parts[0].lowercased() == "path" {
-                var path = parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                if path.hasPrefix("~/") { path = url.deletingLastPathComponent().path + "/" + path.dropFirst(2) }
-                if let included = iniValue(URL(fileURLWithPath: path), section: section, key: key, depth: depth + 1) {
+                // As git has it: "~/" is the home, a relative path is next
+                // to the file that includes it.
+                var path = clean(parts[1])
+                if path.hasPrefix("~/"), let home {
+                    path = home.path + "/" + path.dropFirst(2)
+                } else if !path.hasPrefix("/") {
+                    path = url.deletingLastPathComponent().path + "/" + path
+                }
+                if let included = iniValue(URL(fileURLWithPath: path), section: section, key: key, home: home, depth: depth + 1) {
                     value = included
                 }
             } else if current == section, parts[0].lowercased() == key {
-                value = parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                value = clean(parts[1])
             }
         }
         return value
@@ -60,8 +80,8 @@ public enum Identities {
 
     static func git(_ home: URL) -> String? {
         // Git reads the XDG file first, then ~/.gitconfig, which wins.
-        let xdg = iniValue(home.appendingPathComponent(".config/git/config"), section: "user", key: "email")
-        let own = iniValue(home.appendingPathComponent(".gitconfig"), section: "user", key: "email")
+        let xdg = iniValue(home.appendingPathComponent(".config/git/config"), section: "user", key: "email", home: home)
+        let own = iniValue(home.appendingPathComponent(".gitconfig"), section: "user", key: "email", home: home)
         return own ?? xdg
     }
 
@@ -117,8 +137,11 @@ public enum Identities {
         guard let text = text(home.appendingPathComponent(".npmrc")) else { return nil }
         let registries = text.split(whereSeparator: \.isNewline).compactMap { line -> String? in
             let line = line.trimmingCharacters(in: .whitespaces)
-            guard line.hasPrefix("//"), line.contains(":_authToken") || line.contains(":_auth") else { return nil }
-            return line.dropFirst(2).split(separator: "/").first.map(String.init)
+            // "//registry.example/:_authToken=…": only what's before the
+            // key is kept, never the token.
+            guard line.hasPrefix("//"), let key = line.range(of: ":_auth") else { return nil }
+            let registry = line[line.index(line.startIndex, offsetBy: 2)..<key.lowerBound]
+            return registry.split(separator: "/").first.map(String.init)
         }
         return registries.isEmpty ? nil : "signed in to " + registries.joined(separator: ", ")
     }

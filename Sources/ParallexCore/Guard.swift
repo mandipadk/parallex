@@ -20,7 +20,7 @@ public enum Guard {
             names.append(bundleName)
         }
         var paths: [String] = []
-        for folder in Presets.originalDataFolders(bundleID: target.bundleID, names: names) {
+        for folder in Presets.originalDataFolders(bundleID: target.bundleID, names: names, version: AppCloner.version(of: target.url)) {
             paths.append("\(library)/Application Support/\(folder)/")
         }
         for name in names where !name.isEmpty {

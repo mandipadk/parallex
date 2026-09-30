@@ -27,6 +27,7 @@ input { width: 100%; font: inherit; padding: 12px 14px; border-radius: 12px; bor
 .chip { font-size: 13px; font-weight: 500; padding: 2px 10px; border-radius: 999px; white-space: nowrap; }
 .works { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
 .problems { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.untried { color: var(--muted); background: oklch(1 0 0 / 0.06); }
 .broken { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .evidence { font-size: 14px; color: var(--muted); }
 .notice { font-size: 14px; color: var(--foreground); }
@@ -109,7 +110,8 @@ function render() {
   }
 }
 
-const labResults = { ran: "Ran", quit: "Quit on opening", crashed: "Crashed", leaked: "Reached the original's data" }
+const labResults = { ran: "Ran", quit: "Quit on opening", crashed: "Crashed", leaked: "Reached the original's data",
+  "not installed": "Not tried", "not copied": "Couldn't be copied", "not checked": "Not checked" }
 
 function renderLab(lab) {
   if (!lab || !lab.apps || !lab.apps.length) return
@@ -123,7 +125,8 @@ function renderLab(lab) {
     item.append(el("span", "name", app.app))
     if (app.version) item.append(el("span", "evidence", app.version))
     const good = app.result === "ran" && !app.leaks && !app.crashes
-    item.append(el("span", `chip ${good ? "works" : "broken"}`, labResults[app.result] ?? app.result))
+    const untried = app.result === "not installed" || app.result === "not checked"
+    item.append(el("span", `chip ${good ? "works" : untried ? "untried" : "broken"}`, Object.hasOwn(labResults, app.result) ? labResults[app.result] : app.result))
     grid.append(item)
   }
   document.getElementById("lab").hidden = false

@@ -169,7 +169,9 @@ export default {
       const cached = await caches.default.match(key)
       if (cached) return cached
       const response = Response.json(
-        { generated: new Date().toISOString(), apps: await compatibilityList(env, request), lab: await latestLab() },
+        await Promise.all([compatibilityList(env, request), latestLab()]).then(([apps, lab]) => ({
+          generated: new Date().toISOString(), apps, lab,
+        })),
         { headers: { "Cache-Control": "public, max-age=600", "Access-Control-Allow-Origin": "*" } },
       )
       ctx.waitUntil(caches.default.put(key, response.clone()))

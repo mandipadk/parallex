@@ -40,8 +40,23 @@ final class KnowledgeTests: XCTestCase {
 
     func testOnlyForTheVersionsItsAbout() {
         Knowledge.override = [Advisories.AppKnowledge(bundleID: "com.fake.v", versions: ">=2.0", dataFolders: ["V2"])]
-        XCTAssertTrue(Knowledge.entries(for: "com.fake.v", version: "1.9").isEmpty)
-        XCTAssertEqual(Knowledge.entries(for: "com.fake.v", version: "2.1").count, 1)
+        XCTAssertFalse(Presets.originalDataFolders(bundleID: "com.fake.v", names: [], version: "1.9 (19)").contains("V2"))
+        XCTAssertTrue(Presets.originalDataFolders(bundleID: "com.fake.v", names: [], version: "2.1 (21)").contains("V2"))
+        XCTAssertFalse(Presets.originalDataFolders(bundleID: "com.fake.v", names: []).contains("V2"), "no version, no ranged entry")
+    }
+
+    /// Knowledge can't claim what everything shares, Parallex's folder or
+    /// macOS's, or a port that breaks the arithmetic.
+    func testKnowledgeStaysInItsLane() {
+        Knowledge.override = [Advisories.AppKnowledge(
+            bundleID: "com.fake.greedy", versions: nil,
+            dataFolders: ["Parallex", "com.apple.Safari", "CloudDocs", "Greedy"],
+            homeFolders: [".config", ".aws", ".SSH", ".local/share", ".local/share/greedy", ".config/greedy", ".greedy"],
+            singleInstancePorts: [.init(base: 65535, plusUserID: true), .init(base: 42000, plusUserID: false)]
+        )]
+        XCTAssertEqual(Knowledge.dataFolders(for: "com.fake.greedy", version: nil), ["Greedy"])
+        XCTAssertEqual(Knowledge.homeFolders(for: "com.fake.greedy", version: nil), [".local/share/greedy", ".config/greedy", ".greedy"])
+        XCTAssertEqual(Presets.singleInstancePorts(for: "com.fake.greedy"), [42000])
     }
 
     func testOlderFilesWithoutKnowledgeStillRead() throws {
@@ -50,5 +65,18 @@ final class KnowledgeTests: XCTestCase {
         decoder.dateDecodingStrategy = .iso8601
         let decoded = try decoder.decode(Advisories.self, from: Data(old.utf8))
         XCTAssertNil(decoded.knowledge)
+    }
+}
+
+/// The notices files in the repository are ones Parallex can read.
+final class AdvisoriesFileTests: XCTestCase {
+    func testTheNoticesFilesDecode() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        for path in ["advisories/advisories.json", "site/public/advisories.json"] {
+            let data = try Data(contentsOf: root.appendingPathComponent(path))
+            XCTAssertNoThrow(try decoder.decode(Advisories.self, from: data), path)
+        }
     }
 }
