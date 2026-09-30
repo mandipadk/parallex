@@ -234,9 +234,11 @@ extension InstanceCreator {
         if let home = refreshed.redirectedHome, home == live.redirectedHome {
             let released = Set(live.effectiveSettings.extraPrivateItems ?? [])
                 .subtracting(refreshed.effectiveSettings.extraPrivateItems ?? [])
+                .union(refreshed.pendingRelease ?? []).union(live.pendingRelease ?? [])
                 .subtracting(refreshed.privateHomeItems ?? [])
             releasePrivateItems(released.sorted(), home: URL(fileURLWithPath: home, isDirectory: true))
         }
+        refreshed.pendingRelease = nil
         let copy = URL(fileURLWithPath: manifest.wrapperPath)
         let previous = Paths.stagingDir(slug: manifest.slug).appendingPathComponent("previous-\(UUID().uuidString).app")
         let hadCopy = fm.fileExists(atPath: copy.path)
@@ -885,11 +887,19 @@ public enum InstanceCreator {
         // Items the user kept to the copy and now shares again: the copy's
         // own version goes to the Trash, so its home links to yours there
         // again (not while a refresh is only being prepared: it's in use).
-        if !stage, let redirectHome, let previousHome = previous?.redirectedHome, previousHome == redirectHome {
+        var pendingRelease: [String]?
+        if let redirectHome, let previousHome = previous?.redirectedHome, previousHome == redirectHome {
             let before = Set(previous?.effectiveSettings.extraPrivateItems ?? [])
             let kept = Set(privateHomeItems ?? [])
-            let released = before.subtracting(settings.extraPrivateItems ?? []).subtracting(kept)
-            releasePrivateItems(released.sorted(), home: URL(fileURLWithPath: redirectHome, isDirectory: true))
+            let released = before.subtracting(settings.extraPrivateItems ?? [])
+                .union(previous?.pendingRelease ?? []).subtracting(kept).sorted()
+            if stage {
+                // Whoever puts the refresh in place (Parallex, or the copy's
+                // own launcher) leaves this for later.
+                pendingRelease = released.isEmpty ? nil : released
+            } else {
+                releasePrivateItems(released, home: URL(fileURLWithPath: redirectHome, isDirectory: true))
+            }
         }
         // Guard: the original's data is off limits to a copy with its own
         // Library (the copy's launcher runs it; see `Guard`).
@@ -984,7 +994,7 @@ public enum InstanceCreator {
             output = try BundleBuilder(options: builderOptions).build(spec)
         }
 
-        let manifest = InstanceManifest(
+        var manifest = InstanceManifest(
             name: instanceName,
             slug: slug,
             bundleIdentifier: spec.bundleIdentifier,
@@ -1013,6 +1023,7 @@ public enum InstanceCreator {
             loopbackPorts: cloneRecord?.usesLauncher == true && !loopbackPorts.isEmpty
                 ? Dictionary(uniqueKeysWithValues: loopbackPorts.map { ("\($0.key)", $0.value) }) : nil
         )
+        manifest.pendingRelease = pendingRelease
         try InstanceStore.save(manifest, to: stage ? Paths.stagedManifest(slug: slug) : nil)
 
         return CreateResult(
@@ -1024,6 +1035,20 @@ public enum InstanceCreator {
             notes: notes,
             warnings: output.warnings
         )
+    }
+
+    /// A refresh the copy's launcher put in place left items to release
+    /// (`pendingRelease`): release them, once nothing runs from the copy.
+    public static func finishPendingRelease(_ manifest: InstanceManifest) throws {
+        guard let items = manifest.pendingRelease, !items.isEmpty, let home = manifest.redirectedHome else { return }
+        let lock = try FileLock(URL(fileURLWithPath: Paths.pidFile(slug: manifest.slug).path + ".lock"))
+        defer { lock.release() }
+        guard var live = InstanceStore.load(slug: manifest.slug), live.pendingRelease == manifest.pendingRelease,
+              !Running.isRunning(live), !Running.anythingRunning(inside: live.wrapperPath)
+        else { return }
+        releasePrivateItems(items.filter { !(live.privateHomeItems ?? []).contains($0) }, home: URL(fileURLWithPath: home, isDirectory: true))
+        live.pendingRelease = nil
+        try InstanceStore.save(live)
     }
 
     /// Undo keeping `items` (relative paths) to a copy: its own versions go

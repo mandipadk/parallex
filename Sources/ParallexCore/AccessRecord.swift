@@ -59,10 +59,12 @@ public enum AccessRecord {
 
     /// When recording began: the copy's first launch with a recorder (the
     /// launcher makes the file), or the oldest note if that's earlier.
+    /// (From the record that rolls over only: guard.log keeps what Guard
+    /// kept out for longer than the rest is kept.)
     static func since(for manifest: InstanceManifest, entries: [Entry]) -> Date? {
-        let made = files(slug: manifest.slug).compactMap {
+        let made = files(slug: manifest.slug).filter { $0.lastPathComponent != "guard.log" }.compactMap {
             (try? FileManager.default.attributesOfItem(atPath: $0.path))?[.creationDate] as? Date
         }
-        return (made + entries.map(\.date)).min()
+        return (made + entries.filter { !$0.wasBlocked }.map(\.date)).min()
     }
 }

@@ -943,6 +943,11 @@ final class AppModel {
                 && !maintenanceFailures.contains(entry.id) && !busy.contains(entry.id) && !staging.contains(entry.id)
         }
         stageRefreshes()
+        // Items shared again while a copy ran, now that it doesn't.
+        for entry in entries where !entry.running && !(entry.manifest.pendingRelease ?? []).isEmpty {
+            let manifest = entry.manifest
+            Task.detached(priority: .utility) { try? InstanceCreator.finishPendingRelease(manifest) }
+        }
         guard !due.isEmpty else { return }
         maintaining = true
         Task {

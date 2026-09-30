@@ -40,6 +40,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -217,15 +218,26 @@ static bool first_time(const char *path, uint64_t salt) {
 #define CHECK_EVERY 128
 static unsigned since_check = 0;
 
+// Rolled over by whichever of the copy's processes finds it too long
+// first, under a lock on the file, and only if it's still the one at the
+// path (another may just have rolled it over).
 static void open_log(void) {
     char log_path[PATH_MAX];
     snprintf(log_path, sizeof(log_path), "%saccess.log", instance_dir);
+    log_fd = open(log_path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0600);
     struct stat info;
-    if (stat(log_path, &info) == 0 && info.st_size > log_limit) {
+    if (log_fd < 0 || fstat(log_fd, &info) != 0 || info.st_size <= log_limit) {
+        return;
+    }
+    flock(log_fd, LOCK_EX);
+    struct stat now;
+    if (stat(log_path, &now) == 0 && now.st_ino == info.st_ino) {
         char older[PATH_MAX];
         snprintf(older, sizeof(older), "%s.1", log_path);
         rename(log_path, older);
     }
+    flock(log_fd, LOCK_UN);
+    close(log_fd);
     log_fd = open(log_path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0600);
 }
 

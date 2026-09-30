@@ -214,6 +214,10 @@ public struct InstanceManifest: Codable, Sendable {
     /// The app's single-instance ports and the copy's own for each (see
     /// `LoopbackPorts`), by the app's port as text.
     public var loopbackPorts: [String: Int]?
+    /// Items kept to the copy and shared again while it ran: its own
+    /// versions go once nothing runs from it (see
+    /// `InstanceCreator.finishPendingRelease`).
+    public var pendingRelease: [String]?
 
     public struct CloneRecord: Codable, Sendable, Equatable {
         /// The copy's own bundle identifier.

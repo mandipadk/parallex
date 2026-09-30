@@ -181,9 +181,9 @@ public enum Snapshots {
         let incoming = instance.appendingPathComponent(".restoring-\(snapshot.id)", isDirectory: true)
         let outgoing = instance.appendingPathComponent(".replaced-\(snapshot.id)", isDirectory: true)
         try? fm.removeItem(at: incoming)
-        guard !fm.fileExists(atPath: outgoing.path) else {
-            // Left by a restore that couldn't finish: it may hold data.
-            throw ParallexError("An earlier restore of “\(manifest.name)” didn't finish. Show its data folder and look in \(outgoing.lastPathComponent) before restoring again.")
+        // Left by a restore that couldn't finish: it may hold data.
+        if let leftover = (try? fm.contentsOfDirectory(atPath: instance.path))?.first(where: { $0.hasPrefix(".replaced-") }) {
+            throw ParallexError("An earlier restore of “\(manifest.name)” didn't finish. Show its data folder and look in \(leftover) before restoring again.")
         }
         // What was set aside goes only once it's no longer needed: after a
         // swap, or a clean way back.

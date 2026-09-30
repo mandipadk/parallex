@@ -192,6 +192,25 @@ final class PrivateSuggestionTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.path), "links are removed, never what they lead to")
     }
 
+    /// Shared again while the copy ran, and its launcher put the refresh in
+    /// place: Parallex releases the item once nothing runs from the copy.
+    func testAPendingReleaseIsFinishedLater() throws {
+        let app = try Fixtures.makeApp(named: "Later", bundleID: "com.fake.later", in: tempDir)
+        var request = CreateRequest(appReference: app.path, name: "Later Work", mode: .launchOnly, outputDirectory: outDir)
+        request.cloneApp = true
+        var manifest = try InstanceCreator.create(request, builderOptions: options).manifest
+        let home = URL(fileURLWithPath: try XCTUnwrap(manifest.redirectedHome))
+        let own = home.appendingPathComponent(".config/acme-cloud")
+        try FileManager.default.createDirectory(at: own, withIntermediateDirectories: true)
+        manifest.pendingRelease = [".config/acme-cloud"]
+        try InstanceStore.save(manifest)
+        setenv("PARALLEX_TRASH", tempDir.appendingPathComponent("trash").path, 1)
+        defer { unsetenv("PARALLEX_TRASH") }
+        try InstanceCreator.finishPendingRelease(manifest)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: own.path))
+        XCTAssertNil(InstanceStore.load(slug: manifest.slug)?.pendingRelease)
+    }
+
     /// Before the copy has made its own ~/.config, its home's .config is a
     /// link to yours: sharing an item again must never touch yours.
     func testSharingAgainNeverReachesYourFolderThroughALink() throws {
