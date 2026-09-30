@@ -194,7 +194,9 @@ public enum Presets {
     /// mirrors yours: the app's hidden folders (`~/.<app>`, `~/.config/<app>`
     /// and any it's known to use). Shared tool folders (`.ssh`, `.config`
     /// itself, `.claude`, …) and your documents are never among them.
-    public static func privateHomeItems(for app: AppInfo) -> [String] {
+    /// `extra`: items the user chose to keep private too (only well-formed
+    /// relative paths of plain names count).
+    public static func privateHomeItems(for app: AppInfo, extra: [String] = []) -> [String] {
         var names: [String] = []
         let bundleName = app.infoPlist["CFBundleName"] as? String
         // An executable named after its runtime (VS Code's is "Electron")
@@ -212,6 +214,12 @@ public enum Presets {
         let shared = Set(defaultSharedItems.map { $0.lowercased() })
         for name in names where !OriginalData.sharedDotfolders.contains(name) && OriginalData.isPlainName(name) {
             for item in [".\(name)", ".config/\(name)"] where !items.contains(item) && !shared.contains(item) {
+                items.append(item)
+            }
+        }
+        for item in extra where !items.contains(item) {
+            let parts = item.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+            if !parts.isEmpty, parts.allSatisfy(OriginalData.isPlainName), !parts.contains(".."), parts[0] != "Library" {
                 items.append(item)
             }
         }

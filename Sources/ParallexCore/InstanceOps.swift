@@ -397,7 +397,7 @@ extension InstanceCreator {
         for item in (try? fm.contentsOfDirectory(atPath: from.path)) ?? []
         where !skipped.contains(item) && !item.hasPrefix("custom-icon.") && !item.hasPrefix("Instance.keychain")
             && item != ParallexConfig.stagingFolder && !AccessRecord.fileNames.contains(item)
-            && item != "signin.log" {
+            && item != "signin.log" && item != Snapshots.folderName {
             let target = to.appendingPathComponent(item)
             if fm.fileExists(atPath: target.path) {
                 try fm.removeItem(at: target)
@@ -871,7 +871,7 @@ public enum InstanceCreator {
         // (and what the user shares explicitly). Home mode keeps its promise
         // of a home of its own, shared items aside.
         let privateHomeItems = redirectHome != nil && plan.homeOverride == nil && settings.separateHiddenFolders != false
-            ? Presets.privateHomeItems(for: target).filter { item in
+            ? Presets.privateHomeItems(for: target, extra: settings.extraPrivateItems ?? []).filter { item in
                 !sharedItems.contains { item == $0 || item.hasPrefix($0 + "/") || $0.hasPrefix(item + "/") }
             }
             : nil

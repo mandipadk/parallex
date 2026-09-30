@@ -65,6 +65,15 @@ struct Edit: ParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Keep an own-identity copy's sign-ins in a keychain of its own (on by default for new copies).")
     var separateKeychain: Bool?
 
+    @Option(name: .customLong("private"), help: ArgumentHelp(
+        "Keep one more item in your home (like .config/acme) to an own-identity copy with its own hidden folders. Repeatable.",
+        valueName: "item"
+    ))
+    var addPrivate: [String] = []
+
+    @Option(name: .customLong("no-private"), help: ArgumentHelp("Share an item added with --private again. Repeatable.", valueName: "item"))
+    var removePrivate: [String] = []
+
     @Flag(name: .customLong("guard"), inversion: .prefixedNo, help: "Keep an own-identity copy out of the original's data, even by its full path (on by default).")
     var guardOriginalData: Bool?
 
@@ -152,6 +161,18 @@ struct Edit: ParsableCommand {
         }
         if let guardOriginalData {
             settings.guardOriginalData = guardOriginalData
+        }
+        if !addPrivate.isEmpty || !removePrivate.isEmpty {
+            let normalize = { (item: String) in
+                item.hasPrefix("~/") ? String(item.dropFirst(2)) : item
+            }
+            var items = settings.extraPrivateItems ?? []
+            for item in addPrivate.map(normalize) where !items.contains(item) {
+                items.append(item)
+            }
+            let removed = Set(removePrivate.map(normalize))
+            items.removeAll { removed.contains($0) }
+            settings.extraPrivateItems = items.isEmpty ? nil : items
         }
         if let menuBarIcon {
             settings.menuBarIcon = menuBarIcon ? true : nil

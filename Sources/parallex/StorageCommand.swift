@@ -39,6 +39,10 @@ struct Storage: ParsableCommand {
             for item in report.unused {
                 print("  Unused        \(InstanceStorage.format(item.bytes))  \(Paths.abbreviate(item.url.path))")
             }
+            if report.snapshotBytes > 0 {
+                print("  Snapshots     up to \(InstanceStorage.format(report.snapshotBytes))"
+                    + Term.dim("  (shared with the data until it changes)"))
+            }
             if cleanCaches {
                 let count = try InstanceStorage.trash(report.caches.map(\.url), of: manifest)
                 print("\(Term.green("✓")) Moved \(count) cache folders to the Trash (\(InstanceStorage.format(report.cacheBytes))).")

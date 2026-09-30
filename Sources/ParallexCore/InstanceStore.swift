@@ -75,6 +75,10 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     /// even by its full path: the attempt fails and is recorded. `nil`
     /// means on; `false` turns Guard off.
     public var guardOriginalData: Bool?
+    /// With its own Library and hidden folders: more items in your home
+    /// (relative, like `.config/acme`) that stay the copy's own too, beyond
+    /// those Parallex finds by the app's name (see `PrivateSuggestions`).
+    public var extraPrivateItems: [String]?
 
     public var isClone: Bool { cloneApp == true }
 

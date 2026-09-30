@@ -82,6 +82,14 @@ struct Check: ParsableCommand {
                 print("  \(Paths.abbreviate(path))")
             }
         }
+        let suggestions = PrivateSuggestions.suggestions(for: manifest)
+        if !suggestions.isEmpty {
+            print("\nWritten to through your home (shared with everything else)")
+            for suggestion in suggestions {
+                print("  ~/\(suggestion.item)  " + Term.dim("\(suggestion.writes) writes; keep it to this instance: "
+                    + "parallex edit \"\(manifest.name)\" --private \(suggestion.item)"))
+            }
+        }
         let other = report.findings(in: .other)
         if verbose, !other.isEmpty {
             print("\nOther files in your home folder")

@@ -107,3 +107,71 @@ final class AccessRecordTests: XCTestCase {
         XCTAssertFalse(AccessRecord.exists(for: twin.manifest), "a duplicate starts its own record")
     }
 }
+
+/// Learning from the record: hidden folders of yours a copy writes to
+/// through its home's links are offered to keep to it.
+final class PrivateSuggestionTests: XCTestCase {
+    var tempDir: URL!
+    var outDir: URL!
+    let options = BundleBuilder.Options(registerWithLaunchServices: false)
+    let realHome = FileManager.default.homeDirectoryForCurrentUser.path
+
+    override func setUpWithError() throws {
+        tempDir = try Fixtures.makeTempDirectory("suggest")
+        setenv("PARALLEX_HOME", tempDir.appendingPathComponent("support").path, 1)
+        setenv("PARALLEX_LAUNCHER", Fixtures.launcherBinary.path, 1)
+        setenv("PARALLEX_HOME_LIBRARY", Fixtures.homeLibrary.path, 1)
+        outDir = tempDir.appendingPathComponent("apps", isDirectory: true)
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        unsetenv("PARALLEX_HOME")
+        unsetenv("PARALLEX_LAUNCHER")
+        unsetenv("PARALLEX_HOME_LIBRARY")
+        try? FileManager.default.removeItem(at: tempDir)
+    }
+
+    func testWhichItemAPathBelongsTo() {
+        let home = "/h"
+        XCTAssertEqual(PrivateSuggestions.item(for: "/h/.config/acme/settings.json", home: home), ".config/acme")
+        XCTAssertEqual(PrivateSuggestions.item(for: "/h/.local/share/acme/db", home: home), ".local/share/acme")
+        XCTAssertEqual(PrivateSuggestions.item(for: "/h/.acme/token", home: home), ".acme")
+        XCTAssertNil(PrivateSuggestions.item(for: "/h/.config", home: home))
+        XCTAssertNil(PrivateSuggestions.item(for: "/h/.local/share", home: home))
+        XCTAssertNil(PrivateSuggestions.item(for: "/h/.ssh/known_hosts", home: home), "yours on purpose")
+        XCTAssertNil(PrivateSuggestions.item(for: "/h/.cache/acme/x", home: home))
+        XCTAssertNil(PrivateSuggestions.item(for: "/h/Documents/notes.txt", home: home), "your files")
+        XCTAssertNil(PrivateSuggestions.item(for: "/elsewhere/.acme", home: home))
+    }
+
+    func testWritesThroughTheHomeBecomeSuggestionsAndCanBeKept() throws {
+        let app = try Fixtures.makeApp(named: "Chatty", bundleID: "com.fake.chatty", in: tempDir)
+        var request = CreateRequest(appReference: app.path, name: "Chatty Work", mode: .launchOnly, outputDirectory: outDir)
+        request.cloneApp = true
+        let made = try InstanceCreator.create(request, builderOptions: options)
+        let log = Paths.instanceDir(slug: made.manifest.slug).appendingPathComponent("access.log")
+        let now = Int(Date().timeIntervalSince1970)
+        let lines = [
+            "\(now)\t1\tChatty\twrite\t\(realHome)/.config/acme-cloud/state.json",
+            "\(now)\t1\tChatty\tcreate\t\(realHome)/.config/acme-cloud/cache",
+            "\(now)\t1\tChatty\tread\t\(realHome)/.config/other/x",
+            "\(now)\t1\tChatty\twrite\t\(realHome)/.chatty/own",
+            "\(now)\t1\tChatty\twrite\t\(realHome)/.ssh/known_hosts",
+        ]
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: log)
+
+        let suggestions = PrivateSuggestions.suggestions(for: made.manifest)
+        XCTAssertEqual(suggestions.map(\.item), [".config/acme-cloud"], "reads, the app's own and yours on purpose aren't")
+        XCTAssertEqual(suggestions.first?.writes, 2)
+
+        var settings = made.manifest.effectiveSettings
+        settings.extraPrivateItems = [".config/acme-cloud", "../escape", "Library/Preferences"]
+        let kept = try InstanceCreator.update(made.manifest, InstanceUpdate(settings: settings), builderOptions: options)
+        XCTAssertEqual(kept.manifest.privateHomeItems?.contains(".config/acme-cloud"), true)
+        XCTAssertEqual(kept.manifest.privateHomeItems?.contains("../escape"), false)
+        XCTAssertEqual(kept.manifest.privateHomeItems?.contains("Library/Preferences"), false)
+        XCTAssertEqual(kept.manifest.guardedPaths?.contains("\(realHome)/.config/acme-cloud"), true, "and Guard keeps the copy out of yours")
+        XCTAssertTrue(PrivateSuggestions.suggestions(for: kept.manifest).isEmpty)
+    }
+}

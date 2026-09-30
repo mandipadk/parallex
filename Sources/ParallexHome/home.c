@@ -439,6 +439,8 @@ static CFDictionaryRef translated(CFDictionaryRef query, bool adding, bool *refu
     if (!active || query == NULL) {
         return NULL;
     }
+    // (A request without a class goes through as it is: macOS refuses it
+    // with errSecParam before it reaches any keychain.)
     CFTypeRef kind = CFDictionaryGetValue(query, kSecClass);
     CFTypeRef service = CFDictionaryGetValue(query, kSecAttrService);
     bool generic = kind == NULL || CFEqual(kind, kSecClassGenericPassword);

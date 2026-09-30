@@ -18,6 +18,10 @@ public struct StorageReport: Sendable {
     /// their tools may keep state next to their data.
     public let unused: [Item]
 
+    /// Snapshots (see `Snapshots`), not in the total: they share their
+    /// space with the data until it changes, so this counts some twice.
+    public var snapshotBytes: Int64 = 0
+
     public var cacheBytes: Int64 { caches.reduce(0) { $0 + $1.bytes } }
     public var unusedBytes: Int64 { unused.reduce(0) { $0 + $1.bytes } }
 }
@@ -38,7 +42,9 @@ public enum InstanceStorage {
     public static func report(for manifest: InstanceManifest) -> StorageReport {
         let fm = FileManager.default
         let instanceDir = Paths.instanceDir(slug: manifest.slug)
-        let total = allocatedSize(of: instanceDir)
+        let snapshots = instanceDir.appendingPathComponent(Snapshots.folderName)
+        let snapshotBytes = fm.fileExists(atPath: snapshots.path) ? allocatedSize(of: snapshots) : 0
+        let total = allocatedSize(of: instanceDir) - snapshotBytes
 
         var caches: [StorageReport.Item] = []
         for root in dataRoots(of: manifest) {
@@ -64,11 +70,13 @@ public enum InstanceStorage {
             .map { StorageReport.Item(url: $0, bytes: allocatedSize(of: $0)) }
             .filter { fm.fileExists(atPath: $0.url.path) }
 
-        return StorageReport(
+        var report = StorageReport(
             totalBytes: total,
             caches: caches.filter { $0.bytes > 0 }.sorted { $0.bytes > $1.bytes },
             unused: unused.sorted { $0.bytes > $1.bytes }
         )
+        report.snapshotBytes = snapshotBytes
+        return report
     }
 
     /// Move the given items to the Trash. Refuses while the instance runs

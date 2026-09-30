@@ -18,6 +18,23 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "1.2.0", highlights: [
+            Highlight(
+                symbol: "shield.lefthalf.filled",
+                title: "Guard, and a record to prove it",
+                detail: "A copy with its own Library can't open the original's data, even by its full path, and keeps a record of every file of yours it touches. Verify Isolation now covers a copy's whole life, running or not."
+            ),
+            Highlight(
+                symbol: "clock.arrow.circlepath",
+                title: "Snapshots",
+                detail: "Keep an instance's data and sign-ins as they are, and go back in a moment if something goes wrong. Taking one is instant, and a restore can be undone the same way."
+            ),
+            Highlight(
+                symbol: "arrow.uturn.backward",
+                title: "Sign-ins land in the right copy",
+                detail: "With Parallex Links on, a sign-in started in one copy finishes in that copy, whatever you switched to meanwhile. And when a copy writes to a folder you share, Isolation offers to keep it to that copy."
+            ),
+        ]),
         Release(version: "1.1.0", highlights: [
             Highlight(
                 symbol: "hand.raised",

@@ -53,6 +53,7 @@ struct InstanceDetail: View {
                     throwaway: Throwaway.isPossible(for: entry.manifest) ? $draft.settings.throwaway.orFalse : nil,
                     quitWhenUnused: $draft.settings.quitWhenUnused
                 )
+                SnapshotsSection(entry: entry)
                 StorageSection(entry: entry)
                 AdvancedSection(entry: entry, draft: $draft)
                 RemoveFooter { confirmRemove = true }
@@ -595,6 +596,10 @@ private struct IsolationSection: View {
                     ExplainedToggle(title: option.title, detail: option.detail, isOn: optionBinding(option))
                 }
                 VerifyRow(entry: entry)
+                if entry.manifest.privateHomeItems != nil, draft.settings.separateLibrary != false,
+                   draft.settings.separateHiddenFolders != false {
+                    PrivateItemsRow(entry: entry, draft: $draft)
+                }
             }
         }
     }
@@ -715,6 +720,60 @@ private struct StartFromOriginalRow: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Copies \(items.map(\.label).joined(separator: ", ")). What this instance has there now goes to the Trash. Sign-ins \(entry.targetName) keeps in the keychain may need signing in again.")
+        }
+    }
+}
+
+/// Hidden folders of yours the copy writes to (from its record), offered to
+/// keep to it; and the ones already kept that way, to share again.
+private struct PrivateItemsRow: View {
+    let entry: InstanceEntry
+    @Binding var draft: InstanceDraft
+    @State private var suggestions: [PrivateSuggestions.Suggestion] = []
+
+    private var kept: [String] { draft.settings.extraPrivateItems ?? [] }
+
+    var body: some View {
+        let offered = suggestions.filter { !kept.contains($0.item) }
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            if !offered.isEmpty || !kept.isEmpty {
+                if !offered.isEmpty {
+                    Text("\(entry.name) writes to these folders in your home, which \(entry.targetName) and your other apps share. Keep one to this instance, and it starts over there, on its own.")
+                        .font(Theme.Font.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(offered) { suggestion in
+                    item(
+                        suggestion.item,
+                        detail: "Written \(suggestion.writes == 1 ? "once" : "\(suggestion.writes) times"), last on \(suggestion.lastWritten.formatted(date: .abbreviated, time: .omitted))",
+                        action: "Keep to This Instance"
+                    ) {
+                        draft.settings.extraPrivateItems = kept + [suggestion.item]
+                    }
+                }
+                ForEach(kept, id: \.self) { kept in
+                    item(kept, detail: "Kept to this instance", action: "Share Again") {
+                        let rest = self.kept.filter { $0 != kept }
+                        draft.settings.extraPrivateItems = rest.isEmpty ? nil : rest
+                    }
+                }
+            }
+        }
+        .task(id: "\(entry.id)|\(entry.pid.map(String.init) ?? "-")") {
+            let manifest = entry.manifest
+            suggestions = await Task.detached(priority: .utility) { PrivateSuggestions.suggestions(for: manifest) }.value
+        }
+    }
+
+    private func item(_ path: String, detail: String, action: String, perform: @escaping () -> Void) -> some View {
+        HStack(alignment: .center, spacing: Theme.Space.l) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("~/\(path)").font(Theme.Font.mono)
+                Text(detail).font(Theme.Font.callout).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: Theme.Space.l)
+            Button(action, action: perform).buttonStyle(.secondary)
         }
     }
 }
@@ -1090,6 +1149,119 @@ private struct LaunchSection: View {
 }
 
 // MARK: - Storage
+
+private struct SnapshotsSection: View {
+    let entry: InstanceEntry
+    @Environment(AppModel.self) private var model
+    @State private var snapshots: [Snapshots.Snapshot] = []
+    @State private var label = ""
+    @State private var restoring: Snapshots.Snapshot?
+
+    private var working: Bool { model.busy.contains(entry.id) }
+
+    var body: some View {
+        DetailSection(
+            title: "Snapshots",
+            subtitle: "Keep this instance's data, sign-ins included, as it is now, and come back to it later. Taking one is instant, and it takes no space until the data changes."
+        ) {
+            VStack(alignment: .leading, spacing: Theme.Space.m) {
+                HStack(spacing: Theme.Space.s) {
+                    TextField("What's this one for? (optional)", text: $label)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 280)
+                        .onSubmit(take)
+                    Button("Take Snapshot", action: take)
+                        .buttonStyle(.secondary)
+                        .disabled(entry.running || working)
+                }
+                if entry.running {
+                    Text("Quit \(entry.name) to take or restore a snapshot.")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                if !snapshots.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(snapshots) { snapshot in
+                            row(snapshot)
+                        }
+                    }
+                }
+            }
+        }
+        .task(id: entry.id) { await reload() }
+        .confirmationDialog(
+            "Go back to \(restoring.map(title) ?? "this snapshot")?",
+            isPresented: Binding(get: { restoring != nil }, set: { if !$0 { restoring = nil } }),
+            titleVisibility: .visible,
+            presenting: restoring
+        ) { snapshot in
+            Button("Restore") {
+                model.restoreSnapshot(snapshot, of: entry) { Task { await reload() } }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("\(entry.name)'s data and sign-ins go back to how they were then. What it has now is kept as a snapshot, so you can come back to it.")
+        }
+    }
+
+    private func row(_ snapshot: Snapshots.Snapshot) -> some View {
+        HStack(alignment: .center, spacing: Theme.Space.l) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title(snapshot)).font(Theme.Font.body)
+                Text(detail(snapshot))
+                    .font(Theme.Font.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: Theme.Space.l)
+            Button("Restore…") { restoring = snapshot }
+                .buttonStyle(.secondary)
+                .disabled(entry.running || working)
+            Button {
+                model.deleteSnapshot(snapshot, of: entry) { Task { await reload() } }
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .disabled(working)
+            .help("Move this snapshot to the Trash")
+        }
+        .padding(.vertical, Theme.Space.s)
+    }
+
+    private func title(_ snapshot: Snapshots.Snapshot) -> String {
+        if let label = snapshot.label { return label }
+        return snapshot.reason == .beforeRestore
+            ? "Before a restore" : snapshot.date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private func detail(_ snapshot: Snapshots.Snapshot) -> String {
+        let when = snapshot.date.formatted(date: .abbreviated, time: .shortened)
+        var text = switch (snapshot.reason, snapshot.label) {
+        case (.beforeRestore, _): "Kept for you on \(when)"
+        case (.manual, .some): "Taken \(when)"
+        case (.manual, nil): "Taken by you"
+        }
+        if let version = snapshot.appVersion {
+            text += ", with \(entry.targetName) \(version)"
+        }
+        return text
+    }
+
+    private func take() {
+        guard !entry.running, !working else { return }
+        let text = label.trimmingCharacters(in: .whitespaces)
+        model.takeSnapshot(of: entry, label: text.isEmpty ? nil : text) {
+            label = ""
+            Task { await reload() }
+        }
+    }
+
+    private func reload() async {
+        let manifest = entry.manifest
+        snapshots = await Task.detached(priority: .utility) { Snapshots.list(manifest) }.value
+    }
+}
 
 private struct StorageSection: View {
     let entry: InstanceEntry

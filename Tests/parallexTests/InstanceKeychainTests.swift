@@ -183,6 +183,22 @@ final class InstanceKeychainTests: XCTestCase {
         XCTAssertEqual(try runHelper(of: refreshed.wrapperURL, named: "Steady"), "0 token-1")
     }
 
+    /// A snapshot keeps the copy's keychain with its data: going back to
+    /// one brings back the sign-ins it had then, even after its keychain
+    /// was made anew in between.
+    func testASnapshotBringsBackTheCopysSignIns() throws {
+        let target = try makeTokenApp(named: "Snappy")
+        let result = try makeCopy(of: target, name: "Snappy Work")
+        XCTAssertEqual(try launch(result.wrapperURL, "add"), "0 ")
+        let taken = try Snapshots.take(result.manifest)
+        let keychain = Paths.instanceKeychain(slug: result.manifest.slug).path
+        try FileManager.default.removeItem(atPath: keychain)
+        try FileManager.default.removeItem(atPath: InstanceKeychain.passwordFile(for: keychain))
+        XCTAssertEqual(try launch(result.wrapperURL, "read"), "\(errSecItemNotFound) ", "signed out")
+        try Snapshots.restore(taken, of: result.manifest)
+        XCTAssertEqual(try launch(result.wrapperURL, "read"), "0 token-1")
+    }
+
     /// If its keychain can't be opened, the copy doesn't open: it would
     /// otherwise use your keychain and find the original's sign-ins.
     func testACopyWhoseKeychainWontOpenDoesntOpen() throws {

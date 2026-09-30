@@ -196,6 +196,17 @@ full path (one saved in data copied from the original, say). The attempt
 fails as a sandbox would refuse it, and the check lists it under "Kept out by
 Guard". Turn it off with `parallex edit <name> --no-guard`.
 
+### Snapshots
+
+A snapshot keeps an instance's data as it is now: its data folders, its own
+keychain (so its sign-ins) and a copy's preferences. Take one before trying
+something, and go back to it if it goes wrong: a sign-out you didn't want, an
+app update that changed your setup, an experiment in a work profile. Taking
+one is instant and takes no space until the data moves on from it (APFS
+clones). Restoring one keeps what the instance had as a snapshot too, so a
+restore can be undone. Both work while the instance isn't running, from its
+page in the app or with `parallex snapshot`.
+
 ## Install
 
 **[Download Parallex for Mac](https://github.com/mandipadk/parallex/releases/latest/download/Parallex.dmg)**
@@ -330,6 +341,7 @@ parallex edit <name> [options] [-- replacement extra args]
 parallex repair <name> | --all [--app <path>]
 parallex check <name> [--verbose] [--json]
 parallex storage [<name>] [--clean-caches] [--remove-unused]
+parallex snapshot [list | take [--label <text>] | restore | rename | delete] <name> [<snapshot>]
 parallex links [status | enable [--ask] | disable]
 parallex links web [on | off | status]
 parallex links rule [add <site> <target> | remove <site> | list]

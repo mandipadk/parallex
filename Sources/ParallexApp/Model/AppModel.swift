@@ -1080,6 +1080,33 @@ final class AppModel {
         }
     }
 
+    // MARK: - Snapshots
+
+    func takeSnapshot(of entry: InstanceEntry, label: String?, then completion: @escaping @MainActor () -> Void) {
+        let manifest = entry.manifest
+        perform(on: entry.id, then: { [weak self] in self?.measureStorage(); completion() }) {
+            _ = try Snapshots.take(manifest, label: label)
+        }
+    }
+
+    func restoreSnapshot(
+        _ snapshot: Snapshots.Snapshot, of entry: InstanceEntry, then completion: @escaping @MainActor () -> Void
+    ) {
+        let manifest = entry.manifest
+        perform(on: entry.id, then: { [weak self] in self?.measureStorage(); completion() }) {
+            _ = try Snapshots.restore(snapshot, of: manifest)
+        }
+    }
+
+    func deleteSnapshot(
+        _ snapshot: Snapshots.Snapshot, of entry: InstanceEntry, then completion: @escaping @MainActor () -> Void
+    ) {
+        let manifest = entry.manifest
+        perform(on: entry.id, then: { [weak self] in self?.measureStorage(); completion() }) {
+            try Snapshots.delete(snapshot, of: manifest)
+        }
+    }
+
     // MARK: - Catalog
 
     func loadCatalog() {
