@@ -80,6 +80,12 @@ final class RouterDelegate: NSObject, NSApplicationDelegate {
                 running[manifest.slug] = pid
             }
         }
+        // An instance starting a sign-in: noted, so the link that comes
+        // back finds it (copies with their own Library note it themselves).
+        if SignInRequests.isRequest(url), let sender, let state = SignInRequests.state(in: url),
+           let slug = WebRouting.instance(owning: sender, running: running) {
+            SignInRequests.record(state: state, slug: slug)
+        }
         var target = WebRouting.target(
             for: url,
             sender: sender,
@@ -120,7 +126,11 @@ final class RouterDelegate: NSObject, NSApplicationDelegate {
 
     private func routeSignIn(_ url: URL, scheme: String) {
         let config = LinkRouting.loadConfiguration()
-        let candidates = LinkRouting.candidates(for: scheme, manifests: InstanceStore.loadAll())
+        let manifests = InstanceStore.loadAll()
+        // A sign-in coming back goes to the copy that started it.
+        let candidates = SignInRequests.narrow(
+            LinkRouting.candidates(for: scheme, manifests: manifests), for: url, manifests: manifests
+        )
         let chosen: LinkRouting.Candidate?
         switch candidates.count {
         case 0:

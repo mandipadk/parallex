@@ -151,8 +151,10 @@ Apps finish sign-in by opening a link in their own scheme (`claude://…`,
 `cursor://…`). With several copies of an app running, macOS hands that link to
 an arbitrary one. `parallex links enable` (or **Settings › Links**)
 makes a small background app, *Parallex Links*, the handler for your
-instances' schemes; it passes each link to the copy you used most recently, or
-asks. Apps reclaim their scheme when they start, so keep Parallex.app running
+instances' schemes; it passes each link to the copy that started the sign-in
+(the link carries back the sign-in request's `state`, which a copy with its
+own Library notes when it opens the request, and Parallex Links notes when
+it's your browser), otherwise to the copy you used most recently, or asks. Apps reclaim their scheme when they start, so keep Parallex.app running
 (Settings › Open Parallex at login) — it takes the schemes back.
 
 ### Web links

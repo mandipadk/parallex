@@ -118,6 +118,8 @@ public enum LinkRouting {
         /// Instance name, or the app's name for the original.
         public let name: String
         public let isInstance: Bool
+        /// The instance's slug (nil for the original).
+        public var slug: String? = nil
     }
 
     /// Running copies of the app that owns `scheme`: instances (by pid file
@@ -131,7 +133,7 @@ public enum LinkRouting {
             guard schemes(ofApp: target).contains(scheme) else { continue }
             if let pid = Running.processID(of: manifest) {
                 instancePIDs.insert(pid)
-                result.append(Candidate(pid: pid, name: manifest.name, isInstance: true))
+                result.append(Candidate(pid: pid, name: manifest.name, isInstance: true, slug: manifest.slug))
             }
             if let bundleID = manifest.knownTargetBundleID ?? AppInspectorLite.bundleID(of: target) {
                 originals[bundleID] = target.deletingPathExtension().lastPathComponent
