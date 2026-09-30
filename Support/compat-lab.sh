@@ -5,13 +5,16 @@
 # data. Everything it makes goes in a folder of its own, in a Parallex
 # library of its own, and is removed afterwards.
 #
-#   Support/compat-lab.sh [--install] [--wait SECONDS] [--out FILE] App[=cask] ...
+#   Support/compat-lab.sh [--install] [--wait SECONDS] [--out FILE] [--diagnose DIR] App[=cask] ...
 #
 #   App      the app's name in /Applications ("Visual Studio Code")
 #   =cask    its Homebrew cask, installed first with --install (CI)
 #
 # Writes one JSON object per app to FILE (default: compat-lab.json), and a
-# table to stdout (and to $GITHUB_STEP_SUMMARY in GitHub Actions).
+# table to stdout (and to $GITHUB_STEP_SUMMARY in GitHub Actions). With
+# --diagnose, a copy that quits or crashes leaves DIR/<App>.txt: the system
+# log around its launch, its crash reports, and the original's and the
+# copy's entitlements.
 set -u
 
 here=${0:A:h}
@@ -19,12 +22,14 @@ root=${here:h}
 install=0
 wait_seconds=25
 out=compat-lab.json
+diagnose=""
 apps=()
 while (( $# )); do
   case $1 in
     --install) install=1 ;;
     --wait) shift; wait_seconds=$1 ;;
     --out) shift; out=$1 ;;
+    --diagnose) shift; diagnose=$1 ;;
     *) apps+=("$1") ;;
   esac
   shift
@@ -126,6 +131,7 @@ for spec in "${apps[@]}"; do
     rows+=("| $name | $version | not copied | | $reason |")
     continue
   fi
+  launched=$(date '+%Y-%m-%d %H:%M:%S')
   open -g "$copy"
   sleep "$wait_seconds"
   processes=$(pgrep -f "$copy/" | wc -l | tr -d ' ')
@@ -153,6 +159,28 @@ print(("clean" if report.get("clean") else "leak") + "\t" + str(len(leaks)) + "\
   else result="not checked"
   fi
   emit "app=$name" "version=$version" "result=$result" "processes=$processes" "leaks=$leaks" "blocked=$blocked" "crashes=$crashes"
+  if [[ -n $diagnose && ( $result == quit || $result == crashed ) ]]; then
+    mkdir -p "$diagnose"
+    executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$original/Contents/Info.plist" 2>/dev/null)
+    {
+      print "# $name $version: $result"
+      print "\n## The original's entitlements"
+      codesign -d --entitlements - --xml "$original" 2>&1 | plutil -p - 2>&1
+      print "\n## The copy's signature and entitlements"
+      codesign -dvv "$copy" 2>&1
+      codesign -d --entitlements - --xml "$copy" 2>&1 | plutil -p - 2>&1
+      print "\n## The copy's app, as the launcher starts it"
+      ls -la "$copy/Contents/MacOS" 2>&1
+      print "\n## System log from the launch"
+      /usr/bin/log show --start "$launched" --style compact --predicate \
+        "eventMessage CONTAINS[c] \"$label\" OR eventMessage CONTAINS[c] \"${executable:-$name}\" OR process == \"amfid\" OR subsystem == \"com.apple.MobileFileIntegrity\" OR (process == \"kernel\" AND (eventMessage CONTAINS[c] \"AMFI\" OR eventMessage CONTAINS[c] \"sandbox\" OR eventMessage CONTAINS[c] \"code signature\")) OR process == \"taskgated\" OR process == \"syspolicyd\"" \
+        2>&1 | tail -400
+      print "\n## Crash reports"
+      find "$HOME/Library/Logs/DiagnosticReports" -newer "$started" -type f 2>/dev/null | while read -r report; do
+        grep -q "$label" "$report" 2>/dev/null && { print "### $report"; head -120 "$report"; }
+      done
+    } > "$diagnose/$name.txt" 2>&1
+  fi
   rows+=("| $name | $version | $result | $processes | ${leaks} leaks, ${blocked} kept out by Guard |")
   bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$copy/Contents/Info.plist" 2>/dev/null)
   osascript -e "tell application id \"$bundle_id\" to quit" >/dev/null 2>&1

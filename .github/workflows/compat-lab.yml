@@ -32,7 +32,7 @@ jobs:
         run: swift build
       - name: Lab
         run: |
-          Support/compat-lab.sh --install --wait 30 --out compat-lab.json \
+          Support/compat-lab.sh --install --wait 30 --out compat-lab.json --diagnose diagnostics \
             "Obsidian=obsidian" "Visual Studio Code=visual-studio-code" "Zed=zed" "IINA=iina" \
             "VLC=vlc" "Discord=discord" "Slack=slack" "Spotify=spotify" \
             "Claude=claude" "ChatGPT=chatgpt" "Cursor=cursor" "Notion=notion" "Telegram=telegram" \
@@ -47,6 +47,7 @@ jobs:
             compat-lab.json
             macos.txt
             commit.txt
+            diagnostics/
 
   # Publishes the latest results, alone on the lab-results branch, where the
   # site's compatibility page reads them. Runs nothing but Python and git.
