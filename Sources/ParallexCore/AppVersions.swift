@@ -170,6 +170,7 @@ public enum AppVersions {
         var result = try InstanceCreator.update(
             manifest, InstanceUpdate(settings: settings), builderOptions: builderOptions, keepingSnapshot: snapshot?.id
         ).manifest
+        Telemetry.record("version.changed", ["app": Telemetry.appName(for: manifest)])
         if let snapshot {
             try Snapshots.restore(snapshot, of: result)
             result = InstanceStore.load(slug: result.slug) ?? result

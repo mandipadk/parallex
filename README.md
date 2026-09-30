@@ -443,7 +443,7 @@ parallex import <file.parallex> [--name <name>] [--out <dir>]
 parallex remove <name> [--keep-data]
 parallex doctor <app> [--json]
 parallex report <name> [--print]
-parallex usage                      # the anonymous usage report, as it would be sent
+parallex usage                      # the anonymous usage report, as it would be sent (--no-share: off)
 parallex notices                    # notices from Parallex, signature checked
 ```
 
@@ -553,9 +553,11 @@ month, so active Macs can be counted without an identifier. Updates are
 verified against a key built into the app, and if the server doesn't answer,
 Parallex asks GitHub directly. The server's code is in
 [site/worker](site/worker), and [the privacy page](https://parallex.mandip.dev/privacy)
-lists everything. An anonymous weekly usage report (which apps you copy and how
-those copies do) is sent only if you turn it on in Settings › About;
-`parallex usage` prints it.
+lists everything. A daily anonymous usage report (which well-known apps you
+copy and how those copies do, what fails and where, features in use, and
+Parallex's own crashes, under a random number renewed every 180 days) is on
+unless you turn it off, in the first-run setup, Settings › About or with
+`parallex usage --no-share`; `parallex usage` prints it exactly as it's sent.
 
 **Notices.** When an app update breaks copies, Parallex can say so without
 an update of its own: a signed file (`advisories/advisories.json`, published

@@ -16,6 +16,8 @@ struct OnboardingView: View {
     @State private var choice = OnboardingChoices.initial()
     @State private var finishing = false
     @State private var finishError: String?
+    /// How far this first run got, counted only if it's shared at the end.
+    @State private var steps: Set<String> = []
 
     private let pageCount = 4
 
@@ -42,7 +44,22 @@ struct OnboardingView: View {
             #if DEBUG
             if let debugPage = DebugRoute.onboardingPage { page = debugPage }
             #endif
+            recordStep()
         }
+        .onChange(of: page) { recordStep() }
+    }
+
+    /// How far a first run gets (for the usage report, and only if it's
+    /// shared at the end).
+    private func recordStep() {
+        guard !UserDefaults.standard.bool(forKey: PreferenceKey.onboardingSeen) else { return }
+        let step = switch page {
+        case 0: "welcome"
+        case 2: "first-instance"
+        case pageCount - 1: "privacy"
+        default: "other"
+        }
+        steps.insert(step)
     }
 
     private var pageTransition: AnyTransition {
@@ -121,6 +138,12 @@ struct OnboardingView: View {
         finishing = true
         finishError = nil
         let defaults = UserDefaults.standard
+        Telemetry.setConsent(choice.shareUsage ? .shared : .declined)
+        if choice.shareUsage, !defaults.bool(forKey: PreferenceKey.onboardingSeen) {
+            for step in steps.union(["done"]) {
+                Telemetry.record("onboarding.step", ["step": step])
+            }
+        }
         defaults.set(choice.outlines, forKey: PreferenceKey.tagWindows)
         defaults.set(choice.switcher, forKey: PreferenceKey.switcherHotKey)
         defaults.set(true, forKey: PreferenceKey.onboardingSeen)
@@ -183,6 +206,7 @@ struct OnboardingChoices {
     var routeLinks = true
     var outlines = true
     var switcher = true
+    var shareUsage = true
 
     /// Recommended settings the first time; the current ones on a re-run, so
     /// walking through again never quietly turns things back on.
@@ -194,6 +218,7 @@ struct OnboardingChoices {
         choices.routeLinks = LinkRouting.loadConfiguration().enabled
         choices.outlines = defaults.bool(forKey: PreferenceKey.tagWindows)
         choices.switcher = defaults.bool(forKey: PreferenceKey.switcherHotKey)
+        choices.shareUsage = Telemetry.consent == .shared
         return choices
     }
 }
@@ -530,6 +555,12 @@ private struct SetupPage: View {
                     )
                     divider
                     row("⌃⌥Space switcher", "Jump to any copy or original by name.", $choice.switcher)
+                    divider
+                    row(
+                        "Help improve Parallex",
+                        "Shares anonymous counts and crash reports once a day. Never names, paths or contents.",
+                        $choice.shareUsage
+                    )
                 }
                 .padding(.vertical, 6)
                 .frame(width: 430)

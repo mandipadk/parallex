@@ -510,6 +510,29 @@ public enum InstanceCreator {
         _ request: CreateRequest,
         builderOptions: BundleBuilder.Options = BundleBuilder.Options()
     ) throws -> CreateResult {
+        var facts = [
+            "kind": request.webURL != nil ? "web" : request.cloneApp ? "copy" : "wrapper",
+            "source": Telemetry.source, "step": "inspect",
+        ]
+        do {
+            let result = try create(request, builderOptions: builderOptions, facts: &facts)
+            facts["kind"] = Telemetry.kind(of: result.manifest)
+            facts["step"] = nil
+            Telemetry.record("instance.created", facts.merging(["result": "ok"]) { $1 })
+            return result
+        } catch {
+            Telemetry.record("instance.created", facts.merging(["result": "failed"]) { $1 })
+            throw error
+        }
+    }
+
+    /// `facts`: what's known so far, for the count of instances made (kind,
+    /// framework, a well-known app's bundle ID, and how far it got).
+    private static func create(
+        _ request: CreateRequest,
+        builderOptions: BundleBuilder.Options,
+        facts: inout [String: String]
+    ) throws -> CreateResult {
         let fm = FileManager.default
         var request = request
         if let web = request.webURL {
@@ -527,6 +550,9 @@ public enum InstanceCreator {
         }
         let appURL = try request.webURL != nil ? WebShell.templateApp() : AppResolver.resolve(request.appReference)
         let target = try AppInspector.inspect(appURL)
+        facts["framework"] = target.framework.rawValue
+        facts["app"] = request.webURL == nil && UsageReport.isPublic(target.url.path, bundleID: target.bundleID)
+            ? target.bundleID : "other"
         if request.throwaway, request.cloneApp, target.isSandboxed {
             throw ParallexError("A copy of a sandboxed app can't be a throwaway: it starts without Parallex's launcher, so Parallex can't tell when it has run.")
         }
@@ -605,6 +631,7 @@ public enum InstanceCreator {
             settings.customIconFile = try storeCustomIcon(icon, slug: slug)
         }
 
+        facts["step"] = "build"
         let result = try assemble(
             target: target,
             name: instanceName,

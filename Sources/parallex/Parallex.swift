@@ -32,4 +32,30 @@ struct Parallex: AsyncParsableCommand {
             Repair.self, Remove.self, Doctor.self, Report.self, Usage.self, Notices.self,
         ]
     )
+
+    /// As ArgumentParser runs a command, and counted by which one (for the
+    /// usage report, see `Telemetry`): only its name, never what it was given.
+    static func main() async {
+        do {
+            var command = try parseAsRoot()
+            if let name = topLevel(type(of: command)) {
+                Telemetry.record("cli.command", ["command": name])
+            }
+            if var command = command as? AsyncParsableCommand {
+                try await command.run()
+            } else {
+                try command.run()
+            }
+        } catch {
+            exit(withError: error)
+        }
+    }
+
+    /// The top-level command `command` is, or is under.
+    static func topLevel(_ command: ParsableCommand.Type) -> String? {
+        func holds(_ parent: ParsableCommand.Type) -> Bool {
+            ObjectIdentifier(parent) == ObjectIdentifier(command) || parent.configuration.subcommands.contains(where: holds)
+        }
+        return configuration.subcommands.first(where: holds)?._commandName
+    }
 }

@@ -388,7 +388,7 @@ private struct LinksSettings: View {
 
 private struct AboutSettings: View {
     @Environment(Updater.self) private var updater
-    @AppStorage(PreferenceKey.shareUsage) private var shareUsage = false
+    @State private var shareUsage = Telemetry.consent == .shared
     @State private var showingUsage = false
     @Environment(\.showWhatsNew) private var showWhatsNew
     @Environment(\.checkForUpdates) private var checkForUpdates
@@ -480,8 +480,9 @@ private struct AboutSettings: View {
                 // Sent with the next daily update check, not the moment it's
                 // turned on, so there's time to look at it first.
                 Toggle("Share anonymous usage", isOn: $shareUsage)
+                    .onChange(of: shareUsage) { _, shared in Telemetry.setConsent(shared ? .shared : .declined) }
                 HStack {
-                    Text("Which apps you copy and how those copies do, and which features you use. It helps spot an app update that breaks copies before the bug reports come in.")
+                    Text("Which apps you copy and how those copies do, what fails and where, which features you use, and Parallex's own crashes. It shows which releases and app updates break things, often before anyone has to report it.")
                         .font(Theme.Font.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -491,7 +492,7 @@ private struct AboutSettings: View {
             } header: {
                 Text("Help improve Parallex")
             } footer: {
-                Text("Off unless you turn it on. Once a week, with the next update check. No instance names, paths or identifier; apps are named only if they're well-known or from the App Store.")
+                Text("Once a day, with the update check. Counts under a random number that's renewed every 180 days; never instance names, file names, paths or contents, and apps are named only if they're well-known or from the App Store.")
                     .font(Theme.Font.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
@@ -572,15 +573,15 @@ private struct AboutSettings: View {
 
 // MARK: - Usage preview
 
-/// Exactly what the weekly usage report would send, from this Mac, now.
-private struct UsagePreview: View {
+/// Exactly what the daily usage report would send, from this Mac, now.
+struct UsagePreview: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
             Text("What's sent").font(Theme.Font.title)
-            Text("This is the whole report, as it would go to parallex.mandip.dev today. It's added into counts there; nothing ties it to you.")
+            Text("This is the whole report, as it would go to parallex.mandip.dev today: what this Mac has, and what's happened since the last one. The install number is random and renewed every 180 days; nothing else ties it to you.")
                 .font(Theme.Font.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -603,7 +604,7 @@ private struct UsagePreview: View {
         .padding(Theme.Space.xl)
         .frame(width: 520, height: 520)
         .task {
-            text = await Task.detached { String(decoding: UsageReport.make().json(), as: UTF8.self) }.value
+            text = await Task.detached { String(decoding: Telemetry.json(Telemetry.make(preview: true)), as: UTF8.self) }.value
         }
     }
 }

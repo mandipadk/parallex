@@ -162,6 +162,7 @@ public enum Snapshots {
             instance: instance, id: snapshot.id, record: try encoder.encode(snapshot),
             copyID: manifest.clone?.bundleIdentifier
         )
+        Telemetry.record("snapshot.taken", ["reason": reason.rawValue])
         return snapshot
     }
 
@@ -245,6 +246,7 @@ public enum Snapshots {
             }
         }
         prune(manifest, keeping: snapshot.id)
+        Telemetry.record("snapshot.restored")
         return before
     }
 

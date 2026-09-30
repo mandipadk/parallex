@@ -6,6 +6,7 @@ import SwiftUI
 struct MainWindow: View {
     @Environment(AppModel.self) private var model
     @AppStorage(PreferenceKey.onboardingCompleted) private var onboardingCompleted = false
+    @State private var askingAboutUsage = false
     #if DEBUG
     @Environment(Updater.self) private var updater
     #endif
@@ -16,6 +17,9 @@ struct MainWindow: View {
             WhatsNewView {}
         } else if let phase = DebugRoute.updatePhase {
             UpdateView {}.onAppear { updater.debugShow(phase) }
+        } else if DebugRoute.value == "usageConsent" {
+            UsageConsentSheet()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if DebugRoute.value == "newWorkspace" {
             NewWorkspaceSheet()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -47,6 +51,17 @@ struct MainWindow: View {
         }
         .animation(Theme.Motion.smooth, value: onboardingCompleted)
         .tint(Theme.accent)
+        .sheet(isPresented: $askingAboutUsage) { UsageConsentSheet() }
+        .task(id: onboardingCompleted) {
+            // Once, for people from before sharing was a choice made in
+            // onboarding; after the window has settled.
+            guard onboardingCompleted, Telemetry.consent == .undecided else { return }
+            #if DEBUG
+            guard DebugRoute.value == nil else { return }
+            #endif
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            if Telemetry.consent == .undecided { askingAboutUsage = true }
+        }
     }
 }
 

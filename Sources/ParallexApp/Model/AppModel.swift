@@ -538,8 +538,11 @@ final class AppModel {
         guard let bundleID, let launched,
               let entry = entries.first(where: { $0.manifest.clone?.bundleIdentifier == bundleID })
         else { return }
+        // Its next launch is counted afresh, whichever way it goes.
+        healthyCopies.remove(entry.id)
         guard Date().timeIntervalSince(launched) < Compatibility.quickExitWindow else { return }
         quickExits.insert(entry.id)
+        Telemetry.record("instance.opened", Telemetry.facts(of: entry.manifest).merging(["result": "quit at launch"]) { $1 })
         if let original = entry.manifest.knownTargetBundleID {
             let version = AppCloner.version(of: URL(fileURLWithPath: entry.manifest.targetApp))
             Compatibility.recordQuickExit(bundleID: original, version: version)
@@ -554,6 +557,7 @@ final class AppModel {
             else { continue }
             healthyCopies.insert(entry.id)
             quickExits.remove(entry.id)
+            Telemetry.record("instance.opened", Telemetry.facts(of: entry.manifest).merging(["result": "ran"]) { $1 })
             if let original = entry.manifest.knownTargetBundleID {
                 Compatibility.recordHealthyRun(bundleID: original)
             }
@@ -970,27 +974,38 @@ final class AppModel {
                     continue
                 }
                 let manifest = entry.manifest
+                let copyOutdated = entry.status.problems.contains {
+                    if case .cloneOutdated = $0 { true } else { false }
+                }
+                let started = Date()
                 busy.insert(entry.id)
                 do {
-                    _ = try await Task.detached(priority: .utility) {
+                    let rebuilt = try await Task.detached(priority: .utility) { () -> Bool in
                         // Something (a helper, a launch) still runs from it:
                         // next time, not under it.
                         if manifest.clone != nil, Running.anythingRunning(inside: manifest.wrapperPath) {
-                            return
+                            return false
                         }
                         // A refresh built while it ran takes over in an
                         // instant; otherwise it's rebuilt now.
                         if InstanceCreator.stagedRefreshIsCurrent(for: manifest) {
                             switch try InstanceCreator.installStagedRefreshNow(manifest) {
-                            case .installed, .notNow: return
+                            case .installed, .notNow: return false
                             case .nothing: break
                             }
                         }
                         _ = try InstanceCreator.update(manifest)
+                        return true
                     }.value
                     IconCache.invalidate(manifest.wrapperPath)
+                    if rebuilt, copyOutdated {
+                        Self.recordRefresh(manifest, result: "ok", mode: "now", since: started)
+                    }
                 } catch {
                     maintenanceFailures.insert(entry.id)
+                    if copyOutdated {
+                        Self.recordRefresh(manifest, result: "failed", mode: "now", since: started)
+                    }
                 }
                 busy.remove(entry.id)
             }
@@ -1013,18 +1028,31 @@ final class AppModel {
             let manifest = entry.manifest
             let key = Self.stagingKey(entry)
             staging.insert(entry.id)
+            let started = Date()
             Task {
                 do {
                     try await Task.detached(priority: .utility) {
                         try InstanceCreator.stageRefresh(manifest)
                     }.value
+                    Self.recordRefresh(manifest, result: "ok", mode: "staged", since: started)
                 } catch {
                     stagingFailures.insert(key)
+                    Self.recordRefresh(manifest, result: "failed", mode: "staged", since: started)
                 }
                 staging.remove(entry.id)
                 refresh()
             }
         }
+    }
+
+    /// A copy brought up to its app's version: rebuilt while it wasn't
+    /// running ("now"), or built while it ran to take over when it quits.
+    private static func recordRefresh(_ manifest: InstanceManifest, result: String, mode: String, since started: Date) {
+        var facts = Telemetry.facts(of: manifest)
+        facts["kind"] = nil
+        Telemetry.record("copy.refreshed", facts.merging([
+            "result": result, "mode": mode, "duration": Telemetry.duration(Date().timeIntervalSince(started)),
+        ]) { $1 })
     }
 
     private static func stagingKey(_ entry: InstanceEntry) -> String {

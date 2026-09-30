@@ -21,9 +21,12 @@ enum PreferenceKey {
     static let autoVerify = "autoVerifyIsolation"
     /// The last version whose What's New the user has seen.
     static let lastSeenVersion = "lastSeenVersion"
-    /// Opt-in: send the weekly usage report (off unless turned on).
+    /// Before 1.6: the weekly usage report, opt-in. Read once, to carry the
+    /// choice over (see `TelemetryConsent`); sharing now lives with
+    /// `Telemetry`, where the command-line tool sees it too.
     static let shareUsage = "shareUsage"
-    static let usageLastSent = "usageLastSent"
+    /// When the daily usage report last went out.
+    static let reportLastSent = "reportLastSent"
 }
 
 extension Notification.Name {
@@ -146,10 +149,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if defaults.object(forKey: PreferenceKey.firstUsed) == nil {
             defaults.set(Date(), forKey: PreferenceKey.firstUsed)
         }
+        // Turned off before 1.6 stays off. Everyone else from before is
+        // asked once, those who had the weekly report on included: the
+        // daily one says more.
+        if !Telemetry.hasChosen, defaults.object(forKey: PreferenceKey.shareUsage) as? Bool == false {
+            Telemetry.setConsent(.declined)
+        }
+        Telemetry.firstUsed = defaults.object(forKey: PreferenceKey.firstUsed) as? Date
         if defaults.object(forKey: PreferenceKey.onboardingCompleted) == nil, !model.entries.isEmpty {
             defaults.set(true, forKey: PreferenceKey.onboardingCompleted)
             defaults.set(true, forKey: PreferenceKey.onboardingSeen)
         }
+        CrashReports.shared.start()
         applyPreferences()
         trackTagTargets()
         _ = shortcuts

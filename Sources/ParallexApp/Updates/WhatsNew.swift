@@ -18,6 +18,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "1.6.0", highlights: [
+            Highlight(
+                symbol: "chart.bar.xaxis",
+                title: "A daily report, if you'll share it",
+                detail: "Parallex can now tell its server, once a day, which well-known apps you copy and how they do, what fails and where, and its own crashes, under a random number renewed every 180 days. Never names, paths or contents. It asks first; See What's Sent shows every word."
+            ),
+            Highlight(
+                symbol: "stethoscope",
+                title: "Broken releases caught sooner",
+                detail: "Each release is now judged against the one before it on crashes, updates, refreshes and copies quitting at launch, so a bad one can be paused before it reaches everyone."
+            ),
+        ]),
         Release(version: "1.5.0", highlights: [
             Highlight(
                 symbol: "slider.horizontal.3",

@@ -80,6 +80,9 @@ public enum IsolationCheck {
         report.recordedSince = AccessRecord.since(for: manifest, entries: recorded)
         report.blocked = AccessRecord.blockedPaths(in: recorded)
         Verification.record(manifest, report: report)
+        Telemetry.record("isolation.checked", [
+            "app": Telemetry.appName(for: manifest), "result": report.isClean ? "clean" : "leak",
+        ])
         return report
     }
 

@@ -99,21 +99,24 @@ final class Updater {
         check(userInitiated: false)
     }
 
-    /// The opt-in usage report, at most once a week, after an update check
-    /// got through (so it goes out when the network is up).
-    static func sendUsageIfDue() {
+    /// The usage report (see `Telemetry`), at most once a day while this
+    /// Mac shares usage, after an update check got through (so it goes out
+    /// when the network is up).
+    static func sendReportIfDue() {
+        guard Telemetry.consent == .shared else { return }
         let defaults = UserDefaults.standard
-        guard defaults.bool(forKey: PreferenceKey.shareUsage) else { return }
-        let last = defaults.object(forKey: PreferenceKey.usageLastSent) as? Date
-        if let last, Date().timeIntervalSince(last) < 7 * 86_400 {
+        let last = defaults.object(forKey: PreferenceKey.reportLastSent) as? Date
+        if let last, Date().timeIntervalSince(last) < 20 * 3600 {
             return
         }
         // Marked sent before it goes, so two checks can't both send it; a
         // failed send is tried again with the next check.
-        defaults.set(Date(), forKey: PreferenceKey.usageLastSent)
+        defaults.set(Date(), forKey: PreferenceKey.reportLastSent)
         Task.detached(priority: .utility) {
-            if (try? await UsageReport.make().send()) == nil {
-                UserDefaults.standard.set(last, forKey: PreferenceKey.usageLastSent)
+            do {
+                try await Telemetry.send(Telemetry.make())
+            } catch {
+                UserDefaults.standard.set(last, forKey: PreferenceKey.reportLastSent)
             }
         }
     }
@@ -150,7 +153,7 @@ final class Updater {
                     }
                 }
                 record(checkedAt: Date())
-                Self.sendUsageIfDue()
+                Self.sendReportIfDue()
                 let skipped = UserDefaults.standard.string(forKey: Keys.skipped)
                 if UpdateFeed.isNewer(release.version), userInitiated || release.version != skipped {
                     phase = .available(release)
@@ -198,16 +201,26 @@ final class Updater {
         download?.cancel()
         phase = .downloading(release, progress: 0)
         download = Task {
+            var step = "download"
+            func record(_ result: String) {
+                var facts = ["version": release.version, "result": result]
+                if result != "ok" { facts["step"] = step }
+                Telemetry.record("update.installed", facts)
+            }
             do {
                 let app = try await fetchAndVerify(release)
+                step = "install"
                 phase = .installing(release)
                 try replaceRunningApp(with: app)
+                record("ok")
                 relaunch()
             } catch let error where Self.isCancellation(error) {
                 cleanUp()
+                record("cancelled")
                 phase = .available(release)
             } catch {
                 cleanUp()
+                record("failed")
                 phase = .failed(Self.describe(error))
             }
         }
