@@ -18,6 +18,9 @@ public enum Snapshots {
             case manual
             /// What the instance had before a restore.
             case beforeRestore = "before-restore"
+            /// What a copy had before it moved to another version of its
+            /// app (see `AppVersions`).
+            case beforeRefresh = "before-refresh"
         }
 
         /// Its folder's name.
@@ -41,7 +44,7 @@ public enum Snapshots {
     /// never in a snapshot, and left alone by a restore.
     static func isBookkeeping(_ item: String) -> Bool {
         ["instance.json", "instance.pid", "instance.pid.lock", folderName, ParallexConfig.stagingFolder,
-         "signin.log", ParallexConfig.separationUnavailableMarker].contains(item)
+         "signin.log", ParallexConfig.separationUnavailableMarker, AppVersions.folderName].contains(item)
             || AccessRecord.fileNames.contains(item) || item.hasPrefix("custom-icon.") || item.hasPrefix(".")
     }
 
@@ -93,6 +96,16 @@ public enum Snapshots {
         return snapshot
     }
 
+    /// For callers already holding the instance's launch lock.
+    @discardableResult
+    static func takeWhileLocked(
+        _ manifest: InstanceManifest, label: String?, reason: Snapshot.Reason, now: Date = Date()
+    ) throws -> Snapshot {
+        let snapshot = try capture(manifest, label: label, reason: reason, now: now)
+        prune(manifest)
+        return snapshot
+    }
+
     /// The lock a copy's launcher holds from "is it running?" until it
     /// becomes the app: held, the instance can't start meanwhile.
     private static func launchLock(_ manifest: InstanceManifest) throws -> FileLock {
@@ -113,7 +126,9 @@ public enum Snapshots {
         let id = uniqueID(for: now, in: root)
         let snapshot = Snapshot(
             id: id, date: now, label: label.flatMap { $0.isEmpty ? nil : $0 }, reason: reason,
-            appVersion: AppCloner.version(of: URL(fileURLWithPath: manifest.targetApp))
+            // The version whose data this is: a copy's own, not the app's
+            // in /Applications, which may have moved on already.
+            appVersion: manifest.clone?.sourceVersion ?? AppCloner.version(of: URL(fileURLWithPath: manifest.targetApp))
         )
         // Assembled beside the others under a name `list` skips, then
         // named: a half-taken snapshot is never offered.

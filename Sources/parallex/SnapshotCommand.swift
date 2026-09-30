@@ -36,8 +36,10 @@ struct SnapshotCommand: ParsableCommand {
         if let label = snapshot.label {
             text += "  \(label)"
         }
-        if snapshot.reason == .beforeRestore {
-            text += Term.dim("  before a restore")
+        switch snapshot.reason {
+        case .beforeRestore: text += Term.dim("  before a restore")
+        case .beforeRefresh: text += Term.dim("  kept before an update")
+        case .manual: break
         }
         if let version = snapshot.appVersion {
             text += Term.dim("  app \(version)")

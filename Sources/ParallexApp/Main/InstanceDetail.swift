@@ -26,6 +26,16 @@ struct InstanceDetail: View {
     }
 
     private var baseline: InstanceDraft { InstanceDraft(entry.manifest) }
+
+    private var keepPreviousBinding: Binding<Bool> {
+        Binding(
+            get: { draft.settings.keepPreviousVersion != false },
+            set: { on in
+                let stored = entry.manifest.effectiveSettings.keepPreviousVersion
+                draft.settings.keepPreviousVersion = on ? (stored == nil ? nil : true) : false
+            }
+        )
+    }
     private var hasRebuildChanges: Bool { draft.requiresRebuild(from: baseline, manifest: entry.manifest) }
     private var blockedByRunningCopy: Bool {
         entry.running && (entry.isClone || draft.settings.isClone)
@@ -53,6 +63,9 @@ struct InstanceDetail: View {
                     throwaway: Throwaway.isPossible(for: entry.manifest) ? $draft.settings.throwaway.orFalse : nil,
                     quitWhenUnused: $draft.settings.quitWhenUnused
                 )
+                if entry.isClone, !entry.manifest.isWeb {
+                    VersionsSection(entry: entry, keepPrevious: keepPreviousBinding)
+                }
                 SnapshotsSection(entry: entry)
                 StorageSection(entry: entry)
                 AdvancedSection(entry: entry, draft: $draft)
@@ -1150,6 +1163,123 @@ private struct LaunchSection: View {
 
 // MARK: - Storage
 
+private struct VersionsSection: View {
+    let entry: InstanceEntry
+    @Binding var keepPrevious: Bool
+    @Environment(AppModel.self) private var model
+    @State private var kept: [AppVersions.Kept] = []
+    @State private var goingBack: AppVersions.Kept?
+    @State private var withData: Set<String> = []
+
+    private var working: Bool { model.busy.contains(entry.id) }
+    private var inUse: String? { entry.manifest.clone?.sourceVersion }
+    private var pinned: String? { entry.manifest.effectiveSettings.pinnedVersion }
+    private var current: String { AppCloner.version(of: URL(fileURLWithPath: entry.manifest.targetApp)) }
+
+    var body: some View {
+        DetailSection(
+            title: "Versions",
+            subtitle: "When \(entry.targetName) updates, this copy keeps the version it was on, so it can go back if the update gets in the way, with its data as that version left it."
+        ) {
+            VStack(alignment: .leading, spacing: Theme.Space.m) {
+                if let pinned {
+                    HStack(alignment: .center, spacing: Theme.Space.l) {
+                        Text("Staying on \(pinned) while \(entry.targetName) is \(current).")
+                            .font(Theme.Font.body)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: Theme.Space.l)
+                        Button("Use \(current)") {
+                            model.useVersion(current, of: entry, restoreData: false)
+                        }
+                        .buttonStyle(.secondary)
+                        .disabled(entry.running || working)
+                    }
+                }
+                let others = kept.filter { $0.version != inUse && $0.version != current }
+                if others.isEmpty {
+                    Text("Nothing to go back to yet. The version it's on now is kept for when \(entry.targetName) updates.")
+                        .font(Theme.Font.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(others) { version in row(version) }
+                }
+                if entry.running, pinned != nil || !others.isEmpty {
+                    Text("Quit \(entry.name) to change its version.")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                ExplainedToggle(
+                    title: "Keep the previous version",
+                    detail: "Once \(entry.targetName) updates, the version this copy was on takes space of its own, about the size of the app.",
+                    isOn: $keepPrevious
+                )
+            }
+        }
+        .task(id: "\(entry.id)|\(inUse ?? "-")|\(pinned ?? "-")") { await reload() }
+        .confirmationDialog(
+            "Go back to \(entry.targetName) \(goingBack?.version ?? "")?",
+            isPresented: Binding(get: { goingBack != nil }, set: { if !$0 { goingBack = nil } }),
+            titleVisibility: .visible,
+            presenting: goingBack
+        ) { version in
+            if withData.contains(version.version) {
+                Button("Go Back, with Its Data") {
+                    model.useVersion(version.version, of: entry, restoreData: true)
+                }
+            }
+            Button(withData.contains(version.version) ? "Go Back, Keep Today's Data" : "Go Back") {
+                model.useVersion(version.version, of: entry, restoreData: false)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { version in
+            Text(withData.contains(version.version)
+                 ? "\(entry.name) stays on \(version.version) until you choose otherwise. Its data can go back to how \(version.version) left it; what it has now is kept as a snapshot."
+                 : "\(entry.name) stays on \(version.version) until you choose otherwise. Newer versions may have changed its data in ways \(version.version) doesn't expect.")
+        }
+    }
+
+    private func row(_ version: AppVersions.Kept) -> some View {
+        HStack(alignment: .center, spacing: Theme.Space.l) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(entry.targetName) \(version.version)").font(Theme.Font.body)
+                Text(withData.contains(version.version)
+                     ? "Kept since \(version.keptAt.formatted(date: .abbreviated, time: .omitted)), with its data as it left it"
+                     : "Kept since \(version.keptAt.formatted(date: .abbreviated, time: .omitted))")
+                    .font(Theme.Font.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: Theme.Space.l)
+            Button("Go Back…") { goingBack = version }
+                .buttonStyle(.secondary)
+                .disabled(entry.running || working)
+            if version.version != pinned {
+                Button {
+                    model.removeVersion(version, of: entry) { Task { await reload() } }
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .disabled(working)
+                .help("Move this version to the Trash")
+            }
+        }
+        .padding(.vertical, Theme.Space.s)
+    }
+
+    private func reload() async {
+        let manifest = entry.manifest
+        let (list, restorable) = await Task.detached(priority: .utility) {
+            let list = AppVersions.list(manifest)
+            let restorable = Set(list.map(\.version).filter { AppVersions.snapshotBefore(leaving: $0, of: manifest) != nil })
+            return (list, restorable)
+        }.value
+        kept = list
+        withData = restorable
+    }
+}
+
 private struct SnapshotsSection: View {
     let entry: InstanceEntry
     @Environment(AppModel.self) private var model
@@ -1238,7 +1368,7 @@ private struct SnapshotsSection: View {
     private func detail(_ snapshot: Snapshots.Snapshot) -> String {
         let when = snapshot.date.formatted(date: .abbreviated, time: .shortened)
         var text = switch (snapshot.reason, snapshot.label) {
-        case (.beforeRestore, _): "Kept for you on \(when)"
+        case (.beforeRestore, _), (.beforeRefresh, _): "Kept for you on \(when)"
         case (.manual, .some): "Taken \(when)"
         case (.manual, nil): "Taken by you"
         }

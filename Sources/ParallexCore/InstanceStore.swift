@@ -79,6 +79,12 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     /// (relative, like `.config/acme`) that stay the copy's own too, beyond
     /// those Parallex finds by the app's name (see `PrivateSuggestions`).
     public var extraPrivateItems: [String]?
+    /// Keep the app version a copy was built from when the app updates, so
+    /// the copy can go back to it (see `AppVersions`). `nil` means on.
+    public var keepPreviousVersion: Bool?
+    /// Build the copy from this kept version of its app instead of the one
+    /// in /Applications, and don't refresh it when that one updates.
+    public var pinnedVersion: String?
 
     public var isClone: Bool { cloneApp == true }
 
@@ -134,6 +140,8 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
         rhs.throwawaySince = nil
         lhs.quitWhenUnused = nil
         rhs.quitWhenUnused = nil
+        lhs.keepPreviousVersion = nil
+        rhs.keepPreviousVersion = nil
         if lhs.badgeText == nil && rhs.badgeText == nil {
             lhs.badgeColorHex = nil
             rhs.badgeColorHex = nil

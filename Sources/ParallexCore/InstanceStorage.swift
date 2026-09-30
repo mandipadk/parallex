@@ -21,6 +21,9 @@ public struct StorageReport: Sendable {
     /// Snapshots (see `Snapshots`), not in the total: they share their
     /// space with the data until it changes, so this counts some twice.
     public var snapshotBytes: Int64 = 0
+    /// Kept app versions (see `AppVersions`), not in the total either: the
+    /// one the copy is built from shares its space with the app itself.
+    public var versionBytes: Int64 = 0
 
     public var cacheBytes: Int64 { caches.reduce(0) { $0 + $1.bytes } }
     public var unusedBytes: Int64 { unused.reduce(0) { $0 + $1.bytes } }
@@ -44,7 +47,9 @@ public enum InstanceStorage {
         let instanceDir = Paths.instanceDir(slug: manifest.slug)
         let snapshots = instanceDir.appendingPathComponent(Snapshots.folderName)
         let snapshotBytes = fm.fileExists(atPath: snapshots.path) ? allocatedSize(of: snapshots) : 0
-        let total = allocatedSize(of: instanceDir) - snapshotBytes
+        let versions = instanceDir.appendingPathComponent(AppVersions.folderName)
+        let versionBytes = fm.fileExists(atPath: versions.path) ? allocatedSize(of: versions) : 0
+        let total = allocatedSize(of: instanceDir) - snapshotBytes - versionBytes
 
         var caches: [StorageReport.Item] = []
         for root in dataRoots(of: manifest) {
@@ -76,6 +81,7 @@ public enum InstanceStorage {
             unused: unused.sorted { $0.bytes > $1.bytes }
         )
         report.snapshotBytes = snapshotBytes
+        report.versionBytes = versionBytes
         return report
     }
 

@@ -210,6 +210,24 @@ clones). Restoring one keeps what the instance had as a snapshot too, so a
 restore can be undone. Both work while the instance isn't running, from its
 page in the app or with `parallex snapshot`.
 
+### Going back a version
+
+An own-identity copy is built from its app, so Parallex keeps the version it
+was built from (a clone, free until the app in /Applications updates). When
+an update gets in the way, the copy can go back to the version it was on and
+stay there while the app moves on, and its data can go back too: before a
+copy moves to another version, Parallex takes a snapshot of its data as that
+version left it. From the instance's Versions section, or:
+
+```sh
+parallex versions "Slack Work"                          # what's kept
+parallex versions use "Slack Work" 4.41.105 --with-data  # back, data too
+parallex versions use "Slack Work" --current            # forward again
+```
+
+Staying on an old version means going without its fixes, security ones
+included, so it's meant for getting past a bad update.
+
 ## Install
 
 **[Download Parallex for Mac](https://github.com/mandipadk/parallex/releases/latest/download/Parallex.dmg)**
@@ -345,6 +363,7 @@ parallex repair <name> | --all [--app <path>]
 parallex check <name> [--verbose] [--json]
 parallex storage [<name>] [--clean-caches] [--remove-unused]
 parallex snapshot [list | take [--label <text>] | restore | rename | delete] <name> [<snapshot>]
+parallex versions [list | use [--current] [--with-data] | remove] <name> [<version>]
 parallex links [status | enable [--ask] | disable]
 parallex links web [on | off | status]
 parallex links rule [add <site> <target> | remove <site> | list]

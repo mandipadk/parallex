@@ -39,6 +39,10 @@ struct Storage: ParsableCommand {
             for item in report.unused {
                 print("  Unused        \(InstanceStorage.format(item.bytes))  \(Paths.abbreviate(item.url.path))")
             }
+            if report.versionBytes > 0 {
+                print("  App versions  up to \(InstanceStorage.format(report.versionBytes))"
+                    + Term.dim("  (the one in use is shared with the app itself)"))
+            }
             if report.snapshotBytes > 0 {
                 print("  Snapshots     up to \(InstanceStorage.format(report.snapshotBytes))"
                     + Term.dim("  (shared with the data until it changes)"))

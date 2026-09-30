@@ -84,7 +84,9 @@ public struct InstanceStatus: Sendable {
         if manifest.isWeb {
             return InstanceStatus(pid: Running.processID(of: manifest), problems: problems)
         }
-        if let clone = manifest.clone, fm.fileExists(atPath: manifest.targetApp) {
+        // Pinned to a kept version: the app updating isn't the copy's business.
+        if let clone = manifest.clone, manifest.effectiveSettings.pinnedVersion == nil,
+           fm.fileExists(atPath: manifest.targetApp) {
             let current = AppCloner.version(of: URL(fileURLWithPath: manifest.targetApp))
             if current != clone.sourceVersion {
                 problems.append(.cloneOutdated(copyOf: clone.sourceVersion, original: current))

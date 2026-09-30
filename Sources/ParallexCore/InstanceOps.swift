@@ -113,7 +113,9 @@ extension InstanceCreator {
         guard manifest.clone != nil else {
             throw ParallexError("Only an own-identity copy is refreshed while it runs.")
         }
-        let target = try AppInspector.inspect(try locateTarget(of: manifest))
+        let original = try locateTarget(of: manifest)
+        let pinned = pinnedSource(manifest.effectiveSettings, slug: manifest.slug)
+        let target = try AppInspector.inspect(pinned ?? original)
         if let expected = manifest.knownTargetBundleID, expected != target.bundleID {
             throw ParallexError("\(target.url.path) is \(target.bundleID), but this instance was made for \(expected).")
         }
@@ -129,6 +131,7 @@ extension InstanceCreator {
         Throwaway.normalize(&settings, was: settings)
         _ = try assemble(
             target: target,
+            original: pinned != nil ? original : nil,
             name: manifest.name,
             slug: manifest.slug,
             outputDirectory: copyFolder,
@@ -162,7 +165,7 @@ extension InstanceCreator {
     /// this Parallex (otherwise it's worth building again).
     public static func stagedRefreshIsCurrent(for manifest: InstanceManifest) -> Bool {
         guard let staged = stagedRefresh(of: manifest), let clone = staged.clone else { return false }
-        let target = URL(fileURLWithPath: manifest.targetApp)
+        let target = pinnedSource(manifest.effectiveSettings, slug: manifest.slug) ?? URL(fileURLWithPath: manifest.targetApp)
         return clone.sourceVersion == AppCloner.version(of: target) && staged.parallexVersion == ParallexConfig.version
             && staged.wrapperPath == manifest.wrapperPath
     }
@@ -230,6 +233,12 @@ extension InstanceCreator {
         let lock = try FileLock(URL(fileURLWithPath: Paths.pidFile(slug: manifest.slug).path + ".lock"))
         defer { lock.release() }
         guard !Running.isRunning(live), !Running.anythingRunning(inside: live.wrapperPath) else { return .notNow }
+        // Its data as the version it's leaving left it.
+        if let from = live.clone?.sourceVersion, let to = refreshed.clone?.sourceVersion, from != to,
+           live.redirectedHome != nil {
+            let app = URL(fileURLWithPath: live.targetApp).deletingPathExtension().lastPathComponent
+            _ = try? Snapshots.takeWhileLocked(live, label: "Before moving to \(app) \(to)", reason: .beforeRefresh)
+        }
         // Items shared again while it ran (the refresh was built for that).
         if let home = refreshed.redirectedHome, home == live.redirectedHome {
             let released = Set(live.effectiveSettings.extraPrivateItems ?? [])
@@ -406,7 +415,7 @@ extension InstanceCreator {
         for item in (try? fm.contentsOfDirectory(atPath: from.path)) ?? []
         where !skipped.contains(item) && !item.hasPrefix("custom-icon.") && !item.hasPrefix("Instance.keychain")
             && item != ParallexConfig.stagingFolder && !AccessRecord.fileNames.contains(item)
-            && item != "signin.log" && item != Snapshots.folderName {
+            && item != "signin.log" && item != Snapshots.folderName && item != AppVersions.folderName {
             let target = to.appendingPathComponent(item)
             if fm.fileExists(atPath: target.path) {
                 try fm.removeItem(at: target)
@@ -694,8 +703,14 @@ public enum InstanceCreator {
             throw ParallexError("Quit “\(manifest.name)” first — its copy of the app is replaced by this change.")
         }
 
-        let targetURL = try change.targetApp ?? locateTarget(of: manifest)
-        let target = try AppInspector.inspect(targetURL)
+        let originalURL = try change.targetApp ?? locateTarget(of: manifest)
+        // Pinned to a kept version: built from that (or, if it's gone, from
+        // the app as it is).
+        if settings.pinnedVersion != nil, pinnedSource(settings, slug: manifest.slug) == nil {
+            settings.pinnedVersion = nil
+        }
+        let pinned = pinnedSource(settings, slug: manifest.slug)
+        let target = try AppInspector.inspect(pinned ?? originalURL)
         guard !target.isParallexWrapper else {
             throw ParallexError("'\(target.name)' is itself a Parallex wrapper — choose the original app.")
         }
@@ -737,8 +752,18 @@ public enum InstanceCreator {
         }
         try validateBadge(settings)
 
+        // Moving to another version of its app: first its data as the
+        // version it leaves left it, to go back to.
+        if let clone = manifest.clone, settings.isClone, manifest.redirectedHome != nil,
+           AppCloner.version(of: target.url) != clone.sourceVersion {
+            _ = try? Snapshots.take(
+                manifest, label: "Before moving to \(target.name) \(AppCloner.version(of: target.url))", reason: .beforeRefresh
+            )
+        }
+
         let result = try assemble(
             target: target,
+            original: pinned != nil ? originalURL : nil,
             name: name,
             slug: manifest.slug,
             outputDirectory: outDir,
@@ -814,8 +839,11 @@ public enum InstanceCreator {
     }
 
     /// Build the wrapper and write the manifest for fully-resolved inputs.
+    /// `original`: the app in /Applications, when `target` is a kept
+    /// version of it (a pinned copy is built from that).
     private static func assemble(
         target: AppInfo,
+        original: URL? = nil,
         name instanceName: String,
         slug: String,
         outputDirectory outDir: URL,
@@ -998,7 +1026,7 @@ public enum InstanceCreator {
             name: instanceName,
             slug: slug,
             bundleIdentifier: spec.bundleIdentifier,
-            targetApp: target.url.path,
+            targetApp: (original ?? target.url).path,
             targetBinary: spec.targetBinaryPath,
             // Staged, it's built elsewhere but belongs where the copy is.
             wrapperPath: stage ? outDir.appendingPathComponent("\(instanceName).app").path : output.url.path,
@@ -1024,6 +1052,14 @@ public enum InstanceCreator {
                 ? Dictionary(uniqueKeysWithValues: loopbackPorts.map { ("\($0.key)", $0.value) }) : nil
         )
         manifest.pendingRelease = pendingRelease
+        // The version it's built from, kept to go back to (built from the
+        // app in /Applications; a pinned copy's is kept already).
+        if settings.isClone, original == nil, settings.webURL == nil, settings.throwaway != true {
+            AppVersions.keep(
+                original: target.url, slug: slug, previous: settings.keepPreviousVersion == false ? 0 : 1,
+                pinned: settings.pinnedVersion
+            )
+        }
         try InstanceStore.save(manifest, to: stage ? Paths.stagedManifest(slug: slug) : nil)
 
         return CreateResult(
@@ -1035,6 +1071,13 @@ public enum InstanceCreator {
             notes: notes,
             warnings: output.warnings
         )
+    }
+
+    /// The kept app a copy with these settings is built from, if it's pinned
+    /// to one that's still there.
+    static func pinnedSource(_ settings: InstanceSettings, slug: String) -> URL? {
+        guard settings.isClone, let version = settings.pinnedVersion else { return nil }
+        return AppVersions.app(for: version, slug: slug)
     }
 
     /// A refresh the copy's launcher put in place left items to release

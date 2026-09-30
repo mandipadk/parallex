@@ -18,6 +18,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "1.3.0", highlights: [
+            Highlight(
+                symbol: "arrow.uturn.backward.circle",
+                title: "Go back a version",
+                detail: "A copy keeps the version of its app it was on. If an update gets in the way, go back to it, and stay there while the app moves on. From Versions on the instance's page."
+            ),
+            Highlight(
+                symbol: "clock.arrow.circlepath",
+                title: "With its data as it was",
+                detail: "Before a copy moves to another version, Parallex takes a snapshot of its data, so going back can take the data back too, as that version left it."
+            ),
+        ]),
         Release(version: "1.2.0", highlights: [
             Highlight(
                 symbol: "shield.lefthalf.filled",

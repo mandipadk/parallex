@@ -1085,6 +1085,22 @@ final class AppModel {
         }
     }
 
+    // MARK: - App versions
+
+    func useVersion(_ version: String, of entry: InstanceEntry, restoreData: Bool) {
+        let manifest = entry.manifest
+        perform(on: entry.id, then: { [weak self] in self?.measureStorage() }) {
+            _ = try AppVersions.use(version, for: manifest, restoreData: restoreData)
+        }
+    }
+
+    func removeVersion(_ kept: AppVersions.Kept, of entry: InstanceEntry, then completion: @escaping @MainActor () -> Void) {
+        let manifest = entry.manifest
+        perform(on: entry.id, then: { [weak self] in self?.measureStorage(); completion() }) {
+            try AppVersions.remove(kept, of: manifest)
+        }
+    }
+
     // MARK: - Snapshots
 
     func takeSnapshot(of entry: InstanceEntry, label: String?, then completion: @escaping @MainActor () -> Void) {
