@@ -39,7 +39,9 @@ export function parseLab(body: unknown): LabRun | null {
 export async function latestLab(): Promise<LabRun | null> {
   try {
     const response = await fetch(LAB_URL, {
-      cf: { cacheTtl: 3600, cacheEverything: true },
+      // An hour for the results; a minute for anything else (the branch
+      // missing, say), so it's picked up soon after it appears.
+      cf: { cacheTtlByStatus: { "200-299": 3600, "400-599": 60 }, cacheEverything: true },
       signal: AbortSignal.timeout(3000),
     } as RequestInit)
     if (!response.ok) return null
