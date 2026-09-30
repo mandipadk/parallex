@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The feed Parallex gives an app's Sparkle updater inside a copy: it never
+     has an update, so the vendor's build can't replace the copy (Parallex
+     refreshes copies itself). -->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>No updates</title>
+    <description>Parallex keeps this copy up to date.</description>
+  </channel>
+</rss>

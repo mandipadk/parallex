@@ -109,6 +109,10 @@ public enum AppCloner {
         var requireIdentity = false
     }
 
+    /// The feed a copy's Sparkle gets: never an update (the same address is
+    /// in libparallexhome's updates.m).
+    public static let quietFeedURL = "https://parallex.mandip.dev/no-updates.xml"
+
     /// The Parallex launcher's name inside a copy (its main executable).
     static let launcherName = "parallex-launcher"
 
@@ -206,12 +210,16 @@ public enum AppCloner {
         // Don't let the app's own updater replace the copy with the
         // vendor's build: that restores the original's identity, and with it
         // the original's data. Sparkle accepts such an update whenever its
-        // signature checks out, so the copy gets no feed to check at all
-        // (the key stays: without it, Sparkle refuses to start and says so
-        // at every launch). Parallex refreshes the copy instead.
+        // signature checks out, so the copy's feed is one that never has an
+        // update (Parallex's own, always empty). Not none: some apps read
+        // the feed themselves and stop when it's missing (Telegram does).
+        // The public key stays: without it, Sparkle refuses to start and
+        // says so at every launch. Parallex refreshes the copy instead.
         info["SUEnableAutomaticChecks"] = false
         info["SUAutomaticallyUpdate"] = false
-        info["SUFeedURL"] = nil
+        if info["SUFeedURL"] != nil {
+            info["SUFeedURL"] = Self.quietFeedURL
+        }
         if spec.hideFromDock {
             info["LSUIElement"] = true
         }

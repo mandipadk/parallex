@@ -7,8 +7,10 @@
 // data), and Squirrel, under Electron's autoUpdater, downloads every update
 // in full before refusing it. So inside a copy:
 //
-// - Sparkle (1 and 2): checks do nothing, there is no feed, and "Check for
-//   Updates…" reports it can't check, so its menu item is greyed out.
+// - Sparkle (1 and 2): checks do nothing, the feed is one that never has an
+//   update (not none: some apps use it themselves and stop without one),
+//   and "Check for Updates…" reports it can't check, so its menu item is
+//   greyed out.
 // - Squirrel: the update server always answers "no update" (HTTP 204), so
 //   the app hears it's up to date and nothing is downloaded.
 //
@@ -100,8 +102,9 @@ static void doNothingWith(id self, SEL _cmd, id argument) {
 static BOOL answerNo(id self, SEL _cmd) {
     return NO;
 }
+// The same address AppCloner.quietFeedURL writes into the copy.
 static id noFeed(id self, SEL _cmd) {
-    return nil;
+    return [NSURL URLWithString:@"https://parallex.mandip.dev/no-updates.xml"];
 }
 
 static IMP legacyValidateMenuItem;

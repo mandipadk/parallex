@@ -40,7 +40,8 @@ final class VendorUpdaterTests: XCTestCase {
         request.cloneApp = true
         let copy = try InstanceCreator.create(request, builderOptions: options).wrapperURL
         let plist = try info(copy)
-        XCTAssertNil(plist["SUFeedURL"], "no feed: Sparkle can't find an update to install over the copy")
+        XCTAssertEqual(plist["SUFeedURL"] as? String, AppCloner.quietFeedURL,
+                       "a feed that never has an update, so Sparkle can't install one over the copy, and apps that read it still find one")
         XCTAssertNotNil(plist["SUPublicEDKey"], "kept: without it Sparkle refuses to start and says so at every launch")
         XCTAssertEqual(plist["SUEnableAutomaticChecks"] as? Bool, false)
         XCTAssertEqual(try info(target)["SUFeedURL"] as? String, "https://example.com/appcast.xml", "the original is untouched")
@@ -123,7 +124,7 @@ final class VendorUpdaterTests: XCTestCase {
                 [updater checkForUpdates];
                 [updater checkForUpdatesInBackground];
                 [report addObject:updater.canCheckForUpdates ? @"can-check" : @"cannot-check"];
-                [report addObject:updater.feedURL ? @"has-feed" : @"no-feed"];
+                [report addObject:updater.feedURL.host ?: @"no-feed"];
                 SUUpdater *legacy = [SUUpdater new];
                 [legacy checkForUpdates:nil];
                 [report addObject:legacy.automaticallyChecksForUpdates ? @"legacy-auto" : @"legacy-no-auto"];
@@ -163,7 +164,7 @@ final class VendorUpdaterTests: XCTestCase {
         let app = try makeUpdaterApp(named: "Updaters")
         XCTAssertEqual(
             try run(app, scope: app),
-            "cannot-check no-feed legacy-no-auto parallex-no-update"
+            "cannot-check parallex.mandip.dev legacy-no-auto parallex-no-update"
         )
     }
 
@@ -171,7 +172,7 @@ final class VendorUpdaterTests: XCTestCase {
         let app = try makeUpdaterApp(named: "Outsider")
         XCTAssertEqual(
             try run(app, scope: nil),
-            "sparkle-checked sparkle-background can-check has-feed legacy-checked legacy-auto https"
+            "sparkle-checked sparkle-background can-check example.com legacy-checked legacy-auto https"
         )
     }
 }
