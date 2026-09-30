@@ -207,5 +207,10 @@ export async function retain(env: Env, now = new Date()): Promise<void> {
     env.DB.prepare(`INSERT OR REPLACE INTO mac_totals (day, macs) SELECT day, COUNT(*) FROM mac_days WHERE day < ?1 GROUP BY day`).bind(cutoff),
     env.DB.prepare(`DELETE FROM mac_days WHERE day < ?1`).bind(cutoff),
     env.DB.prepare(`DELETE FROM macs WHERE last_day < ?1`).bind(cutoff),
+    // Reply addresses don't outlive 90 days, dealt with or not; notes dealt
+    // with go 90 days after they were sent.
+    env.DB.prepare(`UPDATE feedback SET contact = NULL WHERE at < ?1 AND contact IS NOT NULL`).bind(cutoff),
+    env.DB.prepare(`DELETE FROM feedback WHERE status = 'done' AND at < ?1`).bind(cutoff),
+    env.DB.prepare(`DELETE FROM alerts_sent WHERE at < ?1`).bind(cutoff),
   ])
 }

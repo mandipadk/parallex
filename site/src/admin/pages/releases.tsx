@@ -66,6 +66,21 @@ export function ReleasesPage({ days }: PageProps) {
                   ? <Button disabled={busy} onClick={() => act({ action: "restore", version: newest })}>Restore</Button>
                   : <Button tone="danger" disabled={busy} onClick={() => act({ action: "pull", version: newest }, `Pull ${newest}? No Mac will be offered it; Macs that have it keep it.`)}>Pull</Button>}
               </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="mr-1 text-[12.5px] text-muted">Hold back from</span>
+                {[...new Set([...data.osToday.map((o) => o.name), ...rollout.heldOS])].sort((a, b) => Number(b) - Number(a)).map((os) => {
+                  const held = steered && rollout.heldOS.includes(os)
+                  const macs = data.osToday.find((o) => o.name === os)?.count ?? 0
+                  return (
+                    <Button key={os} tone={held ? "danger" : "plain"} disabled={busy || pulled}
+                      title={held ? `Macs on macOS ${os} get the release before ${newest}` : `${macs} checks from macOS ${os} in the last 7 days`}
+                      onClick={() => act({ action: held ? "unhold" : "hold", version: newest, percent: os },
+                        held ? undefined : `Hold ${newest} back from macOS ${os}? Those Macs will be offered the release before it.`)}>
+                      macOS {os}{held ? ", held" : ""}
+                    </Button>
+                  )
+                })}
+              </div>
               {newestRow && newestRow.health.reasons.length > 0 && (
                 <ul className="grid gap-1 text-[12.5px] text-muted">{newestRow.health.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
               )}

@@ -44,7 +44,8 @@ export async function runGuardrails(env: Env, ctx: ExecutionContext, now = new D
   switch (decision.action) {
     case "adopt":
       Object.assign(rollout, {
-        version: decision.version, percent: decision.percent, paused: false, pausedBy: undefined, resumedByHand: undefined, changedAt,
+        version: decision.version, percent: decision.percent, paused: false, pausedBy: undefined, resumedByHand: undefined,
+        heldOS: undefined, changedAt,
       })
       message = `${decision.version} goes out to ${decision.percent}% of Macs`
       break
@@ -62,13 +63,17 @@ export async function runGuardrails(env: Env, ctx: ExecutionContext, now = new D
   await alert(env, `Parallex: ${message}`)
 }
 
-/** Post to the alert webhook, if there is one (Slack and Discord both read these fields). */
+/**
+ * Post to the alert webhook, if there is one (Slack and Discord both read
+ * these fields): as plain text, pinging no one, whatever it says.
+ */
 export async function alert(env: Env, text: string): Promise<void> {
   if (!env.ALERT_WEBHOOK) return
+  const plain = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/@(everyone|here|channel)/gi, "@\u200b$1").slice(0, 600)
   await fetch(env.ALERT_WEBHOOK, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, content: text }),
+    body: JSON.stringify({ text: plain, content: plain, allowed_mentions: { parse: [] } }),
   }).catch(() => undefined)
 }
 

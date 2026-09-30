@@ -16,7 +16,10 @@ export async function post(path: string, fields: Record<string, string | number>
   const body = new FormData()
   for (const [key, value] of Object.entries(fields)) body.set(key, String(value))
   const response = await fetch(`/admin/${path}`, { method: "POST", body, headers: { Accept: "application/json" }, credentials: "same-origin" })
-  if (!response.ok) throw new Error(`That didn't work (${response.status}).`)
+  if (!response.ok) {
+    const reason = response.status === 422 ? (await response.text()).slice(0, 200) : ""
+    throw new Error(reason || `That didn't work (${response.status}).`)
+  }
 }
 
 export type Loaded<T> = { data: T | null; error: string | null; loading: boolean; reload: () => void }

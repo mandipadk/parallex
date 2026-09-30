@@ -3,7 +3,7 @@ import { ChevronDown } from "lucide-react"
 import type { AppRow, Apps } from "../../../worker/mission-types"
 import { post, useApi } from "../api"
 import { appLabel, number, percent, plural, rate } from "../format"
-import type { PageProps } from "../main"
+import { draftNotice, type PageProps } from "../main"
 import { Bars, Button, Card, Empty, Loading, PageHead, Problem, Tag } from "../ui"
 
 export function AppsPage({ days }: PageProps) {
@@ -122,9 +122,15 @@ function AppLine({ app, open, toggle, onChange }: { app: AppRow; open: boolean; 
               {app.kinds.length > 0 && <>; {app.kinds.map((k) => `${number(k.count)} ${k.name}`).join(", ")}</>}
               {(app.created[0] + app.created[1]) > 0 && <>; {number(app.created[0])} made, {number(app.created[1])} failed</>}
             </span>
-            {app.listed
-              ? <Button disabled={busy} onClick={() => list("remove")}>Take off the public list</Button>
-              : <Button disabled={busy} onClick={() => list("add")}>Add to the public list</Button>}
+            <span className="flex flex-wrap gap-2">
+              <Button tone={app.flagged ? "primary" : "plain"} onClick={() => draftNotice({
+                bundle: app.app, name: appLabel(app.name, app.app),
+                versions: app.flaggedVersions.length ? app.flaggedVersions.join(", ") : "*", message: "", source: "apps",
+              })}>Draft a notice</Button>
+              {app.listed
+                ? <Button disabled={busy} onClick={() => list("remove")}>Take off the public list</Button>
+                : <Button disabled={busy} onClick={() => list("add")}>Add to the public list</Button>}
+            </span>
           </div>
           {app.versions.length > 0 && (
             <div className="overflow-hidden rounded-xl border bg-surface">

@@ -39,6 +39,18 @@ final class AppWindows {
         }
     }
 
+    /// Something's Off, optionally about one instance.
+    func showFeedback(about slug: String? = nil) {
+        // Open already, but about something else: start over on this one.
+        if slug != nil, let open = panels["feedback"] {
+            open.close()
+            panels["feedback"] = nil
+        }
+        present(id: "feedback", title: "Something's Off") { [weak self] in
+            FeedbackView(onClose: { self?.close("feedback") }, preselected: slug)
+        }
+    }
+
     func showUpdate() {
         let updater = updater
         present(id: "update", title: "Software Update") { [weak self] in

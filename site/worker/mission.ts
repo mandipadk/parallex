@@ -123,12 +123,14 @@ export async function releases(env: Env, ctx: ExecutionContext, days: number, no
     loadRollout(env),
     releaseCounts(env, since),
   ])
-  const [today, adoption, stats, steps] = await db.batch<Row>([
+  const [today, adoption, stats, steps, osToday] = await db.batch<Row>([
     db.prepare(`SELECT version, SUM(count) AS n FROM checks WHERE period = 'day' AND day = ?1 GROUP BY version`).bind(iso(now)),
     db.prepare(`SELECT day, version, SUM(count) AS n FROM checks WHERE period = 'day' AND day >= ?1 GROUP BY day, version ORDER BY day`).bind(since),
     db.prepare(`SELECT key, value FROM stats s WHERE key LIKE 'downloads:%' AND day = (SELECT MAX(day) FROM stats WHERE key = s.key)`),
     db.prepare(`SELECT json_extract(props, '$.step') AS name, SUM(n) AS count FROM events
       WHERE day >= ?1 AND name = 'update.installed' AND json_extract(props, '$.result') = 'failed' GROUP BY 1 ORDER BY count DESC`).bind(since),
+    db.prepare(`SELECT substr(os, 1, instr(os || '.', '.') - 1) AS name, SUM(count) AS count FROM checks
+      WHERE period = 'day' AND day >= ?1 AND os <> 'other' GROUP BY 1 ORDER BY name DESC`).bind(daysAgo(now, 6)),
   ])
   const checksToday = new Map(today.results.map((r) => [str(r.version), num(r.n)]))
   const byDay = new Map<string, Record<string, number>>()
@@ -138,7 +140,11 @@ export async function releases(env: Env, ctx: ExecutionContext, days: number, no
     byDay.set(str(row.day), versions)
   }
   return {
-    rollout: { version: rollout.version ?? "", percent: rollout.percent, paused: rollout.paused, pulled: rollout.pulled, startPercent: rollout.startPercent },
+    rollout: {
+      version: rollout.version ?? "", percent: rollout.percent, paused: rollout.paused, pulled: rollout.pulled,
+      startPercent: rollout.startPercent, heldOS: rollout.heldOS ?? [],
+    },
+    osToday: osToday.results.map((r) => ({ name: str(r.name), count: num(r.count) })),
     published: published.slice(0, 10),
     releases: releaseRows(published, counts, checksToday),
     adoption: Array.from({ length: days }, (_, i) => daysAgo(now, days - 1 - i)).map((day) => ({ day, versions: byDay.get(day) ?? {} })),

@@ -66,6 +66,9 @@ export interface Rollout {
   pausedBy?: "guardrail" | "hand"
   /** A release resumed by hand after a guardrail paused it. */
   resumedByHand?: string
+  /** macOS major versions ("26") the rolled-out release is held back from:
+   *  those Macs get the release before it. */
+  heldOS?: string[]
 }
 
 /** The stored rollout; when it can't be read, releases go out as usual. */
@@ -77,6 +80,7 @@ export async function loadRollout(env: Env): Promise<Rollout> {
       version: stored.version, percent: stored.percent ?? 100, paused: stored.paused ?? false,
       pulled: stored.pulled ?? [], startPercent: stored.startPercent ?? 100,
       changedAt: stored.changedAt, pausedBy: stored.pausedBy, resumedByHand: stored.resumedByHand,
+      heldOS: Array.isArray(stored.heldOS) ? stored.heldOS.filter((v) => typeof v === "string" && /^\d{2}$/.test(v)) : undefined,
     }
   } catch {
     return { percent: 100, paused: false, pulled: [], startPercent: 100 }
@@ -90,7 +94,7 @@ export async function loadRollout(env: Env): Promise<Rollout> {
  * Mac picked at random once; without one (older Parallex, the installer) a
  * Mac waits for the full rollout.
  */
-export function choose(releases: GitHubRelease[], rollout: Rollout, bucket: number | null): GitHubRelease | undefined {
+export function choose(releases: GitHubRelease[], rollout: Rollout, bucket: number | null, os?: string | null): GitHubRelease | undefined {
   const available = releases.filter((r) => !rollout.pulled.includes(versionOf(r)))
   const [newest, previous] = available
   if (!newest) return undefined
@@ -100,6 +104,9 @@ export function choose(releases: GitHubRelease[], rollout: Rollout, bucket: numb
   const steered = versionOf(newest) === rollout.version
   const percent = steered ? rollout.percent : newest === releases[0] ? rollout.startPercent : 100
   if (steered && rollout.paused) return previous ?? newest
+  // Held back from this Mac's macOS.
+  const major = (os ?? "").split(".")[0]
+  if (steered && major && rollout.heldOS?.includes(major)) return previous ?? newest
   if (percent >= 100) return newest
   const included = bucket !== null && bucket < percent
   return included ? newest : previous ?? newest
@@ -114,7 +121,7 @@ export async function latestRelease(request: Request, env: Env, ctx: ExecutionCo
   const [releases, rollout] = await Promise.all([publishedReleases(env, ctx), loadRollout(env)])
   const bucketHeader = request.headers.get("X-Parallex-Bucket")
   const bucket = bucketHeader !== null && /^\d{1,2}$/.test(bucketHeader) ? Number(bucketHeader) : null
-  const chosen = choose(releases, rollout, bucket)
+  const chosen = choose(releases, rollout, bucket, request.headers.get("X-Parallex-OS"))
   // Every release pulled: nothing is offered (the app doesn't ask GitHub
   // instead). No release list at all (GitHub down, nothing kept yet):
   // GitHub's latest as is.

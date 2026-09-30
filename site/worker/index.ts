@@ -6,6 +6,8 @@ import { latestLab } from "./lab"
 import type { Env } from "./env"
 import { latestRelease, loadRollout, publishedReleases, versionOf, type Rollout } from "./feed"
 import { apps, community, crashes, exportCSV, growth, logAction, overview, releases, windowOf } from "./mission"
+import { checkAlerts } from "./alerts"
+import { feedbackAction, feedbackIntake, inbox, noticeAction, notices } from "./inbox"
 import { consider, runGuardrails, setGuardrails } from "./guard"
 import { summarize } from "./summary"
 import { report, retain } from "./report"
@@ -60,10 +62,17 @@ async function changeRollout(env: Env, ctx: ExecutionContext, action: string, ve
       break
     case "share":
       if (![1, 10, 25, 50, 100].includes(percent)) return
-      Object.assign(rollout, { version, percent, paused: false, pausedBy: undefined, changedAt: new Date().toISOString() })
+      Object.assign(rollout, {
+        version, percent, paused: false, pausedBy: undefined, changedAt: new Date().toISOString(),
+        heldOS: rollout.version === version ? rollout.heldOS : undefined,
+      })
       break
     case "pause":
-      Object.assign(rollout, { version, paused: true, pausedBy: "hand", percent: rollout.version === version ? rollout.percent : 100 })
+      Object.assign(rollout, {
+        version, paused: true, pausedBy: "hand", percent: rollout.version === version ? rollout.percent : 100,
+        heldOS: rollout.version === version ? rollout.heldOS : undefined,
+        resumedByHand: rollout.version === version ? rollout.resumedByHand : undefined,
+      })
       break
     case "resume":
       if (rollout.version === version) {
@@ -72,6 +81,23 @@ async function changeRollout(env: Env, ctx: ExecutionContext, action: string, ve
         const overriding = rollout.pausedBy === "guardrail" ? version : rollout.resumedByHand
         Object.assign(rollout, { paused: false, pausedBy: undefined, resumedByHand: overriding, changedAt: new Date().toISOString() })
       }
+      break
+    case "hold": {
+      // Held back from a macOS version: named, so it keeps its share.
+      const os = String(percent)
+      if (!/^\d{2}$/.test(os)) return
+      if (rollout.version !== version) {
+        // A version the rollout didn't name: nothing of the one before carries over.
+        Object.assign(rollout, {
+          version, percent: rollout.startPercent, paused: false, pausedBy: undefined, resumedByHand: undefined, heldOS: [],
+          changedAt: new Date().toISOString(),
+        })
+      }
+      rollout.heldOS = [...new Set([...(rollout.heldOS ?? []), os])].sort()
+      break
+    }
+    case "unhold":
+      if (rollout.version === version) rollout.heldOS = (rollout.heldOS ?? []).filter((v) => v !== String(percent))
       break
     case "pull":
       if (!rollout.pulled.includes(version)) rollout.pulled.push(version)
@@ -84,7 +110,11 @@ async function changeRollout(env: Env, ctx: ExecutionContext, action: string, ve
   }
   await env.DB.prepare(`INSERT INTO settings (key, value) VALUES ('rollout', ?1) ON CONFLICT (key) DO UPDATE SET value = ?1`)
     .bind(JSON.stringify(rollout)).run()
-  await logAction(env, `rollout ${action}`, action === "start" ? `New releases start at ${percent}%` : `${version}${action === "share" ? ` to ${percent}%` : ""}`)
+  const detail = action === "start" ? `New releases start at ${percent}%`
+    : action === "share" ? `${version} to ${percent}%`
+    : action === "hold" || action === "unhold" ? `${version} on macOS ${percent}`
+    : version
+  await logAction(env, `rollout ${action}`, detail)
 }
 
 /** Adding a GitHub report to the public list, or taking it off. Only
@@ -163,6 +193,14 @@ async function admin(request: Request, env: Env, ctx: ExecutionContext, path: st
     await changeRollout(env, ctx, String(form?.get("action") ?? ""), String(form?.get("version") ?? ""), Number(form?.get("percent")))
     return done(request, "/admin#releases")
   }
+  if (path === "/admin/feedback" && request.method === "POST") {
+    await feedbackAction(env, await request.formData().catch(() => null))
+    return done(request, "/admin#inbox")
+  }
+  if (path === "/admin/notice" && request.method === "POST") {
+    const problem = await noticeAction(env, await request.formData().catch(() => null))
+    return problem ? new Response(problem, { status: 422 }) : done(request, "/admin#notices")
+  }
   if (path === "/admin/guardrails" && request.method === "POST") {
     await setGuardrails(env, ctx, await request.formData().catch(() => null))
     return done(request, "/admin#releases")
@@ -194,6 +232,8 @@ async function admin(request: Request, env: Env, ctx: ExecutionContext, path: st
       case "apps": return json(await apps(env, days))
       case "growth": return json(await growth(env, days))
       case "community": return json(await community(env))
+      case "inbox": return json(await inbox(env))
+      case "notices": return json(await notices(env, request))
     }
     return new Response("Not found", { status: 404 })
   }
@@ -218,6 +258,7 @@ export default {
     if (path === "/api/v1/kofi" && request.method === "POST") return kofi(request, env)
     if (path === "/api/v1/usage" && request.method === "POST") return usage(request, env, ctx)
     if (path === "/api/v2/report" && request.method === "POST") return report(request, env, ctx)
+    if (path === "/api/v1/feedback" && request.method === "POST") return feedbackIntake(request, env, ctx)
     if (path === "/api/v1/compatibility" && request.method === "GET") {
       // Worked out at most every ten minutes per data center.
       const key = "https://parallex.mandip.dev/__cache/compatibility"
@@ -244,6 +285,7 @@ export default {
     const hour = new Date(controller.scheduledTime).getUTCHours()
     ctx.waitUntil(Promise.allSettled([
       runGuardrails(env, ctx),
+      checkAlerts(env, ctx),
       hour % 12 === 0 ? collect(env) : Promise.resolve(),
       hour === 0 ? retain(env) : Promise.resolve(),
     ]).then(() => undefined))

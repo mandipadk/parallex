@@ -43,6 +43,8 @@ extension EnvironmentValues {
     @Entry var showWhatsNew: () -> Void = {}
     /// Opens Software Update and checks.
     @Entry var checkForUpdates: () -> Void = {}
+    /// Opens Something's Off.
+    @Entry var showFeedback: () -> Void = {}
 }
 
 @main
@@ -91,6 +93,10 @@ struct ParallexApp: App {
                     delegate.model.chooseArchiveToImport()
                 }
             }
+            CommandGroup(replacing: .help) {
+                Button("Something's Off…") { delegate.windows.showFeedback(about: delegate.model.selection) }
+                Button("How Parallex Works") { NSWorkspace.shared.open(URL(string: "https://parallex.mandip.dev/how-it-works")!) }
+            }
             CommandGroup(after: .windowArrangement) {
                 Button("Switch To…") { delegate.switcher.show() }
                     .keyboardShortcut(" ", modifiers: [.control, .option])
@@ -103,6 +109,7 @@ struct ParallexApp: App {
                 .environment(delegate.updater)
                 .environment(\.showWhatsNew, { delegate.windows.showWhatsNew() })
                 .environment(\.checkForUpdates, { delegate.checkForUpdates() })
+                .environment(\.showFeedback, { delegate.windows.showFeedback() })
         }
 
         MenuBarExtra {
@@ -110,6 +117,7 @@ struct ParallexApp: App {
                 .environment(delegate.model)
                 .environment(delegate.updater)
                 .environment(\.checkForUpdates, { delegate.checkForUpdates() })
+                .environment(\.showFeedback, { delegate.windows.showFeedback() })
                 .capturesWindowOpener()
         } label: {
             MenuBarLabel(model: delegate.model)

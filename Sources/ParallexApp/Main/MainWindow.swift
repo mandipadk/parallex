@@ -19,6 +19,9 @@ struct MainWindow: View {
             UpdateView {}.onAppear { updater.debugShow(phase) }
         } else if DebugRoute.value == "settingsFromMenuBar" {
             SettingsFromMenuBarCheck()
+        } else if DebugRoute.value == "feedback" {
+            FeedbackView(onClose: {})
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if DebugRoute.value == "usageConsent" {
             UsageConsentSheet()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

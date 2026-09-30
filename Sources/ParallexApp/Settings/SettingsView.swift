@@ -392,6 +392,7 @@ private struct AboutSettings: View {
     @State private var showingUsage = false
     @Environment(\.showWhatsNew) private var showWhatsNew
     @Environment(\.checkForUpdates) private var checkForUpdates
+    @Environment(\.showFeedback) private var showFeedback
     @State private var tool = CommandLineTool.status()
     @State private var toolError: String?
 
@@ -488,6 +489,14 @@ private struct AboutSettings: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: Theme.Space.l)
                     Button("See What's Sent") { showingUsage = true }
+                }
+                HStack {
+                    Text("Something's off? Tell Parallex's maker in your own words; it's read by a person.")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: Theme.Space.l)
+                    Button("Something's Off…") { showFeedback() }
                 }
             } header: {
                 Text("Help improve Parallex")

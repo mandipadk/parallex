@@ -19,6 +19,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "1.8.0", highlights: [
+            Highlight(
+                symbol: "exclamationmark.bubble",
+                title: "Something's off? Say so",
+                detail: "Something's Off… in the menu bar, the Help menu and Settings sends a note, in your words, straight to Parallex's maker, with a few facts about the instance it's about. See What's Sent shows every word first."
+            ),
+            Highlight(
+                symbol: "megaphone",
+                title: "Heads-ups sooner",
+                detail: "When an app update breaks copies, a notice can now reach Parallex within hours of it showing up, before a fix does."
+            ),
+        ]),
         Release(version: "1.7.0", highlights: [
             Highlight(
                 symbol: "list.bullet.rectangle",

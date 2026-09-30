@@ -55,7 +55,9 @@ export interface ReleaseRow {
 }
 
 export interface Releases {
-  rollout: { version: string; percent: number; paused: boolean; pulled: string[]; startPercent: number }
+  rollout: { version: string; percent: number; paused: boolean; pulled: string[]; startPercent: number; heldOS: string[] }
+  /** Update checks in the last 7 days by macOS major version, for holds. */
+  osToday: Named[]
   published: string[]
   releases: ReleaseRow[]
   /** Adoption: Macs on each version, per day. */
@@ -139,3 +141,41 @@ export interface Community {
   donations: { kofiCents: number; kofiCount: number; otherCurrencies: string[]; recent: { kind: string; cents: number; currency: string; at: string }[] }
   log: { at: string; action: string; detail: string }[]
 }
+
+export interface Inbox {
+  notes: {
+    id: number
+    at: string
+    status: "new" | "seen" | "done"
+    version: string
+    os: string
+    arch: string
+    kind: string | null
+    app: string | null
+    appVersion: string | null
+    facts: Record<string, unknown>
+    message: string
+    contact: string | null
+  }[]
+  counts: Record<string, number>
+}
+
+export interface Notices {
+  drafts: {
+    id: number
+    created: string
+    status: "draft" | "ready" | "published"
+    bundleID: string
+    name: string
+    versions: string
+    level: "warning" | "unsupported"
+    message: string
+    website: string | null
+    source: string
+    published: string | null
+  }[]
+  /** What Parallex shows now (the signed advisories.json). */
+  live: { bundleID: string; versions?: string; level: string; message: string; website?: string }[]
+  issued: string | null
+}
+

@@ -19,7 +19,7 @@ ZIP := dist/Parallex-$(VERSION).zip
 DMG := dist/Parallex.dmg
 NOTES ?= dist/release-notes.md
 
-.PHONY: advisories deploy-site cask build test bench release install uninstall app app-install dist publish icon clean
+.PHONY: advisories notices deploy-site cask build test bench release install uninstall app app-install dist publish icon clean
 
 build:
 	swift build $(LINK_FLAGS)
@@ -133,6 +133,24 @@ cask:
 
 deploy-site:
 	cd site && pnpm build && pnpm dlx wrangler deploy
+
+# Publish the notices marked ready in Mission Control: merge them into
+# advisories/advisories.json, sign it, deploy the site, and mark them
+# published. Commit advisories/advisories.json afterwards.
+notices:
+	@cd site && pnpm dlx wrangler d1 execute parallex-mission-control --remote --json \
+		--command "SELECT id, bundle_id, versions, level, message, website FROM notice_drafts WHERE status = 'ready' ORDER BY id" \
+		> "$(TMPDIR)parallex-notice-drafts.json"
+	@python3 Support/merge-notices.py "$(TMPDIR)parallex-notice-drafts.json" advisories/advisories.json > "$(TMPDIR)parallex-notice-ids"
+	@if [ ! -s "$(TMPDIR)parallex-notice-ids" ]; then echo "No notices are ready in Mission Control."; rm -f "$(TMPDIR)parallex-notice-"*; exit 0; fi; \
+	$(MAKE) advisories deploy-site && \
+	ids=$$(paste -sd, "$(TMPDIR)parallex-notice-ids") && \
+	cd site && pnpm dlx wrangler d1 execute parallex-mission-control --remote \
+		--command "UPDATE notice_drafts SET status = 'published', published = '$$(date -u +%Y-%m-%dT%H:%M:%SZ)' WHERE id IN ($$ids)" > /dev/null && \
+	echo "Published notices $$ids. Commit advisories/advisories.json."; \
+	status=$$?; rm -f "$(TMPDIR)parallex-notice-"*; \
+	if [ $$status -ne 0 ]; then echo "error: the notices weren't published; undo the merge with: git checkout advisories/advisories.json" >&2; fi; \
+	exit $$status
 
 publish: dist
 	@test -s "$(NOTES)" || { echo "error: write the release notes to $(NOTES) first"; exit 1; }

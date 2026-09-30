@@ -1,29 +1,49 @@
 import { StrictMode, useEffect, useState, type ReactNode } from "react"
 import { createRoot } from "react-dom/client"
-import { Activity, AppWindow, Bug, HeartHandshake, LayoutDashboard, LogOut, Moon, Rocket, Sun, TrendingUp } from "lucide-react"
+import { Activity, AppWindow, Bug, HeartHandshake, Inbox, LayoutDashboard, LogOut, Megaphone, Moon, Rocket, Sun, TrendingUp } from "lucide-react"
 import "./admin.css"
 import { AppsPage } from "./pages/apps"
 import { CommunityPage } from "./pages/community"
 import { CrashesPage } from "./pages/crashes"
 import { GrowthPage } from "./pages/growth"
+import { InboxPage } from "./pages/inbox"
+import { NoticesPage } from "./pages/notices"
 import { OverviewPage } from "./pages/overview"
 import { ReleasesPage } from "./pages/releases"
 import { Segmented } from "./ui"
 
-export type Tab = "overview" | "releases" | "crashes" | "apps" | "growth" | "community"
+export type Tab = "overview" | "releases" | "crashes" | "apps" | "inbox" | "notices" | "growth" | "community"
 export type PageProps = { days: number; go: (tab: Tab) => void }
+
+/** A notice to draft, handed to the Notices page (from Apps or the Inbox). */
+export type DraftSeed = { bundle: string; name: string; versions: string; message: string; source: string }
+
+export function draftNotice(seed: DraftSeed) {
+  // Handed over in the tab's own storage, not the address, so a link can't
+  // fill in a draft.
+  try {
+    sessionStorage.setItem("mc-draft", JSON.stringify(seed))
+  } catch {
+    // Without storage the form starts empty.
+  }
+  location.hash = "/notices"
+  dispatchEvent(new Event("mc-draft"))
+  scrollTo({ top: 0 })
+}
 
 const TABS: { tab: Tab; label: string; icon: ReactNode; page: (props: PageProps) => ReactNode }[] = [
   { tab: "overview", label: "Overview", icon: <LayoutDashboard />, page: (p) => <OverviewPage {...p} /> },
   { tab: "releases", label: "Releases", icon: <Rocket />, page: (p) => <ReleasesPage {...p} /> },
   { tab: "crashes", label: "Crashes", icon: <Bug />, page: (p) => <CrashesPage {...p} /> },
   { tab: "apps", label: "Apps", icon: <AppWindow />, page: (p) => <AppsPage {...p} /> },
+  { tab: "inbox", label: "Inbox", icon: <Inbox />, page: (p) => <InboxPage {...p} /> },
+  { tab: "notices", label: "Notices", icon: <Megaphone />, page: (p) => <NoticesPage {...p} /> },
   { tab: "growth", label: "Growth", icon: <TrendingUp />, page: (p) => <GrowthPage {...p} /> },
   { tab: "community", label: "Community", icon: <HeartHandshake />, page: (p) => <CommunityPage {...p} /> },
 ]
 
 const tabFromHash = (): Tab => {
-  const name = location.hash.replace(/^#\/?/, "")
+  const name = location.hash.replace(/^#\/?/, "").split("?")[0]
   return TABS.some((t) => t.tab === name) ? (name as Tab) : "overview"
 }
 

@@ -11,6 +11,7 @@ struct MenuBarPanel: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(Updater.self) private var updater
     @Environment(\.checkForUpdates) private var checkForUpdates
+    @Environment(\.showFeedback) private var showFeedback
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,6 +68,12 @@ struct MenuBarPanel: View {
                     PanelActionLabel(title: "Settings…", symbol: "gearshape", shortcut: "⌘,")
                 }
                 .buttonStyle(PanelRowButtonStyle())
+                PanelAction(title: "Something's Off…", symbol: "exclamationmark.bubble", shortcut: nil) {
+                    // Opened while the panel keeps Parallex active, so it's in front.
+                    let panel = MenuBarPanelWindow.current
+                    showFeedback()
+                    panel?.close()
+                }
             }
             .padding(6)
             divider

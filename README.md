@@ -559,11 +559,14 @@ copy and how those copies do, what fails and where, features in use, and
 Parallex's own crashes, under a random number renewed every 180 days) is on
 unless you turn it off, in the first-run setup, Settings › About or with
 `parallex usage --no-share`; `parallex usage` prints it exactly as it's sent.
+**Something's Off** (menu bar, Help menu, Settings) sends a note you write,
+with a few facts about the instance it's about, shown in full before Send.
 
 **Notices.** When an app update breaks copies, Parallex can say so without
 an update of its own: a signed file (`advisories/advisories.json`, published
-with `make advisories deploy-site`) that Parallex checks against the key built
-into it before showing anything. **Compatibility:** how apps do as instances,
+with `make advisories deploy-site`, or drafted in Mission Control and published
+with `make notices`) that Parallex checks against the key built into it before
+showing anything. **Compatibility:** how apps do as instances,
 from reports and anonymous usage, is at
 [parallex.mandip.dev/compatibility](https://parallex.mandip.dev/compatibility).
 
