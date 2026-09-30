@@ -74,6 +74,11 @@ static char *guard_text = NULL;
 static const char *guarded[GUARD_SLOTS];
 static size_t guarded_length[GUARD_SLOTS];
 static unsigned guarded_count = 0;
+// Within those, what the copy may use all the same ("!<path>": the
+// original's settings, shared on purpose).
+static const char *allowed[GUARD_SLOTS];
+static size_t allowed_length[GUARD_SLOTS];
+static unsigned allowed_count = 0;
 static char instance_dir[PATH_MAX];
 static size_t instance_length;
 static char home_prefix[PATH_MAX];     // the instance's home, with "/"
@@ -110,7 +115,11 @@ static void prepare_guard(void) {
             *end = '\0';
         }
         size_t length = strlen(entry);
-        if (entry[0] == '/' && length > 1) {
+        if (entry[0] == '!' && entry[1] == '/' && length > 2 && allowed_count < GUARD_SLOTS) {
+            allowed[allowed_count] = entry + 1;
+            allowed_length[allowed_count] = length - 1;
+            allowed_count++;
+        } else if (entry[0] == '/' && length > 1) {
             guarded[guarded_count] = entry;
             guarded_length[guarded_count] = length;
             guarded_count++;
@@ -350,7 +359,21 @@ static bool tidy(const char *path, char *out, size_t size) {
     return true;
 }
 
+// `path` is `entry` or inside it (a folder entry ends in "/").
+static bool under(const char *path, const char *entry, size_t length) {
+    if (entry[length - 1] == '/') {
+        return strncasecmp(path, entry, length) == 0
+            || (strncasecmp(path, entry, length - 1) == 0 && path[length - 1] == '\0');
+    }
+    return strncasecmp(path, entry, length) == 0 && (path[length] == '\0' || path[length] == '/');
+}
+
 static bool guarded_path(const char *path) {
+    for (unsigned index = 0; index < allowed_count; index++) {
+        if (under(path, allowed[index], allowed_length[index])) {
+            return false;
+        }
+    }
     for (unsigned index = 0; index < guarded_count; index++) {
         const char *entry = guarded[index];
         size_t length = guarded_length[index];

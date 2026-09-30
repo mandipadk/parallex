@@ -419,7 +419,7 @@ extension InstanceCreator {
         where !skipped.contains(item) && !item.hasPrefix("custom-icon.") && !item.hasPrefix("Instance.keychain")
             && item != ParallexConfig.stagingFolder && !AccessRecord.fileNames.contains(item)
             && item != "signin.log" && item != Snapshots.folderName && item != AppVersions.folderName
-            && item != Personas.markerFile {
+            && item != Personas.markerFile && item != SettingsLinks.markerFile {
             let target = to.appendingPathComponent(item)
             if fm.fileExists(atPath: target.path) {
                 try fm.removeItem(at: target)
@@ -938,11 +938,23 @@ public enum InstanceCreator {
                 releasePrivateItems(released, home: URL(fileURLWithPath: redirectHome, isDirectory: true))
             }
         }
+        // The original's settings, shared on purpose (editors).
+        let sharedSettings = redirectHome != nil && settings.isClone && settings.shareSettings == true
+            ? SharedSettings.shareable(for: target.bundleID) : []
+        if !stage, let redirectHome, let before = previous?.sharedSettings {
+            let stopped = before.filter { !sharedSettings.contains($0) }
+            if !stopped.isEmpty {
+                SharedSettings.unlink(
+                    stopped, home: URL(fileURLWithPath: redirectHome, isDirectory: true),
+                    realHome: FileManager.default.homeDirectoryForCurrentUser
+                )
+            }
+        }
         // Guard: the original's data is off limits to a copy with its own
         // Library (the copy's launcher runs it; see `Guard`).
         let guardedPaths = redirectHome != nil && settings.isClone && settings.guardOriginalData != false
             ? Guard.locations(
-                for: target, privateHomeItems: privateHomeItems, sharedItems: homeSymlinks,
+                for: target, privateHomeItems: privateHomeItems, sharedItems: homeSymlinks, allowed: sharedSettings,
                 home: FileManager.default.homeDirectoryForCurrentUser.path
             )
             : nil
@@ -997,7 +1009,8 @@ public enum InstanceCreator {
             instanceKeychain: instanceKeychain,
             safeStorageInKeychain: safeStorageInKeychain,
             guardedPaths: guardedPaths,
-            loopbackPorts: loopbackPorts.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" }
+            loopbackPorts: loopbackPorts.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" },
+            sharedSettings: sharedSettings
         )
 
         var notes = plan.notes
@@ -1061,6 +1074,7 @@ public enum InstanceCreator {
                 ? Dictionary(uniqueKeysWithValues: loopbackPorts.map { ("\($0.key)", $0.value) }) : nil
         )
         manifest.pendingRelease = pendingRelease
+        manifest.sharedSettings = cloneRecord?.usesLauncher == true && !sharedSettings.isEmpty ? sharedSettings : nil
         // The version it's built from, kept to go back to (built from the
         // app in /Applications; a pinned copy's is kept already).
         if settings.isClone, original == nil, settings.webURL == nil, settings.throwaway != true {

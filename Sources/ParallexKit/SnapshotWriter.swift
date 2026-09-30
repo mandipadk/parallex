@@ -15,7 +15,7 @@ public enum SnapshotWriter {
     public static let bookkeepingNames: Set<String> = [
         "instance.json", "instance.pid", "instance.pid.lock", folderName, ParallexConfig.stagingFolder,
         "signin.log", ParallexConfig.separationUnavailableMarker, "versions.noindex", "persona.json",
-        "access.log", "access.log.1", "guard.log",
+        "access.log", "access.log.1", "guard.log", SettingsLinks.markerFile,
     ]
 
     public static func isBookkeeping(_ item: String) -> Bool {

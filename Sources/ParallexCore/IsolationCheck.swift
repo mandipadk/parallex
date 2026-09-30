@@ -187,6 +187,9 @@ public enum IsolationCheck {
             for item in manifest.homeSymlinks ?? [] {
                 choice.append(("\(home)/\(item)", "shared into the instance home"))
             }
+            for item in manifest.sharedSettings ?? [] {
+                choice.append(("\(home)/\(item)", "the original's settings, shared on purpose"))
+            }
             // A copy's own hidden folders: in your real home they're the
             // original's (or shared on purpose, when that's turned off).
             if manifest.redirectedHome != nil {

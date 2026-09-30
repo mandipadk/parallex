@@ -46,6 +46,8 @@ struct WrapperSpec {
     var guardedPaths: [String]? = nil
     /// "<app's port>:<copy's own>" (see `LoopbackPorts`).
     var loopbackPorts: [String] = []
+    /// See `SharedSettings`.
+    var sharedSettings: [String] = []
 }
 
 /// Assembles, signs, and registers wrapper bundles. The bundle is built in a
@@ -212,6 +214,9 @@ public struct BundleBuilder {
             }
             if !spec.loopbackPorts.isEmpty {
                 config[ParallexConfig.Key.loopbackPorts] = spec.loopbackPorts
+            }
+            if !spec.sharedSettings.isEmpty {
+                config[ParallexConfig.Key.sharedSettings] = spec.sharedSettings
             }
             if let instanceKeychain = spec.instanceKeychain {
                 config[ParallexConfig.Key.instanceKeychain] = instanceKeychain

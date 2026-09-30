@@ -37,7 +37,7 @@ public enum InstanceArchive {
         for item in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? []
         where item.hasPrefix("Instance.keychain") || item == ParallexConfig.stagingFolder
             || AccessRecord.fileNames.contains(item) || item == "signin.log" || item == Snapshots.folderName
-            || item == AppVersions.folderName || item == Personas.markerFile {
+            || item == AppVersions.folderName || item == Personas.markerFile || item == SettingsLinks.markerFile {
             try? fm.removeItem(at: folder.appendingPathComponent(item))
         }
         InstanceCreator.removeRunState(in: folder)

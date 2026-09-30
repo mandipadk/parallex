@@ -18,6 +18,13 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "1.5.0", highlights: [
+            Highlight(
+                symbol: "slider.horizontal.3",
+                title: "Settings, not accounts",
+                detail: "An editor copy (VS Code, Cursor, Zed, …) can use the original's settings, keybindings, snippets and extensions, kept in step, while its sign-ins and projects stay its own. Share settings in its Isolation section."
+            ),
+        ]),
         Release(version: "1.4.0", highlights: [
             Highlight(
                 symbol: "person.2.badge.key",

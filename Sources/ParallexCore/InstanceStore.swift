@@ -88,6 +88,9 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
     /// Take a snapshot of it once a day, when it isn't running (see
     /// `Snapshots.takeDailyIfDue`). `nil` means off.
     public var dailySnapshots: Bool?
+    /// An editor copy uses the original's settings, keybindings, snippets
+    /// and extensions (see `SharedSettings`). `nil` means off.
+    public var shareSettings: Bool?
 
     public var isClone: Bool { cloneApp == true }
 
@@ -231,6 +234,9 @@ public struct InstanceManifest: Codable, Sendable {
     /// versions go once nothing runs from it (see
     /// `InstanceCreator.finishPendingRelease`).
     public var pendingRelease: [String]?
+    /// What it shares with the original (see `SharedSettings`), relative
+    /// to home.
+    public var sharedSettings: [String]?
 
     public struct CloneRecord: Codable, Sendable, Equatable {
         /// The copy's own bundle identifier.

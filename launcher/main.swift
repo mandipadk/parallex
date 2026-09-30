@@ -484,6 +484,14 @@ if let redirectHome = config[ParallexConfig.Key.redirectHome] as? String,
     } else {
         unsetenv("PARALLEX_GUARD")
     }
+    // The original's settings, shared on purpose (an editor's): the home
+    // links to yours, and stops when sharing does.
+    SettingsLinks.sync(
+        config[ParallexConfig.Key.sharedSettings] as? [String] ?? [],
+        home: URL(fileURLWithPath: redirectHome, isDirectory: true),
+        realHome: URL(fileURLWithPath: realHome, isDirectory: true),
+        instance: URL(fileURLWithPath: redirectHome).deletingLastPathComponent()
+    )
     // In a workspace with a persona: the shells and tools the copy starts
     // get the persona's home (home.c), brought up to date here.
     let personaMarker = URL(fileURLWithPath: redirectHome).deletingLastPathComponent().appendingPathComponent("persona.json")

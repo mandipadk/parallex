@@ -77,6 +77,9 @@ struct Edit: ParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Keep the version of the app an own-identity copy was on when the app updates, to go back to (on by default).")
     var keepPreviousVersion: Bool?
 
+    @Flag(inversion: .prefixedNo, help: "An editor copy uses the original's settings, keybindings, snippets and extensions, kept in step (off by default).")
+    var shareSettings: Bool?
+
     @Flag(inversion: .prefixedNo, help: "Take a snapshot of the instance once a day, when it isn't running (off by default).")
     var dailySnapshots: Bool?
 
@@ -167,6 +170,9 @@ struct Edit: ParsableCommand {
         }
         if let guardOriginalData {
             settings.guardOriginalData = guardOriginalData
+        }
+        if let shareSettings {
+            settings.shareSettings = shareSettings ? true : nil
         }
         if let dailySnapshots {
             settings.dailySnapshots = dailySnapshots ? true : nil

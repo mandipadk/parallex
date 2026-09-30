@@ -91,6 +91,9 @@ public enum ParallexConfig {
         /// in the copy are ports of its own: "<app's>:<copy's>" (see ports.c
         /// in ParallexHome).
         public static let loopbackPorts = "LoopbackPorts"
+        /// Items (relative to home) the copy's home links to yours: the
+        /// original's settings, shared (see SharedSettings in ParallexCore).
+        public static let sharedSettings = "SharedSettings"
         /// The Parallex version that built this instance. A copy's
         /// CFBundleShortVersionString is its app's, so this is what says
         /// whether it has the current launcher.

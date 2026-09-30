@@ -11,8 +11,10 @@ import Foundation
 /// what the user shares on purpose.
 public enum Guard {
     /// Absolute paths; a folder ends in "/".
+    /// `allowed`: paths inside the original's data the copy may use (its
+    /// settings, shared on purpose; see `SharedSettings`), as "!<path>".
     static func locations(
-        for target: AppInfo, privateHomeItems: [String]?, sharedItems: [String] = [], home: String
+        for target: AppInfo, privateHomeItems: [String]?, sharedItems: [String] = [], allowed: [String] = [], home: String
     ) -> [String] {
         let library = home + "/Library"
         var names = [target.url.deletingPathExtension().lastPathComponent]
@@ -49,7 +51,8 @@ public enum Guard {
                    Paths.supportRoot.path.lowercased() + "/"]
         let shared = sharedItems.map { "\(home)/\($0)".lowercased() }
         var seen = Set<String>()
-        return paths.filter { path in
+        let exceptions = allowed.map { "!\(home)/\($0)" }
+        return exceptions + paths.filter { path in
             let folder = (path.hasSuffix("/") ? path : path + "/").lowercased()
             let overlapsOwn = own.contains { $0.hasPrefix(folder) || $0 == folder }
             let overlapsShared = shared.contains { folder.hasPrefix($0 + "/") || ($0 + "/").hasPrefix(folder) }

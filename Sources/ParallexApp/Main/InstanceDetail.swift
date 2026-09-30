@@ -597,6 +597,14 @@ private struct IsolationSection: View {
                             isOn: separateKeychainBinding
                         )
                         .transition(.opacity.combined(with: .move(edge: .top)))
+                        if !SharedSettings.shareable(for: entry.manifest.knownTargetBundleID ?? "").isEmpty {
+                            ExplainedToggle(
+                                title: "Share settings with \(entry.targetName)",
+                                detail: "Its settings, keybindings, snippets and extensions are \(entry.targetName)'s own, kept in step. Sign-ins, open projects and everything else stay this instance's.",
+                                isOn: $draft.settings.shareSettings.orFalse
+                            )
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
                         ExplainedToggle(
                             title: "Guard the original's data",
                             detail: "This instance can't open what \(entry.targetName) keeps in your Library, even by its full path. An attempt fails and shows up under Verify Isolation. It's a safety net for the app's own code, not a sandbox.",

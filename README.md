@@ -212,6 +212,17 @@ page in the app or with `parallex snapshot`. Turn on **Take one every day**
 (or `parallex edit <name> --daily-snapshots`) and Parallex takes one a day
 when the instance isn't running, keeping the last seven.
 
+### Settings, not accounts
+
+An editor copy (VS Code, Cursor, Windsurf, VSCodium, Zed) can use the
+original's settings, keybindings, snippets and extensions: turn on **Share
+settings with …** in its Isolation section, or `parallex edit <name>
+--share-settings`. Its home links those to yours, so they stay in step both
+ways, while its sign-ins, open projects and everything else stay its own.
+What the copy had there waits beside the link and comes back when sharing
+stops. Guard lets the copy use exactly those, and the isolation check lists
+them as shared on purpose.
+
 ### Going back a version
 
 An own-identity copy is built from its app, so Parallex keeps the version it
