@@ -563,6 +563,29 @@ let passedOn = CommandLine.arguments.dropFirst().filter { argument in
     guard let url = URL(string: argument), let scheme = url.scheme?.lowercased() else { return false }
     return (scheme == "http" || scheme == "https") && url.host != nil
 }
-let arguments = (config[ParallexConfig.Key.arguments] as? [String] ?? []) + passedOn
+// 4b. Its workspace's proxy (persona.json, kept by Parallex in the instance
+//     folder): the usual variables for everything, and Chromium's switch
+//     for an app built on it.
+var proxyArguments: [String] = []
+if let pidFile,
+   let data = try? Data(contentsOf: URL(fileURLWithPath: pidFile).deletingLastPathComponent().appendingPathComponent("persona.json")),
+   let marker = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+   let proxy = marker["proxy"] as? String, proxy.contains("://"), !proxy.contains(where: \.isWhitespace) {
+    for name in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"] {
+        setenv(name, proxy, 1)
+        setenv(name.lowercased(), proxy, 1)
+    }
+    let bundles = [Bundle.main.bundleURL.path] + [config[ParallexConfig.Key.targetApp] as? String].compactMap { $0 }
+    let chromium = bundles.contains { bundle in
+        let frameworks = (try? FileManager.default.contentsOfDirectory(atPath: bundle + "/Contents/Frameworks")) ?? []
+        return frameworks.contains { $0 == "Electron Framework.framework" || $0 == "Chromium Embedded Framework.framework"
+            || $0.hasSuffix(" Framework.framework") && ($0.contains("Chrome") || $0.contains("Chromium") || $0.contains("Brave")
+                || $0.contains("Edge") || $0.contains("Vivaldi") || $0.contains("Opera")) }
+    }
+    if chromium {
+        proxyArguments = ["--proxy-server=\(proxy)"]
+    }
+}
+let arguments = (config[ParallexConfig.Key.arguments] as? [String] ?? []) + proxyArguments + passedOn
 log.info("launching \(targetBinary, privacy: .public) with \(arguments.count) argument(s)")
 execTarget(targetBinary, arguments: arguments)

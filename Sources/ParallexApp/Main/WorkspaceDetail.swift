@@ -105,6 +105,7 @@ struct WorkspaceDetail: View {
                 membersSection
                 openingSection
                 identitySection
+                networkSection
                 lookSection
                 footer
             }
@@ -287,6 +288,15 @@ struct WorkspaceDetail: View {
         }
     }
 
+    private var networkSection: some View {
+        DetailSection(
+            title: "Network",
+            subtitle: "A proxy \(workspace.name)'s instances go through, like a client's, or a tunnel of your own. Your other apps don't."
+        ) {
+            ProxyField(workspace: workspace) { value in update { $0.proxy = value } }
+        }
+    }
+
     private var lookSection: some View {
         DetailSection(title: "Color") {
             HStack(alignment: .center, spacing: Theme.Space.l) {
@@ -432,6 +442,48 @@ private struct IdentityTable: View {
                 let theirs = Identities.read(home: Personas.prepare(current))
                 return zip(yours, theirs).map { ($0.tool, $0.identity, $1.identity) }
             }.value
+        }
+    }
+}
+
+private struct ProxyField: View {
+    let workspace: Workspace
+    let save: (String?) -> Void
+    @State private var text = ""
+    @State private var invalid = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: Theme.Space.s) {
+                TextField("None, like http://proxy.example:8080", text: $text)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 360)
+                    .onSubmit(commit)
+                Button(text == (workspace.proxy ?? "") ? "Saved" : "Save", action: commit)
+                    .buttonStyle(.secondary)
+                    .disabled(text == (workspace.proxy ?? ""))
+            }
+            Text(invalid
+                 ? "Use scheme://host:port: http, https or socks5."
+                 : "Chromium and Electron apps use it, and so does what they start. Instances pick it up the next time they open.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(invalid ? Theme.attention : .secondary)
+        }
+        .onAppear { text = workspace.proxy ?? "" }
+        .onChange(of: workspace.proxy) { _, value in text = value ?? "" }
+    }
+
+    private func commit() {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
+            invalid = false
+            save(nil)
+        } else if let normalized = WorkspaceNetwork.normalize(trimmed) {
+            invalid = false
+            text = normalized
+            save(normalized)
+        } else {
+            invalid = true
         }
     }
 }

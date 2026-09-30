@@ -270,6 +270,13 @@ A few tools keep secrets outside `$HOME`, so check how yours do:
 - `includeIf "gitdir:~/…"` rules in your git config see the workspace's home
   as `~`, so they don't match your repositories there.
 
+A workspace can also have a network of its own: a proxy its instances go
+through (a client's, or a tunnel of yours), set in Network on its page or
+with `parallex workspace proxy "Client A" http://proxy.client.example:8080`.
+Chromium and Electron apps in it get `--proxy-server`, and everything its
+instances start, and `parallex run`, gets `HTTP_PROXY`, `HTTPS_PROXY` and
+`ALL_PROXY`. Your other apps don't.
+
 ## Install
 
 **[Download Parallex for Mac](https://github.com/mandipadk/parallex/releases/latest/download/Parallex.dmg)**
@@ -409,7 +416,7 @@ parallex versions [list | use [--current] [--with-data] | remove] <name> [<versi
 parallex links [status | enable [--ask] | disable]
 parallex links web [on | off | status]
 parallex links rule [add <site> <target> | remove <site> | list]
-parallex workspace [list | create | add | remove | open | quit | rename | shortcut | browser | persona | delete]
+parallex workspace [list | create | add | remove | open | quit | rename | shortcut | browser | persona | proxy | delete]
 parallex run <workspace> -- <command> [args]
 parallex shell <workspace>
 parallex duplicate <name> [--name <new name>] [--with-data]

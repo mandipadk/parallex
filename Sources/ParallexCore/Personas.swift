@@ -22,10 +22,13 @@ public enum Personas {
     /// Beside a copy's instance folder's record: which persona its tools use.
     public static let markerFile = "persona.json"
 
+    /// Read by the launcher: the persona its tools use (with `home`), and
+    /// the proxy its workspace goes through (with `proxy`).
     public struct Marker: Codable, Sendable, Equatable {
-        public var home: String
+        public var home: String?
         public var workspace: String
-        public var items: [String]
+        public var items: [String]?
+        public var proxy: String?
     }
 
     public static func home(for workspace: Workspace) -> URL {
@@ -103,6 +106,9 @@ public enum Personas {
         }
         environment["HOME"] = home
         environment["PARALLEX_WORKSPACE"] = workspace.name
+        if let proxy = workspace.proxy {
+            environment.merge(WorkspaceNetwork.environment(proxy: proxy)) { _, new in new }
+        }
         // zsh reads its settings from ZDOTDIR, or HOME: yours, as always.
         if environment["ZDOTDIR"] == nil {
             environment["ZDOTDIR"] = realHomePath()
@@ -148,8 +154,13 @@ public enum Personas {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         for manifest in manifests {
             let url = Paths.instanceDir(slug: manifest.slug).appendingPathComponent(markerFile)
-            if let workspace = workspace(of: manifest.slug, in: workspaces) {
-                let marker = Marker(home: home(for: workspace).path, workspace: workspace.name, items: items(for: workspace))
+            let persona = workspace(of: manifest.slug, in: workspaces)
+            let network = workspaces.first { $0.proxy != nil && $0.members.contains(manifest.slug) }
+            if let named = persona ?? network {
+                let marker = Marker(
+                    home: persona.map { home(for: $0).path }, workspace: named.name,
+                    items: persona.map { items(for: $0) }, proxy: network?.proxy
+                )
                 if let data = try? encoder.encode(marker), (try? Data(contentsOf: url)) != data {
                     try? data.write(to: url, options: .atomic)
                 }

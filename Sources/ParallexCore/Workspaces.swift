@@ -23,6 +23,10 @@ public struct Workspace: Codable, Sendable, Identifiable, Equatable {
     public var persona: Bool? = nil
     /// What's its own in that home; nil: `Personas.defaultItems`.
     public var personaItems: [String]? = nil
+    /// A proxy its instances (and `parallex run`) go through, like
+    /// "http://proxy.client.example:8080" or "socks5://127.0.0.1:1080" (see
+    /// `WorkspaceNetwork`).
+    public var proxy: String? = nil
 
     public init(
         id: UUID = UUID(), name: String, members: [String] = [], shortcut: KeyShortcut? = nil,

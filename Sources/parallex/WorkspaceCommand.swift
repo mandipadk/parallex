@@ -12,7 +12,7 @@ struct WorkspaceCommand: ParsableCommand {
           parallex workspace open Work
           parallex workspace shortcut Work ctrl+opt+w
         """,
-        subcommands: [List.self, Create.self, Add.self, Drop.self, Open.self, Quit.self, Rename.self, Shortcut.self, Browser.self, Persona.self, Delete.self],
+        subcommands: [List.self, Create.self, Add.self, Drop.self, Open.self, Quit.self, Rename.self, Shortcut.self, Browser.self, Persona.self, Proxy.self, Delete.self],
         defaultSubcommand: List.self
     )
 
@@ -24,6 +24,49 @@ struct WorkspaceCommand: ParsableCommand {
         throw ParallexError("No workspace named '\(name)'. " + (names.isEmpty
             ? "Create one with: parallex workspace create <name>"
             : "Existing workspaces: \(names.joined(separator: ", "))"))
+    }
+
+    struct Proxy: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Send a workspace's instances (and parallex run) through a proxy, or stop.",
+            discussion: """
+            Chromium and Electron apps in it get --proxy-server; everything its instances \
+            start, and parallex run, get HTTP_PROXY, HTTPS_PROXY and ALL_PROXY. Instances \
+            pick it up the next time they open.
+
+            Examples:
+              parallex workspace proxy "Client A" http://proxy.client.example:8080
+              parallex workspace proxy "Client A" socks5://127.0.0.1:1080
+              parallex workspace proxy "Client A" off
+            """
+        )
+
+        @Argument(help: "The workspace.")
+        var workspace: String
+
+        @Argument(help: "The proxy (scheme://host:port), or off. Leave out to see it.")
+        var proxy: String?
+
+        mutating func run() throws {
+            var chosen = try WorkspaceCommand.lookup(workspace)
+            if let proxy {
+                let value: String?
+                if proxy == "off" {
+                    value = nil
+                } else {
+                    guard let normalized = WorkspaceNetwork.normalize(proxy) else {
+                        throw ValidationError("That isn't a proxy address: use scheme://host:port, like http://proxy.example:8080.")
+                    }
+                    value = normalized
+                }
+                chosen = try WorkspaceStore.update(id: chosen.id) { $0.proxy = value }
+            }
+            if let current = chosen.proxy {
+                print("\(Term.bold(chosen.name)) goes through \(current).")
+            } else {
+                print("\(Term.bold(chosen.name)) goes straight out, like the rest of your Mac.")
+            }
+        }
     }
 
     struct Persona: ParsableCommand {
