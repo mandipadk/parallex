@@ -94,6 +94,10 @@ public enum ParallexConfig {
         /// Items (relative to home) the copy's home links to yours: the
         /// original's settings, shared (see SharedSettings in ParallexCore).
         public static let sharedSettings = "SharedSettings"
+        /// Everything of the app's that could be shared: any link to yours
+        /// among them that isn't in `sharedSettings` is undone (after a
+        /// snapshot brought one back, say).
+        public static let shareableSettings = "ShareableSettings"
         /// The Parallex version that built this instance. A copy's
         /// CFBundleShortVersionString is its app's, so this is what says
         /// whether it has the current launcher.

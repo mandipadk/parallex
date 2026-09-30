@@ -221,7 +221,9 @@ settings with …** in its Isolation section, or `parallex edit <name>
 ways, while its sign-ins, open projects and everything else stay its own.
 What the copy had there waits beside the link and comes back when sharing
 stops. Guard lets the copy use exactly those, and the isolation check lists
-them as shared on purpose.
+them as shared on purpose. Keep Settings Sync off in a copy that shares: a
+sync signed in there would write its account's settings and extensions into
+yours. Only the default profile's settings are shared.
 
 ### Going back a version
 

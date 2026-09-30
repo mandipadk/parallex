@@ -194,7 +194,7 @@ static void set_up_now(void) {
         safe_storage_own = own != NULL && strcmp(own, "1") == 0;
     }
     const char *guarded = getenv("PARALLEX_GUARD");
-    if (guarded != NULL && guarded[0] == '/') {
+    if (guarded != NULL && (guarded[0] == '/' || guarded[0] == '!')) {
         guarded_paths = strdup(guarded);
     }
     const char *ports = getenv("PARALLEX_LOOPBACK_PORTS");

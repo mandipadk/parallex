@@ -161,6 +161,20 @@ final class GuardTests: XCTestCase {
         XCTAssertFalse(AccessRecord.entries(for: result.manifest).contains { !$0.wasBlocked && $0.path.hasPrefix(originalData) })
     }
 
+    /// Sharing settings lets the copy use exactly those, and Guard stays on
+    /// for everything else of the original's.
+    func testSharedSettingsAreTheOnlyWayIn() throws {
+        setenv("PARALLEX_SHAREABLE_FOR", "com.fake.guarded=Library/Application Support/Guarded/Shared", 1)
+        defer { unsetenv("PARALLEX_SHAREABLE_FOR") }
+        let made = try makeCopy()
+        var settings = made.manifest.effectiveSettings
+        settings.shareSettings = true
+        let result = try InstanceCreator.update(made.manifest, InstanceUpdate(settings: settings), builderOptions: options)
+        XCTAssertEqual(try run(result.wrapperURL, [
+            "open:\(originalData)/Shared/settings.json", "open:\(originalData)/Cookies",
+        ]), ["\(ENOENT)", "\(EPERM)", "own:1"])
+    }
+
     func testGuardCanBeTurnedOff() throws {
         let made = try makeCopy()
         var settings = made.manifest.effectiveSettings

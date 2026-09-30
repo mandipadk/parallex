@@ -82,6 +82,38 @@ final class SharedSettingsTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: yours.appendingPathComponent(".editor/extensions.parallex-own").path))
     }
 
+    /// A snapshot restored from while sharing was on brings links back with
+    /// nothing to say so: the launcher undoes any the app could share.
+    func testLinksNobodyWantsAreUndone() throws {
+        let home = tempDir.appendingPathComponent("copy-home")
+        let instance = tempDir.appendingPathComponent("instance")
+        try FileManager.default.createDirectory(at: instance, withIntermediateDirectories: true)
+        let real = URL(fileURLWithPath: realHome)
+        SettingsLinks.link(item, home: home, realHome: real)
+        SettingsLinks.sync([], known: [item], home: home, realHome: real, instance: instance)
+        XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: home.appendingPathComponent(item).path))
+    }
+
+    /// An editor that saves by renaming a new file over the link: what it
+    /// wrote is kept, and the link comes back.
+    func testASaveOverTheLinkIsKeptAndTheLinkComesBack() throws {
+        let home = tempDir.appendingPathComponent("copy-home")
+        let instance = tempDir.appendingPathComponent("instance")
+        try FileManager.default.createDirectory(at: instance, withIntermediateDirectories: true)
+        let real = URL(fileURLWithPath: realHome)
+        let own = home.appendingPathComponent(item)
+        try FileManager.default.createDirectory(at: own.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("own".utf8).write(to: own)
+        SettingsLinks.sync([item], home: home, realHome: real, instance: instance)
+        try FileManager.default.removeItem(at: own)
+        try Data("saved by the editor".utf8).write(to: own)
+        SettingsLinks.sync([item], home: home, realHome: real, instance: instance)
+        XCTAssertNotNil(try? FileManager.default.destinationOfSymbolicLink(atPath: own.path), "linked again")
+        let saved = try FileManager.default.contentsOfDirectory(atPath: own.deletingLastPathComponent().path)
+            .filter { $0.hasPrefix(own.lastPathComponent + ".saved-") }
+        XCTAssertEqual(saved.count, 1)
+    }
+
     /// Turned off while it ran: the launcher undoes the links itself.
     func testTheLauncherUndoesLinksNoLongerShared() throws {
         let home = tempDir.appendingPathComponent("copy-home")

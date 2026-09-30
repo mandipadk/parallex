@@ -52,11 +52,11 @@ public enum Guard {
         let shared = sharedItems.map { "\(home)/\($0)".lowercased() }
         var seen = Set<String>()
         let exceptions = allowed.map { "!\(home)/\($0)" }
-        return exceptions + paths.filter { path in
+        return paths.filter { path in
             let folder = (path.hasSuffix("/") ? path : path + "/").lowercased()
             let overlapsOwn = own.contains { $0.hasPrefix(folder) || $0 == folder }
             let overlapsShared = shared.contains { folder.hasPrefix($0 + "/") || ($0 + "/").hasPrefix(folder) }
             return !overlapsOwn && !overlapsShared && seen.insert(path).inserted
-        }
+        } + exceptions
     }
 }

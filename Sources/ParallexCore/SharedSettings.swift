@@ -19,8 +19,9 @@ public enum SharedSettings {
         "com.vscodium": vscodeLike("VSCodium", ".vscode-oss"),
         "com.todesktop.230313mzl4w4u92": vscodeLike("Cursor", ".cursor"),
         "com.exafunction.windsurf": vscodeLike("Windsurf", ".windsurf"),
-        "dev.zed.Zed": [".config/zed/settings.json", ".config/zed/keymap.json", ".config/zed/themes", ".local/share/zed/extensions"],
-        "dev.zed.Zed-Preview": [".config/zed/settings.json", ".config/zed/keymap.json", ".config/zed/themes", ".local/share/zed/extensions"],
+        "dev.zed.Zed": [".config/zed/settings.json", ".config/zed/keymap.json", ".config/zed/snippets", ".config/zed/themes",
+                        "Library/Application Support/Zed/extensions"],
+        "dev.zed.Zed-Preview": [".config/zed/settings.json", ".config/zed/keymap.json", ".config/zed/snippets", ".config/zed/themes"],
     ]
 
     /// What of `bundleID`'s can be shared (relative to home). For tests,
@@ -35,7 +36,8 @@ public enum SharedSettings {
         }
         return items.filter { item in
             let parts = item.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-            return !parts.isEmpty && parts.allSatisfy(OriginalData.isPlainName)
+            // At least two levels down: never a whole top-level folder.
+            return parts.count >= 2 && parts.allSatisfy(OriginalData.isPlainName)
         }
     }
 

@@ -24,6 +24,11 @@ enum ReleaseHighlights {
                 title: "Settings, not accounts",
                 detail: "An editor copy (VS Code, Cursor, Zed, …) can use the original's settings, keybindings, snippets and extensions, kept in step, while its sign-ins and projects stay its own. Share settings in its Isolation section."
             ),
+            Highlight(
+                symbol: "stethoscope",
+                title: "Every instance at a glance",
+                detail: "parallex health shows each instance's app version, how its isolation has held, what Guard kept out, its snapshots, and anything that needs doing."
+            ),
         ]),
         Release(version: "1.4.0", highlights: [
             Highlight(

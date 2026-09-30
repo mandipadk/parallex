@@ -30,14 +30,22 @@ public enum SettingsLinks {
         let real = realHome.appendingPathComponent(item)
         let own = home.appendingPathComponent(item)
         guard fm.fileExists(atPath: real.path), !item.contains(".."), !throughLink(item, home: home) else { return }
-        if let destination = try? fm.destinationOfSymbolicLink(atPath: own.path) {
+        if (try? fm.destinationOfSymbolicLink(atPath: own.path)) != nil {
             // Ours already, or someone else's link: left as it is.
-            _ = destination
             return
         }
+        let aside = own.deletingLastPathComponent().appendingPathComponent(own.lastPathComponent + ownSuffix)
         if fm.fileExists(atPath: own.path) {
-            let aside = own.deletingLastPathComponent().appendingPathComponent(own.lastPathComponent + ownSuffix)
-            guard !fm.fileExists(atPath: aside.path), (try? fm.moveItem(at: own, to: aside)) != nil else { return }
+            if fm.fileExists(atPath: aside.path) {
+                // The editor saved over the link (a new file renamed into
+                // place): what it wrote is kept beside it, and the link
+                // comes back.
+                let stamp = Int(Date().timeIntervalSince1970)
+                let saved = own.deletingLastPathComponent().appendingPathComponent(own.lastPathComponent + ".saved-\(stamp)")
+                guard (try? fm.moveItem(at: own, to: saved)) != nil else { return }
+            } else {
+                guard (try? fm.moveItem(at: own, to: aside)) != nil else { return }
+            }
         }
         try? fm.createDirectory(at: own.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? fm.createSymbolicLink(at: own, withDestinationURL: real)
@@ -56,11 +64,12 @@ public enum SettingsLinks {
         }
     }
 
-    /// Link `items`, and undo what was linked before but isn't anymore.
-    public static func sync(_ items: [String], home: URL, realHome: URL, instance: URL) {
+    /// Link `items`, and undo any other link to yours among what was linked
+    /// before or `known` (all the app could share).
+    public static func sync(_ items: [String], known: [String] = [], home: URL, realHome: URL, instance: URL) {
         let marker = instance.appendingPathComponent(markerFile)
         let before = (try? Data(contentsOf: marker)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
-        for item in before where !items.contains(item) {
+        for item in Set(before + known) where !items.contains(item) {
             unlink(item, home: home, realHome: realHome)
         }
         for item in items {

@@ -44,6 +44,9 @@ public enum InstanceArchive {
         // Links to this Mac's home (the instance home's shared folders) mean
         // nothing elsewhere; the launcher recreates them where it's imported.
         removeLinks(leaving: folder)
+        // Shared settings' links are gone: the copy's own versions go back
+        // where they were.
+        restoreSetAside(in: folder)
         if let copyID = manifest.clone?.bundleIdentifier {
             _ = try? Shell.run("/usr/bin/defaults", ["export", copyID, folder.appendingPathComponent(preferencesFile).path])
         }
@@ -56,6 +59,24 @@ public enum InstanceArchive {
             try fm.moveItem(at: zipped, to: file)
         }
         return file
+    }
+
+    /// Put back what shared settings set aside (`<name>.parallex-own`),
+    /// where nothing else is now.
+    static func restoreSetAside(in folder: URL) {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: folder, includingPropertiesForKeys: nil, options: []) else { return }
+        var found: [URL] = []
+        for case let url as URL in walker where url.lastPathComponent.hasSuffix(SettingsLinks.ownSuffix) {
+            found.append(url)
+        }
+        for url in found {
+            let name = String(url.lastPathComponent.dropLast(SettingsLinks.ownSuffix.count))
+            let original = url.deletingLastPathComponent().appendingPathComponent(name)
+            if (try? fm.attributesOfItem(atPath: original.path)) == nil {
+                try? fm.moveItem(at: url, to: original)
+            }
+        }
     }
 
     /// Remove symbolic links under `folder` that point outside it.

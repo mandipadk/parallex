@@ -48,6 +48,7 @@ struct WrapperSpec {
     var loopbackPorts: [String] = []
     /// See `SharedSettings`.
     var sharedSettings: [String] = []
+    var shareableSettings: [String] = []
 }
 
 /// Assembles, signs, and registers wrapper bundles. The bundle is built in a
@@ -217,6 +218,9 @@ public struct BundleBuilder {
             }
             if !spec.sharedSettings.isEmpty {
                 config[ParallexConfig.Key.sharedSettings] = spec.sharedSettings
+            }
+            if !spec.shareableSettings.isEmpty {
+                config[ParallexConfig.Key.shareableSettings] = spec.shareableSettings
             }
             if let instanceKeychain = spec.instanceKeychain {
                 config[ParallexConfig.Key.instanceKeychain] = instanceKeychain

@@ -600,7 +600,7 @@ private struct IsolationSection: View {
                         if !SharedSettings.shareable(for: entry.manifest.knownTargetBundleID ?? "").isEmpty {
                             ExplainedToggle(
                                 title: "Share settings with \(entry.targetName)",
-                                detail: "Its settings, keybindings, snippets and extensions are \(entry.targetName)'s own, kept in step. Sign-ins, open projects and everything else stay this instance's.",
+                                detail: "Its settings, keybindings, snippets and extensions are \(entry.targetName)'s own, kept in step. Sign-ins, open projects and everything else stay this instance's. Keep Settings Sync off in this instance while it shares.",
                                 isOn: $draft.settings.shareSettings.orFalse
                             )
                             .transition(.opacity.combined(with: .move(edge: .top)))

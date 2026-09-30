@@ -1010,7 +1010,8 @@ public enum InstanceCreator {
             safeStorageInKeychain: safeStorageInKeychain,
             guardedPaths: guardedPaths,
             loopbackPorts: loopbackPorts.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" },
-            sharedSettings: sharedSettings
+            sharedSettings: sharedSettings,
+            shareableSettings: redirectHome != nil && settings.isClone ? SharedSettings.shareable(for: target.bundleID) : []
         )
 
         var notes = plan.notes
