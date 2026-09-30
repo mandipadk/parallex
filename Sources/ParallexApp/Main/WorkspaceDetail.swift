@@ -267,10 +267,7 @@ struct WorkspaceDetail: View {
                 )
             )
             if workspace.persona == true {
-                Text("Its own: " + Personas.items(for: workspace).map { "~/\($0)" }.joined(separator: ", "))
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                IdentityTable(workspace: workspace)
                 HStack(spacing: Theme.Space.s) {
                     Button("Open Terminal as \(workspace.name)") {
                         if let script = try? Personas.terminalScript(for: workspace) {
@@ -400,5 +397,41 @@ private struct MemberRow: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .help(help)
+    }
+}
+
+/// Who each tool thinks you are, you beside the workspace's persona.
+private struct IdentityTable: View {
+    let workspace: Workspace
+    @State private var rows: [(tool: String, yours: String?, theirs: String?)] = []
+
+    var body: some View {
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Theme.Space.l, verticalSpacing: 6) {
+            GridRow {
+                Text("").gridColumnAlignment(.leading)
+                Text("You").font(Theme.Font.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(workspace.name).font(Theme.Font.caption.weight(.semibold)).foregroundStyle(.secondary)
+            }
+            ForEach(rows, id: \.tool) { row in
+                GridRow {
+                    Text(row.tool).font(Theme.Font.callout)
+                    Text(row.yours ?? "not set up").font(Theme.Font.callout)
+                        .foregroundStyle(row.yours == nil ? .tertiary : .secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                    Text(row.theirs ?? "not set up yet").font(Theme.Font.callout.weight(row.theirs == nil ? .regular : .medium))
+                        .foregroundStyle(row.theirs == nil ? .tertiary : .primary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+            }
+        }
+        .textSelection(.enabled)
+        .task(id: workspace) {
+            let current = workspace
+            rows = await Task.detached(priority: .utility) {
+                let yours = Identities.read(home: URL(fileURLWithPath: NSHomeDirectory()))
+                let theirs = Identities.read(home: Personas.prepare(current))
+                return zip(yours, theirs).map { ($0.tool, $0.identity, $1.identity) }
+            }.value
+        }
     }
 }

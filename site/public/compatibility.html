@@ -31,6 +31,11 @@ input { width: 100%; font: inherit; padding: 12px 14px; border-radius: 12px; bor
 .evidence { font-size: 14px; color: var(--muted); }
 .notice { font-size: 14px; color: var(--foreground); }
 .empty { padding: 28px 18px; text-align: center; color: var(--subtle); }
+.lab { display: grid; gap: 10px; }
+.lab h2 { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.lab-apps { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 16px; overflow: hidden; }
+.lab-app { background: var(--background); padding: 12px 14px; display: grid; gap: 2px; justify-items: start; }
+.lab-app .name { font-size: 15px; }
 footer { color: var(--subtle); font-size: 13px; border-top: 1px solid var(--rule); padding-top: 20px; }
 </style>
 </head>
@@ -41,6 +46,11 @@ footer { color: var(--subtle); font-size: 13px; border-top: 1px solid var(--rule
     <h1>Compatibility</h1>
     <p>How apps work as Parallex instances: reports people wrote on GitHub, anonymous usage from Macs that share it, and notices from Parallex. Apps are added by Parallex's maintainer.</p>
   </header>
+  <section id="lab" class="lab" hidden>
+    <h2>Tested every night</h2>
+    <p id="lab-about" class="evidence"></p>
+    <div id="lab-apps" class="lab-apps"></div>
+  </section>
   <input id="search" type="search" placeholder="Search apps" aria-label="Search apps" autocomplete="off">
   <section id="apps" class="apps" aria-live="polite"><p class="empty">Loading…</p></section>
   <footer>Used an app with Parallex? In Parallex, an instance's ⋯ menu › Report How It Works, or <a href="https://github.com/mandipadk/parallex/issues/new?template=compatibility.yml">write a report</a>. <a href="/privacy">What leaves your Mac</a></footer>
@@ -99,10 +109,30 @@ function render() {
   }
 }
 
+const labResults = { ran: "Ran", quit: "Quit on opening", crashed: "Crashed", leaked: "Reached the original's data" }
+
+function renderLab(lab) {
+  if (!lab || !lab.apps || !lab.apps.length) return
+  const when = new Date(lab.date)
+  document.getElementById("lab-about").textContent =
+    `A fresh copy of each app, made by the current Parallex and opened on macOS ${lab.macos}, ${isNaN(when) ? lab.date : when.toLocaleDateString(undefined, { month: "long", day: "numeric" })}. Every copy has its own Library, keychain and Guard.`
+  const grid = document.getElementById("lab-apps")
+  grid.replaceChildren()
+  for (const app of lab.apps) {
+    const item = el("div", "lab-app")
+    item.append(el("span", "name", app.app))
+    if (app.version) item.append(el("span", "evidence", app.version))
+    const good = app.result === "ran" && !app.leaks && !app.crashes
+    item.append(el("span", `chip ${good ? "works" : "broken"}`, labResults[app.result] ?? app.result))
+    grid.append(item)
+  }
+  document.getElementById("lab").hidden = false
+}
+
 search.addEventListener("input", render)
 fetch("/api/v1/compatibility")
   .then((r) => (r.ok ? r.json() : Promise.reject()))
-  .then((data) => { apps = data.apps ?? []; render() })
+  .then((data) => { apps = data.apps ?? []; render(); renderLab(data.lab) })
   .catch(() => list.replaceChildren(el("p", "empty", "The list couldn't be loaded. Try again in a moment.")))
 </script>
 </body>

@@ -147,3 +147,32 @@ final class PersonaTests: XCTestCase {
         XCTAssertEqual(try childHome(), "\(realHome)|", "left the workspace: yours again")
     }
 }
+
+/// Who you are to each tool, read from its files in a home.
+final class IdentitiesTests: XCTestCase {
+    func testReadsEachToolsFiles() throws {
+        let home = try Fixtures.makeTempDirectory("identities")
+        defer { try? FileManager.default.removeItem(at: home) }
+        func write(_ path: String, _ text: String) throws {
+            let url = home.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: url)
+        }
+        XCTAssertTrue(Identities.read(home: home).allSatisfy { $0.identity == nil })
+        try write(".base-gitconfig", "[user]\n\temail = base@example.com\n[alias]\n\tco = checkout\n")
+        try write(".gitconfig", "[include]\n\tpath = \"\(home.path)/.base-gitconfig\"\n[user]\n\temail = me@client.example\n")
+        try write(".config/gh/hosts.yml", "github.com:\n    git_protocol: https\n    users:\n        me:\n    user: me\n")
+        try write(".aws/config", "[default]\nsso_account_id = 123456789012\nsso_role_name = Dev\n")
+        try write(".kube/config", "apiVersion: v1\ncurrent-context: client-prod\n")
+        try write(".config/gcloud/active_config", "work\n")
+        try write(".config/gcloud/configurations/config_work", "[core]\naccount = me@client.example\n")
+        try write(".npmrc", "//registry.npmjs.org/:_authToken=abc\n")
+        let found = Dictionary(uniqueKeysWithValues: Identities.read(home: home).map { ($0.tool, $0.identity) })
+        XCTAssertEqual(found["git"], "me@client.example", "its own after the included one")
+        XCTAssertEqual(found["GitHub CLI"], "me")
+        XCTAssertEqual(found["AWS"], "account 123456789012, Dev")
+        XCTAssertEqual(found["Kubernetes"], "client-prod")
+        XCTAssertEqual(found["Google Cloud"], "me@client.example")
+        XCTAssertEqual(found["npm"], "signed in to registry.npmjs.org")
+    }
+}

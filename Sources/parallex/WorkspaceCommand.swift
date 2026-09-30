@@ -80,6 +80,15 @@ struct WorkspaceCommand: ParsableCommand {
                 ParallexCore.Personas.prepare(chosen)
                 print("\(Term.bold(chosen.name)) has an identity of its own for your tools, at \(Paths.abbreviate(home.path)).")
                 print("Its own: " + ParallexCore.Personas.items(for: chosen).map { "~/\($0)" }.joined(separator: ", "))
+                let yours = Identities.read(home: FileManager.default.homeDirectoryForCurrentUser)
+                let theirs = Identities.read(home: home)
+                print("")
+                let width = max(12, (yours.map(\.tool) + ["Tool"]).map(\.count).max() ?? 12) + 2
+                let column = { (text: String) in text.padding(toLength: width, withPad: " ", startingAt: 0) }
+                print(Term.dim(column("") + "You  →  \(chosen.name)"))
+                for (mine, its) in zip(yours, theirs) {
+                    print(column(mine.tool) + (mine.identity ?? "–") + "  →  " + (its.identity ?? Term.dim("not set up yet")))
+                }
                 print(Term.dim("Use it with: parallex run \"\(chosen.name)\" -- <command>, or parallex shell \"\(chosen.name)\"."))
             } else {
                 print("\(Term.bold(chosen.name)) uses your identity for your tools.")

@@ -17,6 +17,9 @@ jobs:
   lab:
     runs-on: macos-26
     timeout-minutes: 60
+    # To publish the results to the lab-results branch (read by the site).
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Build
@@ -31,3 +34,28 @@ jobs:
         with:
           name: compat-lab
           path: compat-lab.json
+      # The latest results, alone on the lab-results branch, where the
+      # site's compatibility page reads them.
+      - name: Publish results
+        if: success() && github.ref == 'refs/heads/main'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir publish
+          python3 - <<'PY' > publish/compat-lab.json
+          import datetime, json, platform, subprocess
+          apps = [json.loads(line) for line in open("compat-lab.json") if line.strip()]
+          commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+          print(json.dumps({
+              "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "macos": platform.mac_ver()[0],
+              "parallex": commit,
+              "apps": apps,
+          }, indent=2))
+          PY
+          cd publish
+          git init -q -b lab-results
+          git add compat-lab.json
+          git -c user.name="Compatibility lab" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Compatibility lab, $(date -u +%Y-%m-%d)"
+          git push -f -q "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" lab-results

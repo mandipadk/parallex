@@ -2,6 +2,7 @@ import { dashboardPage, signInPage } from "./admin"
 import { isSignedIn, signIn, signOutEverywhere } from "./auth"
 import { collect, kofi } from "./collect"
 import { compatibilityList, type IssueReport } from "./compatibility"
+import { latestLab } from "./lab"
 import type { Env } from "./env"
 import { latestRelease, loadRollout, publishedReleases, versionOf, type Rollout } from "./feed"
 import { summarize } from "./summary"
@@ -168,7 +169,7 @@ export default {
       const cached = await caches.default.match(key)
       if (cached) return cached
       const response = Response.json(
-        { generated: new Date().toISOString(), apps: await compatibilityList(env, request) },
+        { generated: new Date().toISOString(), apps: await compatibilityList(env, request), lab: await latestLab() },
         { headers: { "Cache-Control": "public, max-age=600", "Access-Control-Allow-Origin": "*" } },
       )
       ctx.waitUntil(caches.default.put(key, response.clone()))
