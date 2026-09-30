@@ -43,7 +43,7 @@ footer { color: var(--subtle); font-size: 13px; border-top: 1px solid var(--rule
     <h2>The daily update check</h2>
     <p>Once a day, and whenever you choose Check for Updates, Parallex asks <code>parallex.mandip.dev</code> whether there's a new version. The request says five things:</p>
     <div class="example">X-Parallex-Version: 0.20.0 <span>(this Parallex)</span><br>X-Parallex-OS: 26.6 <span>(macOS version)</span><br>X-Parallex-Arch: arm64 <span>(Apple silicon or Intel)</span><br>X-Parallex-Active: day,week <span>(first check today, this week, this month, or ever)</span><br>X-Parallex-Bucket: 42 <span>(a number from 0 to 99 picked at random once)</span></div>
-    <p>That's how many Macs use Parallex gets counted, and which versions, without knowing whose they are. There's no identifier: the server can't tell one Mac's checks from another's. It stores a count per day, version, macOS, chip and kind of check, and nothing more. The request also names Parallex and its version in its <code>User-Agent</code>, as apps do.</p>
+    <p>That's how many Macs use Parallex gets counted, and which versions, without knowing whose they are. The check carries no identifier: the server can't tell one Mac's checks from another's. It stores a count per day, version, macOS, chip and kind of check, and nothing more. The request also names Parallex and its version in its <code>User-Agent</code>, as apps do.</p>
     <p>The number lets a new version go out to a few Macs first (those under 10, say) before everyone, so a bad release reaches few people. About one Mac in a hundred has each number, so it doesn't single yours out.</p>
     <p>Like any website, the server sees the address a request comes from while answering it. Parallex doesn't store it and keeps no request logs; for a minute it's used, in memory, to ignore a burst of checks from one place. Cloudflare, which runs the server, handles requests under <a href="https://www.cloudflare.com/privacypolicy/">its own privacy policy</a>.</p>
     <p>If the server doesn't answer, Parallex asks GitHub directly instead, and GitHub is told only that a Parallex is checking (it sees the address too, as it does for any download from GitHub). Updates are verified against a signing key built into the app either way, so the server couldn't hand you a bad update even if it wanted to.</p>
@@ -56,16 +56,19 @@ footer { color: var(--subtle); font-size: 13px; border-top: 1px solid var(--rule
   </section>
 
   <section>
-    <h2>Anonymous usage, if you turn it on</h2>
-    <p>Off unless you turn on Share anonymous usage in Settings › About, where See What's Sent shows the whole report first (so does <code>parallex usage</code> in Terminal). Once a week it sends:</p>
+    <h2>The anonymous usage report</h2>
+    <p>Parallex is free, and it changes every week. To know which releases and app updates break things, often before anyone has to write in, it sends a short report once a day, with the update check. New installs choose in the first-run setup, where it's on unless you turn it off; people who used Parallex before version 1.6 are asked once (if you had turned the old weekly report off, it stays off). Nothing is recorded before you've said yes. It's one switch, Share anonymous usage in Settings › About (or <code>parallex usage --no-share</code> in Terminal), and See What's Sent shows the whole report first, as does <code>parallex usage</code>.</p>
+    <p>What it holds:</p>
     <ul>
-      <li>this Parallex's version, the macOS version and the chip, as with the update check;</li>
-      <li>the apps your instances copy, with each one's version, named only if it's Apple's, from the App Store or a well-known app (Slack, Chrome, Spotify…); any other app, like one your company made, is only counted;</li>
-      <li>for each, how many instances and of what kind, whether copies have been quitting at launch, and whether an isolation check passed;</li>
-      <li>which of Parallex's website presets you use (WhatsApp, Teams…), and how many other sites, never which;</li>
-      <li>which features are in use, like workspaces or throwaways, and how many.</li>
+      <li><b>A random install number</b>, made on your Mac and renewed every 180 days, so a Mac's reports count once rather than daily. It isn't derived from anything about you or the Mac, and it's sent nowhere else. With it goes the week Parallex was first used, so newcomers of the same week can be counted together.</li>
+      <li><b>This Parallex's version</b>, the macOS version and the chip, as with the update check.</li>
+      <li><b>What this Mac has:</b> how many instances of each kind; the apps they copy, with each one's version, named only if it's Apple's, from the App Store or a well-known app (Slack, Chrome, Spotify…), and otherwise only counted; which website presets you use (WhatsApp, Teams…), never other sites; and which features are in use, like workspaces, snapshots or a pinned version, and how many.</li>
+      <li><b>What happened since the last report</b>, counted, each with the Parallex version it happened on: instances made (whether from the app or Terminal, and when one couldn't be, at which step), copies that quit at launch or ran, refreshes, updates and app version changes and whether they finished, isolation checks and whether they found anything, snapshots, how far the first-run setup got, and which Terminal commands ran, by name only, never what they were given.</li>
+      <li><b>Parallex's own crashes and hangs</b>, as macOS reports them to it: the kind, and the places in Parallex's own code where they happened (a file offset per frame). Frames in macOS or in the apps you copy are dropped on your Mac before anything is sent.</li>
     </ul>
-    <p>No instance names, paths, sites of your own, or anything that identifies you or the Mac. The server adds each report into the day's counts and doesn't keep the report. It's how an app update that breaks copies shows up before the bug reports do.</p>
+    <div class="example">{ "name": "instance.created", "props": { "app": "com.tinyspeck.slackmacgap", "kind": "copy", "result": "ok" }, "n": 1 }</div>
+    <p>Never sent: instance names, file names, paths, what's inside your instances, sites of your own, or apps that aren't well-known. The server accepts only the event names and values listed in its <a href="https://github.com/mandipadk/parallex/blob/main/site/worker/telemetry.ts">public code</a>, checks app IDs, app names and versions against fixed patterns, takes only a few new app IDs a day, and drops anything else. It doesn't store your IP address with a report, or at all.</p>
+    <p>What a Mac reported on a given day is kept for 90 days; after that only totals remain, per day and version, with no install numbers. The number itself is forgotten 90 days after a Mac last reports. Turning sharing off deletes the number and anything waiting to be sent on your Mac, and nothing more is recorded.</p>
   </section>
 
   <section>
@@ -85,7 +88,7 @@ footer { color: var(--subtle); font-size: 13px; border-top: 1px solid var(--rule
 
   <section>
     <h2>Nothing else</h2>
-    <p>No analytics inside the app beyond the opt-in report above, no crash reporter, no account. Your instances' names and anything inside them stay on your Mac.</p>
+    <p>No analytics beyond the report above, no third-party trackers or SDKs, no account. Your instances' names and anything inside them stay on your Mac.</p>
     <p>The server's code is <a href="https://github.com/mandipadk/parallex/tree/main/site/worker">public</a>, so you can check all of this.</p>
   </section>
 

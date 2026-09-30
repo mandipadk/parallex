@@ -1,0 +1,104 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+/*
+ * Mission Control: the site's type and its one accent, on a quieter,
+ * denser surface that follows the system's light or dark (or the toggle).
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, monospace;
+
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-rule: var(--rule);
+  --color-fill: var(--fill);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-caution: var(--caution);
+  --color-caution-soft: var(--caution-soft);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-series-3: var(--series-3);
+}
+
+:root {
+  color-scheme: light;
+  --ground: oklch(0.975 0.002 90);
+  --surface: oklch(1 0 0);
+  --raised: oklch(0.985 0.002 90);
+  --ink: oklch(0.2 0.004 265);
+  --muted: oklch(0.47 0.006 265);
+  --faint: oklch(0.62 0.006 265);
+  --rule: oklch(0.91 0.004 90);
+  --fill: oklch(0.95 0.003 90);
+  --brand: #e5501f;
+  --brand-soft: color-mix(in oklab, #e5501f 12%, transparent);
+  --good: oklch(0.52 0.12 155);
+  --good-soft: color-mix(in oklab, oklch(0.52 0.12 155) 12%, transparent);
+  --caution: oklch(0.55 0.11 70);
+  --caution-soft: color-mix(in oklab, oklch(0.6 0.12 70) 14%, transparent);
+  --series-1: var(--brand);
+  --series-2: oklch(0.45 0.006 265);
+  --series-3: oklch(0.72 0.006 265);
+}
+
+.dark {
+  color-scheme: dark;
+  --ground: oklch(0.13 0 0);
+  --surface: oklch(0.17 0 0);
+  --raised: oklch(0.2 0 0);
+  --ink: oklch(0.96 0 0);
+  --muted: oklch(0.72 0 0);
+  --faint: oklch(0.55 0 0);
+  --rule: oklch(1 0 0 / 8%);
+  --fill: oklch(1 0 0 / 6%);
+  --brand: #ff6b3d;
+  --brand-soft: color-mix(in oklab, #ff6b3d 16%, transparent);
+  --good: oklch(0.76 0.13 155);
+  --good-soft: color-mix(in oklab, oklch(0.76 0.13 155) 14%, transparent);
+  --caution: oklch(0.82 0.12 80);
+  --caution-soft: color-mix(in oklab, oklch(0.82 0.12 80) 14%, transparent);
+  --series-2: oklch(0.8 0 0);
+  --series-3: oklch(0.5 0 0);
+}
+
+@layer base {
+  * {
+    border-color: var(--rule);
+  }
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-x: clip;
+  }
+  ::selection {
+    background: var(--brand-soft);
+  }
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

@@ -5,7 +5,9 @@ import { compatibilityList, type IssueReport } from "./compatibility"
 import { latestLab } from "./lab"
 import type { Env } from "./env"
 import { latestRelease, loadRollout, publishedReleases, versionOf, type Rollout } from "./feed"
+import { apps, community, crashes, exportCSV, growth, logAction, overview, releases, windowOf } from "./mission"
 import { summarize } from "./summary"
+import { report, retain } from "./report"
 import { usage } from "./usage"
 
 // Mission Control: the site's own Worker handles /api and /admin; every
@@ -76,6 +78,7 @@ async function changeRollout(env: Env, ctx: ExecutionContext, action: string, ve
   }
   await env.DB.prepare(`INSERT INTO settings (key, value) VALUES ('rollout', ?1) ON CONFLICT (key) DO UPDATE SET value = ?1`)
     .bind(JSON.stringify(rollout)).run()
+  await logAction(env, `rollout ${action}`, action === "start" ? `New releases start at ${percent}%` : `${version}${action === "share" ? ` to ${percent}%` : ""}`)
 }
 
 /** Adding a GitHub report to the public list, or taking it off. Only
@@ -84,6 +87,7 @@ async function reviewReport(env: Env, action: string, issue: number): Promise<vo
   if (!Number.isInteger(issue)) return
   if (action === "remove") {
     await env.DB.prepare(`DELETE FROM approved_reports WHERE issue = ?1`).bind(issue).run()
+    await logAction(env, "report removed", `#${issue}`)
     return
   }
   if (action !== "approve") return
@@ -99,6 +103,7 @@ async function reviewReport(env: Env, action: string, issue: number): Promise<vo
   await env.DB.prepare(
     `INSERT OR REPLACE INTO approved_reports (issue, bundle_id, name, app_version, verdict, url, approved_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
   ).bind(issue, report.bundleID, report.name ?? report.bundleID, report.version ?? "", report.verdict, report.url, new Date().toISOString()).run()
+  await logAction(env, "report approved", `#${issue} ${report.name ?? report.bundleID}: ${report.verdict}`)
 }
 
 /** Putting an app on the public list under a name, or taking it off. */
@@ -106,10 +111,28 @@ async function listApp(env: Env, action: string, bundle: string, name: string): 
   if (!/^[A-Za-z0-9][A-Za-z0-9.-]{1,99}$/.test(bundle)) return
   if (action === "remove") {
     await env.DB.prepare(`DELETE FROM listed_apps WHERE bundle_id = ?1`).bind(bundle).run()
+    await logAction(env, "app unlisted", bundle)
   } else if (action === "add" && name.trim() && name.length <= 60) {
     await env.DB.prepare(`INSERT OR REPLACE INTO listed_apps (bundle_id, name, listed_at) VALUES (?1, ?2, ?3)`)
       .bind(bundle, name.trim(), new Date().toISOString()).run()
+    await logAction(env, "app listed", `${name.trim()} (${bundle})`)
   }
+}
+
+/** After an action: the dashboard's own requests want an answer, forms a
+ *  page to go back to. */
+const done = (request: Request, to: string) =>
+  (request.headers.get("Accept") ?? "").includes("application/json") ? Response.json({ ok: true }) : redirect(to)
+
+const json = (body: unknown) => Response.json(body, { headers: { "Cache-Control": "no-store" } })
+
+/** Mission Control's page (src/admin), built with the site. */
+async function dashboard(request: Request, env: Env): Promise<Response> {
+  // Assets may answer /admin.html with a redirect to /admin: ask for both.
+  let page = await env.ASSETS.fetch(new Request(new URL("/admin", request.url)))
+  if (!page.ok) page = await env.ASSETS.fetch(new Request(new URL("/admin.html", request.url), { redirect: "manual" }))
+  if (!page.ok) return html(dashboardPage(await summarize(env, { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext)))
+  return html(await page.text())
 }
 
 async function admin(request: Request, env: Env, ctx: ExecutionContext, path: string): Promise<Response> {
@@ -132,27 +155,45 @@ async function admin(request: Request, env: Env, ctx: ExecutionContext, path: st
   if (path === "/admin/release" && request.method === "POST") {
     const form = await request.formData().catch(() => null)
     await changeRollout(env, ctx, String(form?.get("action") ?? ""), String(form?.get("version") ?? ""), Number(form?.get("percent")))
-    return redirect("/admin#releases")
+    return done(request, "/admin#releases")
   }
   if (path === "/admin/list" && request.method === "POST") {
     const form = await request.formData().catch(() => null)
     await listApp(env, String(form?.get("action") ?? ""), String(form?.get("bundle") ?? ""), String(form?.get("name") ?? ""))
-    return redirect("/admin#apps")
+    return done(request, "/admin#apps")
   }
   if (path === "/admin/report" && request.method === "POST") {
     const form = await request.formData().catch(() => null)
     await reviewReport(env, String(form?.get("action") ?? ""), Number(form?.get("issue")))
-    return redirect("/admin#reports")
+    return done(request, "/admin#reports")
   }
   if (path === "/admin/collect" && request.method === "POST") {
     await collect(env)
-    return redirect("/admin")
+    await logAction(env, "collected", "GitHub numbers and reports")
+    return done(request, "/admin")
   }
+  if (request.method === "GET" && path.startsWith("/admin/api/")) {
+    const days = windowOf(request)
+    switch (path.slice("/admin/api/".length)) {
+      case "overview": return json(await overview(env, ctx, days))
+      case "releases": return json(await releases(env, ctx, days))
+      case "crashes": return json(await crashes(env, days))
+      case "apps": return json(await apps(env, days))
+      case "growth": return json(await growth(env, days))
+      case "community": return json(await community(env))
+    }
+    return new Response("Not found", { status: 404 })
+  }
+  const exported = /^\/admin\/export\/([a-z]+)\.csv$/.exec(path)
+  if (exported && request.method === "GET") return exportCSV(env, exported[1])
   if (path === "/admin/summary.json") {
     return Response.json(await summarize(env, ctx), { headers: { "Cache-Control": "no-store" } })
   }
-  if (path === "/admin" || path === "/admin/") {
+  if (path === "/admin/classic") {
     return html(dashboardPage(await summarize(env, ctx)))
+  }
+  if (path === "/admin" || path === "/admin/") {
+    return dashboard(request, env)
   }
   return new Response("Not found", { status: 404 })
 }
@@ -163,6 +204,7 @@ export default {
     if (path === "/api/v1/releases/latest" && request.method === "GET") return latestRelease(request, env, ctx)
     if (path === "/api/v1/kofi" && request.method === "POST") return kofi(request, env)
     if (path === "/api/v1/usage" && request.method === "POST") return usage(request, env, ctx)
+    if (path === "/api/v2/report" && request.method === "POST") return report(request, env, ctx)
     if (path === "/api/v1/compatibility" && request.method === "GET") {
       // Worked out at most every ten minutes per data center.
       const key = "https://parallex.mandip.dev/__cache/compatibility"
@@ -183,6 +225,7 @@ export default {
   },
 
   async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(collect(env).then(() => undefined))
+    // Independent: GitHub being down mustn't keep old rows past 90 days.
+    ctx.waitUntil(Promise.allSettled([collect(env), retain(env)]).then(() => undefined))
   },
 } satisfies ExportedHandler<Env>
