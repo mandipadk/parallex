@@ -6,7 +6,7 @@ import Foundation
 /// The CLI writes these when assembling a wrapper; the launcher reads them from
 /// `Bundle.main` at launch. Nothing else should hardcode these strings.
 public enum ParallexConfig {
-    public static let version = "1.1.0"
+    public static let version = "1.2.0"
 
     /// Top-level Info.plist key holding the launcher configuration dictionary.
     public static let rootKey = "Parallex"
