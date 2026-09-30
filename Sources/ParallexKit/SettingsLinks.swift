@@ -9,11 +9,27 @@ public enum SettingsLinks {
     public static let markerFile = "shared-settings.json"
     public static let ownSuffix = ".parallex-own"
 
+    /// Whether a folder on the way to `item` in `home` is a link (into your
+    /// home, through the mirror): then the item there is yours, already
+    /// shared, and nothing is to be moved or linked.
+    static func throughLink(_ item: String, home: URL) -> Bool {
+        var path = home
+        let parts = item.split(separator: "/").map(String.init)
+        for part in parts.dropLast() {
+            path = path.appendingPathComponent(part)
+            var info = stat()
+            if lstat(path.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFLNK {
+                return true
+            }
+        }
+        return false
+    }
+
     public static func link(_ item: String, home: URL, realHome: URL) {
         let fm = FileManager.default
         let real = realHome.appendingPathComponent(item)
         let own = home.appendingPathComponent(item)
-        guard fm.fileExists(atPath: real.path) else { return }
+        guard fm.fileExists(atPath: real.path), !item.contains(".."), !throughLink(item, home: home) else { return }
         if let destination = try? fm.destinationOfSymbolicLink(atPath: own.path) {
             // Ours already, or someone else's link: left as it is.
             _ = destination
@@ -30,7 +46,7 @@ public enum SettingsLinks {
     public static func unlink(_ item: String, home: URL, realHome: URL) {
         let fm = FileManager.default
         let own = home.appendingPathComponent(item)
-        guard let destination = try? fm.destinationOfSymbolicLink(atPath: own.path),
+        guard !item.contains(".."), !throughLink(item, home: home), let destination = try? fm.destinationOfSymbolicLink(atPath: own.path),
               destination == realHome.appendingPathComponent(item).path
         else { return }
         try? fm.removeItem(at: own)

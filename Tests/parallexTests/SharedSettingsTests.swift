@@ -66,6 +66,22 @@ final class SharedSettingsTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: "\(realHome)/\(item)"), "yours untouched")
     }
 
+    /// With the copy's hidden folder shared through the mirror (a link to
+    /// yours), nothing is moved: the item is yours already.
+    func testNothingMovesThroughALinkToYourHome() throws {
+        let yours = tempDir.appendingPathComponent("your-home")
+        let extensions = yours.appendingPathComponent(".editor/extensions")
+        try FileManager.default.createDirectory(at: extensions, withIntermediateDirectories: true)
+        try Data("yours".utf8).write(to: extensions.appendingPathComponent("installed.json"))
+        let home = tempDir.appendingPathComponent("copy-home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: home.appendingPathComponent(".editor"), withDestinationURL: yours.appendingPathComponent(".editor"))
+        SettingsLinks.link(".editor/extensions", home: home, realHome: yours)
+        SettingsLinks.unlink(".editor/extensions", home: home, realHome: yours)
+        XCTAssertEqual(try String(contentsOf: extensions.appendingPathComponent("installed.json"), encoding: .utf8), "yours")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: yours.appendingPathComponent(".editor/extensions.parallex-own").path))
+    }
+
     /// Turned off while it ran: the launcher undoes the links itself.
     func testTheLauncherUndoesLinksNoLongerShared() throws {
         let home = tempDir.appendingPathComponent("copy-home")
