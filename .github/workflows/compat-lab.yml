@@ -21,7 +21,7 @@ jobs:
   # read-only token, not kept in the checkout.
   lab:
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
@@ -34,7 +34,9 @@ jobs:
         run: |
           Support/compat-lab.sh --install --wait 30 --out compat-lab.json \
             "Obsidian=obsidian" "Visual Studio Code=visual-studio-code" "Zed=zed" "IINA=iina" \
-            "VLC=vlc" "Discord=discord" "Slack=slack" "Spotify=spotify"
+            "VLC=vlc" "Discord=discord" "Slack=slack" "Spotify=spotify" \
+            "Claude=claude" "ChatGPT=chatgpt" "Cursor=cursor" "Notion=notion" "Telegram=telegram" \
+            "Signal=signal" "Figma=figma" "WhatsApp=whatsapp" "Postman=postman" "Linear=linear-linear"
           sw_vers -productVersion > macos.txt
           git rev-parse --short HEAD > commit.txt
       - uses: actions/upload-artifact@v4
@@ -70,8 +72,13 @@ jobs:
               if not line.strip():
                   continue
               entry = json.loads(line)
-              if not isinstance(entry.get("app"), str) or entry.get("result") not in allowed:
+              if not isinstance(entry.get("app"), str) or len(entry["app"]) > 80 or entry.get("result") not in allowed:
                   raise SystemExit(f"unexpected entry: {entry!r}")
+              if not isinstance(entry.get("version", ""), str) or len(entry.get("version", "")) > 40:
+                  raise SystemExit(f"unexpected version: {entry!r}")
+              for key in ("processes", "leaks", "blocked", "crashes"):
+                  if key in entry and (type(entry[key]) is not int or not 0 <= entry[key] < 10000):
+                      raise SystemExit(f"unexpected {key}: {entry!r}")
               apps.append({k: entry[k] for k in ("app", "version", "result", "processes", "leaks", "blocked", "crashes") if k in entry})
           # A night where nothing could be tried (an outage) isn't a result.
           if not any(a["result"] in ("ran", "quit", "crashed", "leaked") for a in apps):

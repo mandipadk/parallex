@@ -87,11 +87,24 @@ public enum Snapshots {
         _ manifest: InstanceManifest, label: String? = nil, reason: Snapshot.Reason = .manual, now: Date = Date(),
         keeping: String? = nil
     ) throws -> Snapshot {
+        guard let snapshot = try takeIf(manifest, label: label, reason: reason, now: now, keeping: keeping, { true }) else {
+            throw ParallexError("The snapshot of “\(manifest.name)” wasn't taken.")
+        }
+        return snapshot
+    }
+
+    /// `take`, when `stillWanted` says so under the instance's lock.
+    static func takeIf(
+        _ manifest: InstanceManifest, label: String? = nil, reason: Snapshot.Reason, now: Date = Date(),
+        keeping: String? = nil, _ stillWanted: () -> Bool
+    ) throws -> Snapshot? {
         let lock = try launchLock(manifest)
         defer { lock.release() }
         if let problem = unavailableReason(manifest) {
             throw ParallexError(problem)
         }
+        // Asked again under the lock (another may have just taken one).
+        guard stillWanted() else { return nil }
         let snapshot = try capture(manifest, label: label, reason: reason, now: now)
         prune(manifest, keeping: keeping)
         return snapshot
@@ -105,10 +118,12 @@ public enum Snapshots {
     @discardableResult
     public static func takeDailyIfDue(_ manifest: InstanceManifest, now: Date = Date()) -> Snapshot? {
         guard manifest.effectiveSettings.dailySnapshots == true, unavailableReason(manifest) == nil else { return nil }
-        if let last = list(manifest).first(where: { $0.reason == .daily }), now.timeIntervalSince(last.date) < 20 * 3600 {
-            return nil
+        let due = {
+            guard let last = list(manifest).first(where: { $0.reason == .daily }) else { return true }
+            return now.timeIntervalSince(last.date) >= 20 * 3600
         }
-        return try? take(manifest, reason: .daily, now: now)
+        guard due() else { return nil }
+        return (try? takeIf(manifest, reason: .daily, now: now, due)) ?? nil
     }
 
     /// For callers already holding the instance's launch lock.

@@ -570,10 +570,15 @@ var proxyArguments: [String] = []
 if let pidFile,
    let data = try? Data(contentsOf: URL(fileURLWithPath: pidFile).deletingLastPathComponent().appendingPathComponent("persona.json")),
    let marker = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-   let proxy = marker["proxy"] as? String, proxy.contains("://"), !proxy.contains(where: \.isWhitespace) {
+   let proxy = marker["proxy"] as? String, proxy.contains("://"), !proxy.contains(where: \.isWhitespace), !proxy.contains("@") {
     for name in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"] {
         setenv(name, proxy, 1)
         setenv(name.lowercased(), proxy, 1)
+    }
+    // This Mac's own addresses stay direct (a local server, say).
+    if getenv("NO_PROXY") == nil && getenv("no_proxy") == nil {
+        setenv("NO_PROXY", "localhost,127.0.0.1,::1", 1)
+        setenv("no_proxy", "localhost,127.0.0.1,::1", 1)
     }
     let bundles = [Bundle.main.bundleURL.path] + [config[ParallexConfig.Key.targetApp] as? String].compactMap { $0 }
     let chromium = bundles.contains { bundle in
@@ -583,7 +588,10 @@ if let pidFile,
                 || $0.contains("Edge") || $0.contains("Vivaldi") || $0.contains("Opera")) }
     }
     if chromium {
-        proxyArguments = ["--proxy-server=\(proxy)"]
+        // Chromium knows socks5 (which resolves names through the proxy
+        // already), not socks5h.
+        let chromiumProxy = proxy.hasPrefix("socks5h://") ? "socks5://" + proxy.dropFirst("socks5h://".count) : proxy
+        proxyArguments = ["--proxy-server=\(chromiumProxy)"]
     }
 }
 let arguments = (config[ParallexConfig.Key.arguments] as? [String] ?? []) + proxyArguments + passedOn

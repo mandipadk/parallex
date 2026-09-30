@@ -107,7 +107,7 @@ public enum Personas {
         environment["HOME"] = home
         environment["PARALLEX_WORKSPACE"] = workspace.name
         if let proxy = workspace.proxy {
-            environment.merge(WorkspaceNetwork.environment(proxy: proxy)) { _, new in new }
+            environment.merge(WorkspaceNetwork.environment(proxy: proxy, base: base)) { _, new in new }
         }
         // zsh reads its settings from ZDOTDIR, or HOME: yours, as always.
         if environment["ZDOTDIR"] == nil {
@@ -132,6 +132,8 @@ public enum Personas {
         export PARALLEX_WORKSPACE=\(quote(workspace.name))
         export ZDOTDIR="${ZDOTDIR:-"\(realHomePath().replacingOccurrences(of: "\"", with: "\\\""))"}"
         unset \(variables)
+        \((workspace.proxy.map { WorkspaceNetwork.environment(proxy: $0) } ?? [:]).sorted { $0.key < $1.key }
+            .map { "export \($0.key)=\(quote($0.value))" }.joined(separator: "\n"))
         cd "$HOME"
         printf "You're %s in this shell.\\n" "$PARALLEX_WORKSPACE"
         exec "${SHELL:-/bin/zsh}" -l
@@ -155,7 +157,8 @@ public enum Personas {
         for manifest in manifests {
             let url = Paths.instanceDir(slug: manifest.slug).appendingPathComponent(markerFile)
             let persona = workspace(of: manifest.slug, in: workspaces)
-            let network = workspaces.first { $0.proxy != nil && $0.members.contains(manifest.slug) }
+            // Its persona's own network, when that has one.
+            let network = persona?.proxy != nil ? persona : workspaces.first { $0.proxy != nil && $0.members.contains(manifest.slug) }
             if let named = persona ?? network {
                 let marker = Marker(
                     home: persona.map { home(for: $0).path }, workspace: named.name,

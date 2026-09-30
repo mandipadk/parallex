@@ -23,8 +23,10 @@ enum LoopbackPorts {
                 hash = (hash ^ UInt32(byte)) &* 16777619
             }
             var candidate = range.lowerBound + Int(hash % UInt32(range.count))
-            while taken.contains(candidate) {
+            var tries = 0
+            while taken.contains(candidate), tries < range.count {
                 candidate = candidate + 1 == range.upperBound ? range.lowerBound : candidate + 1
+                tries += 1
             }
             assigned[port] = candidate
             taken.insert(candidate)

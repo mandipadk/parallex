@@ -49,6 +49,11 @@ public enum Knowledge {
         guard let first = parts.first, first.hasPrefix("."), parts.allSatisfy(OriginalData.isPlainName) else { return false }
         let name = String(first.dropFirst()).lowercased()
         if Presets.defaultSharedItems.contains(where: { $0.lowercased() == item.lowercased() }) { return false }
+        // Shells' and tools' own files, and the folders a persona keeps.
+        let sharedFiles: Set<String> = ["zshrc", "zprofile", "zshenv", "zlogin", "bashrc", "bash_profile", "profile",
+                                        "npmrc", "netrc", "yarnrc", "yarnrc.yml", "gitconfig", "git-credentials", "inputrc"]
+        if sharedFiles.contains(name) { return false }
+        if name == "config", parts.count >= 2, ["git", "gh", "gcloud", "hub"].contains(parts[1].lowercased()) { return false }
         switch name {
         case "config": return parts.count >= 2
         case "local", "cache": return parts.count >= 3

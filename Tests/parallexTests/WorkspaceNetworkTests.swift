@@ -25,7 +25,10 @@ final class WorkspaceNetworkTests: XCTestCase {
     func testProxyAddresses() {
         XCTAssertEqual(WorkspaceNetwork.normalize("proxy.example:8080"), "http://proxy.example:8080")
         XCTAssertEqual(WorkspaceNetwork.normalize(" SOCKS5://127.0.0.1:1080 "), "socks5://127.0.0.1:1080")
-        XCTAssertEqual(WorkspaceNetwork.normalize("http://me:secret@proxy.example:3128"), "http://me:secret@proxy.example:3128")
+        XCTAssertNil(WorkspaceNetwork.normalize("http://me:secret@proxy.example:3128"), "a password would be in every process's arguments")
+        XCTAssertEqual(WorkspaceNetwork.chromiumSwitch(proxy: "socks5h://127.0.0.1:1080"), "socks5://127.0.0.1:1080")
+        XCTAssertEqual(WorkspaceNetwork.environment(proxy: "http://p:1")["NO_PROXY"], "localhost,127.0.0.1,::1")
+        XCTAssertNil(WorkspaceNetwork.environment(proxy: "http://p:1", base: ["no_proxy": "corp"])["NO_PROXY"], "yours stays")
         XCTAssertNil(WorkspaceNetwork.normalize("proxy.example"), "a port is needed")
         XCTAssertNil(WorkspaceNetwork.normalize("ftp://proxy.example:21"))
         XCTAssertNil(WorkspaceNetwork.normalize("http://proxy.example:8080/path"))

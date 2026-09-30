@@ -206,7 +206,7 @@ public enum Presets {
                 ports += parts[1].split(separator: ",").compactMap { Int($0) }
             }
         }
-        return ports.filter { (1..<65536).contains($0) }
+        return Array(ports.filter { (1..<65536).contains($0) }.prefix(Knowledge.maxPorts))
     }
 
     /// Hidden folders in your home that belong to an app (beyond its name),

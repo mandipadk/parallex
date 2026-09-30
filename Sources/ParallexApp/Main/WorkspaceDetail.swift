@@ -465,7 +465,7 @@ private struct ProxyField: View {
                     .disabled(text == (workspace.proxy ?? ""))
             }
             Text(invalid
-                 ? "Use scheme://host:port: http, https or socks5."
+                 ? "Use scheme://host:port (http, https or socks5), without a password: apps ask for one."
                  : "Chromium and Electron apps use it, and so does what they start. Instances pick it up the next time they open.")
                 .font(Theme.Font.caption)
                 .foregroundStyle(invalid ? Theme.attention : .secondary)

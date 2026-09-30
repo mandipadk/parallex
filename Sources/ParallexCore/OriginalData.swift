@@ -80,7 +80,8 @@ public enum OriginalData {
             ))
         }
 
-        for folder in Presets.originalDataFolders(bundleID: originalID, names: names) where isPlainName(folder) {
+        let version = AppCloner.version(of: URL(fileURLWithPath: manifest.targetApp))
+        for folder in Presets.originalDataFolders(bundleID: originalID, names: names, version: version) where isPlainName(folder) {
             add("Library/Application Support/\(folder)", label: "Application Support/\(folder)")
         }
         if isPlainName(originalID) {

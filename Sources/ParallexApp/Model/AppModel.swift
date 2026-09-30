@@ -72,6 +72,8 @@ final class AppModel {
     /// Presents the New Workspace sheet.
     var makingWorkspace = false
     private(set) var busy: Set<String> = []
+    /// Instances whose daily snapshot is being taken.
+    private var takingDaily: Set<String> = []
     private(set) var storage: [String: StorageReport] = [:]
     /// Memory each running instance uses, helpers included (bytes, rounded
     /// so the display doesn't flicker with every small change).
@@ -944,9 +946,14 @@ final class AppModel {
         }
         stageRefreshes()
         // Daily snapshots that are due (right after an instance quits, often).
-        for entry in entries where !entry.running && entry.manifest.effectiveSettings.dailySnapshots == true {
+        for entry in entries where !entry.running && entry.manifest.effectiveSettings.dailySnapshots == true
+            && !takingDaily.contains(entry.id) {
             let manifest = entry.manifest
-            Task.detached(priority: .utility) { Snapshots.takeDailyIfDue(manifest) }
+            takingDaily.insert(entry.id)
+            Task {
+                _ = await Task.detached(priority: .utility) { Snapshots.takeDailyIfDue(manifest) }.value
+                takingDaily.remove(manifest.slug)
+            }
         }
         // Items shared again while a copy ran, now that it doesn't.
         for entry in entries where !entry.running && !(entry.manifest.pendingRelease ?? []).isEmpty {

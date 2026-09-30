@@ -89,6 +89,12 @@ if let knowledge = object["knowledge"] {
                     fail("\(bundleID): home folders are hidden items relative to home, like .acme or .config/acme: \(item)")
                 }
                 let name = String(first.dropFirst()).lowercased()
+                let sharedFiles: Set<String> = ["zshrc", "zprofile", "zshenv", "zlogin", "bashrc", "bash_profile", "profile",
+                                                "npmrc", "netrc", "yarnrc", "yarnrc.yml", "gitconfig", "git-credentials", "inputrc"]
+                if sharedFiles.contains(name)
+                    || (name == "config" && parts.count >= 2 && ["git", "gh", "gcloud", "hub"].contains(parts[1].lowercased())) {
+                    fail("\(bundleID): \(item) is shared by everything, not one app's")
+                }
                 let allowed: Bool
                 switch name {
                 case "config": allowed = parts.count >= 2

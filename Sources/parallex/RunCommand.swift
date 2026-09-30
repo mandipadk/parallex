@@ -3,9 +3,13 @@ import Darwin
 import Foundation
 import ParallexCore
 
-/// The workspace to run as, its persona turned on if it wasn't.
+/// The workspace to run as, its persona turned on if it wasn't (unless all
+/// it has is a network: then that's all a command gets).
 private func personaWorkspace(_ name: String) throws -> Workspace {
     var workspace = try WorkspaceCommand.lookup(name)
+    if workspace.persona != true, workspace.proxy != nil {
+        return workspace
+    }
     if workspace.persona != true {
         workspace = try WorkspaceStore.update(id: workspace.id) { $0.persona = true }
         FileHandle.standardError.write(Data((
@@ -16,6 +20,18 @@ private func personaWorkspace(_ name: String) throws -> Workspace {
     }
     Personas.prepare(workspace)
     return workspace
+}
+
+/// The environment to run as `workspace` with: its persona's, or only its
+/// network's.
+private func environment(as workspace: Workspace) -> [String: String] {
+    let base = ProcessInfo.processInfo.environment
+    guard workspace.persona == true else {
+        var environment = base.merging(workspace.proxy.map { WorkspaceNetwork.environment(proxy: $0, base: base) } ?? [:]) { _, new in new }
+        environment["PARALLEX_WORKSPACE"] = workspace.name
+        return environment
+    }
+    return Personas.environment(for: workspace, base: base)
 }
 
 /// Replace this process with `arguments`, found on the PATH, in `environment`.
@@ -71,7 +87,7 @@ struct RunAs: ParsableCommand {
             throw ValidationError("Give a command to run, after --.")
         }
         let chosen = try personaWorkspace(workspace)
-        try exec(arguments, environment: Personas.environment(for: chosen, base: ProcessInfo.processInfo.environment))
+        try exec(arguments, environment: environment(as: chosen))
     }
 }
 
@@ -89,6 +105,6 @@ struct ShellAs: ParsableCommand {
         let chosen = try personaWorkspace(workspace)
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         FileHandle.standardError.write(Data("You're “\(chosen.name)” in this shell. exit leaves.\n".utf8))
-        try exec([shell, "-l"], environment: Personas.environment(for: chosen, base: ProcessInfo.processInfo.environment))
+        try exec([shell, "-l"], environment: environment(as: chosen))
     }
 }

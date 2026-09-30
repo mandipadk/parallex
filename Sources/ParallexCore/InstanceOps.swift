@@ -643,7 +643,8 @@ public enum InstanceCreator {
             .appendingPathComponent("Library/Application Support")
         let originalProfiles = Presets.originalDataFolders(
             bundleID: target.bundleID,
-            names: [target.name, target.url.deletingPathExtension().lastPathComponent]
+            names: [target.name, target.url.deletingPathExtension().lastPathComponent],
+            version: AppCloner.version(of: target.url)
         ).map { support.appendingPathComponent($0).standardizedFileURL.path }
         if originalProfiles.contains(path) {
             throw ParallexError(
