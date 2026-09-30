@@ -173,5 +173,22 @@ final class PrivateSuggestionTests: XCTestCase {
         XCTAssertEqual(kept.manifest.privateHomeItems?.contains("Library/Preferences"), false)
         XCTAssertEqual(kept.manifest.guardedPaths?.contains("\(realHome)/.config/acme-cloud"), true, "and Guard keeps the copy out of yours")
         XCTAssertTrue(PrivateSuggestions.suggestions(for: kept.manifest).isEmpty)
+
+        // Shared again: the copy's own version goes, and its home links to
+        // yours there again.
+        let home = try XCTUnwrap(kept.manifest.redirectedHome)
+        let config = URL(fileURLWithPath: home).appendingPathComponent(".config")
+        let own = config.appendingPathComponent("acme-cloud")
+        try FileManager.default.createDirectory(at: own, withIntermediateDirectories: true)
+        try Data("copy's".utf8).write(to: own.appendingPathComponent("state.json"))
+        try FileManager.default.createSymbolicLink(at: config.appendingPathComponent("other"), withDestinationURL: tempDir)
+        setenv("PARALLEX_TRASH", tempDir.appendingPathComponent("trash").path, 1)
+        defer { unsetenv("PARALLEX_TRASH") }
+        settings.extraPrivateItems = nil
+        let shared = try InstanceCreator.update(kept.manifest, InstanceUpdate(settings: settings), builderOptions: options)
+        XCTAssertEqual(shared.manifest.privateHomeItems?.contains(".config/acme-cloud"), false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: own.path), "to the Trash")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: config.path), "a folder of only links goes, to be linked again")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.path), "links are removed, never what they lead to")
     }
 }

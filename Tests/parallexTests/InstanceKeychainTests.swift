@@ -188,7 +188,9 @@ final class InstanceKeychainTests: XCTestCase {
     /// was made anew in between.
     func testASnapshotBringsBackTheCopysSignIns() throws {
         let target = try makeTokenApp(named: "Snappy")
-        let result = try makeCopy(of: target, name: "Snappy Work")
+        // A name no real instance has: restoring touches the copy's own
+        // preferences domain, which is named after it.
+        let result = try makeCopy(of: target, name: "Snappy \(UUID().uuidString.prefix(8))")
         XCTAssertEqual(try launch(result.wrapperURL, "add"), "0 ")
         let taken = try Snapshots.take(result.manifest)
         let keychain = Paths.instanceKeychain(slug: result.manifest.slug).path

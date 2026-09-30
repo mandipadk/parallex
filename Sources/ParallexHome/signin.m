@@ -11,6 +11,8 @@
 
 #import <Foundation/Foundation.h>
 #import <dlfcn.h>
+#import <fcntl.h>
+#import <unistd.h>
 #import <mach-o/dyld.h>
 #import <objc/runtime.h>
 
@@ -56,11 +58,16 @@ static void noteSignIn(NSURL *url) {
         if (![files fileExistsAtPath:path]) {
             [files createFileAtPath:path contents:nil attributes:@{NSFilePosixPermissions: @0600}];
         }
-        NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
-        [handle seekToEndOfFile];
+        // Plain write(2): nothing here may raise inside the app's openURL
+        // (a full disk just means no note).
+        int fd = open(path.fileSystemRepresentation, O_WRONLY | O_APPEND | O_CLOEXEC);
+        if (fd < 0) {
+            return;
+        }
         NSString *line = [NSString stringWithFormat:@"%ld\t%@\n", (long)NSDate.date.timeIntervalSince1970, state];
-        [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-        [handle closeFile];
+        NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
+        (void)write(fd, data.bytes, data.length);
+        close(fd);
     }
 }
 

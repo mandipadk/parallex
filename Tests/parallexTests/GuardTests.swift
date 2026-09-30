@@ -13,8 +13,13 @@ final class GuardTests: XCTestCase {
     /// exist (nothing here reads or writes real data).
     var originalData: String { realHome + "/Library/Application Support/Guarded" }
 
+    /// Only what these tests could have made is ever removed: never a
+    /// folder that was there before (tearDown runs after a skip too).
+    var originalDataWasThere = true
+
     override func setUpWithError() throws {
-        try XCTSkipIf(FileManager.default.fileExists(atPath: originalData), "\(originalData) exists on this Mac")
+        originalDataWasThere = FileManager.default.fileExists(atPath: originalData)
+        try XCTSkipIf(originalDataWasThere, "\(originalData) exists on this Mac")
         tempDir = try Fixtures.makeTempDirectory("guard")
         setenv("PARALLEX_HOME", tempDir.appendingPathComponent("support").path, 1)
         setenv("PARALLEX_LAUNCHER", Fixtures.launcherBinary.path, 1)
@@ -25,7 +30,9 @@ final class GuardTests: XCTestCase {
 
     override func tearDownWithError() throws {
         // Only if Guard failed to stop the fixture's mkdir.
-        try? FileManager.default.removeItem(atPath: originalData)
+        if !originalDataWasThere {
+            try? FileManager.default.removeItem(atPath: originalData)
+        }
         unsetenv("PARALLEX_HOME")
         unsetenv("PARALLEX_LAUNCHER")
         unsetenv("PARALLEX_HOME_LIBRARY")
@@ -45,6 +52,8 @@ final class GuardTests: XCTestCase {
         #include <errno.h>
         #include <fcntl.h>
         #include <sys/stat.h>
+        #include <sys/clonefile.h>
+        #include <unistd.h>
         int main(void) {
             @autoreleasepool {
                 NSMutableString *results = [NSMutableString string];
@@ -56,6 +65,10 @@ final class GuardTests: XCTestCase {
                     int result;
                     if ([op isEqualToString:@"mkdir"]) {
                         result = mkdir(path, 0755);
+                    } else if ([op isEqualToString:@"clone"]) {
+                        result = clonefile([[NSString stringWithUTF8String:getenv("FIXTURE_FILE")] fileSystemRepresentation], path, 0);
+                    } else if ([op isEqualToString:@"link"]) {
+                        result = symlink(path, [[NSString stringWithFormat:@"%s.link", getenv("FIXTURE_FILE")] fileSystemRepresentation]);
                     } else {
                         result = open(path, O_RDONLY);
                         if (result >= 0) close(result);
@@ -89,6 +102,9 @@ final class GuardTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["FIXTURE_OUT"] = out.path
         environment["FIXTURE_TRY"] = tries.joined(separator: "\n")
+        let file = tempDir.appendingPathComponent("file-\(UUID().uuidString)")
+        try Data("x".utf8).write(to: file)
+        environment["FIXTURE_FILE"] = file.path
         process.environment = environment
         try process.run()
         process.waitUntilExit()
@@ -121,12 +137,18 @@ final class GuardTests: XCTestCase {
             "open:\(realHome)//Library/./Application Support/Other/../Guarded/Cookies",
             "open:\(realHome)/library/application support/GUARDED/Cookies",
             "mkdir:\(originalData)",
+            // By the data volume's own path, cloned into, linked to.
+            "open:/System/Volumes/Data\(cookies)",
+            "clone:\(originalData)",
+            "link:\(cookies)",
             // A folder that only starts with the same name isn't it.
             "open:\(originalData)Other/Cookies",
             // Your Library itself isn't the original's data.
             "open:\(realHome)/Library",
         ])
-        XCTAssertEqual(results, ["\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(ENOENT)", "0", "own:1"])
+        XCTAssertEqual(results, [
+            "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(EPERM)", "\(ENOENT)", "0", "own:1",
+        ])
         XCTAssertFalse(FileManager.default.fileExists(atPath: originalData))
 
         let report = try XCTUnwrap(IsolationCheck.recorded(result.manifest))

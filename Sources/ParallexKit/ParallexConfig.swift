@@ -87,6 +87,9 @@ public enum ParallexConfig {
         /// open, create, rename or remove (absolute paths; a folder ends in
         /// "/"). See recorder.c in ParallexHome.
         public static let guardedPaths = "GuardedPaths"
+        /// Loopback ports the app finds a running copy of itself on, which
+        /// in the copy are ports of its own (see ports.c in ParallexHome).
+        public static let loopbackPorts = "LoopbackPorts"
         /// The Parallex version that built this instance. A copy's
         /// CFBundleShortVersionString is its app's, so this is what says
         /// whether it has the current launcher.

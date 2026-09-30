@@ -22,6 +22,8 @@
 //                           or Rust find "~" through $HOME, not the account)
 //   PARALLEX_GUARD          "\n"-separated paths of the original's data,
 //                           which the copy may not touch (recorder.c)
+//   PARALLEX_LOOPBACK_PORTS ","-separated ports the app finds itself on,
+//                           which are the copy's own (ports.c)
 // Only processes whose executable lives inside the scope are redirected
 // (the app, its helpers and services). Any other process that inherits this
 // library — a shell or tool the app started — takes it and the variables
@@ -37,6 +39,7 @@
 #include <mach-o/dyld.h>
 #include <pwd.h>
 #include <spawn.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -66,6 +69,7 @@ static char keychain_keep[1024];
 static char instance_keychain_path[PATH_MAX];
 // Guard's list, as given (see recorder.c).
 static char *guarded_paths = NULL;
+static char loopback_ports[128];
 // "Safe Storage" keys go to the copy's own keychain as well (copies made
 // with it), instead of being renamed in the login keychain.
 static bool safe_storage_own = false;
@@ -115,16 +119,31 @@ static void leave_environment(void) {
     unsetenv("PARALLEX_INSTANCE_KEYCHAIN");
     unsetenv("PARALLEX_SAFE_STORAGE_OWN");
     unsetenv("PARALLEX_GUARD");
+    unsetenv("PARALLEX_LOOPBACK_PORTS");
 }
 
 // Runs once, from the constructor (or earlier, if another part of the
 // library asks first; see parallex_home_active).
+static void set_up_now(void);
+
+// 0: not yet, 1: under way (on some thread; a call from inside it, or from
+// another thread meanwhile, sees the library as not active), 2: done.
+static _Atomic int setup_state = 0;
+
 static void set_up(void) {
-    static bool done = false;
-    if (done) {
-        return;
+    int expected = 0;
+    if (atomic_compare_exchange_strong(&setup_state, &expected, 1)) {
+        set_up_now();
+        atomic_store(&setup_state, 2);
     }
-    done = true;
+}
+
+bool parallex_home_settled(void) {
+    set_up();
+    return atomic_load(&setup_state) == 2;
+}
+
+static void set_up_now(void) {
     const char *home = getenv("PARALLEX_HOME_REDIRECT");
     const char *scope = getenv("PARALLEX_HOME_SCOPE");
     if (home == NULL || home[0] != '/' || strlen(home) >= sizeof(redirect_home)
@@ -173,6 +192,10 @@ static void set_up(void) {
     if (guarded != NULL && guarded[0] == '/') {
         guarded_paths = strdup(guarded);
     }
+    const char *ports = getenv("PARALLEX_LOOPBACK_PORTS");
+    if (ports != NULL && strlen(ports) < sizeof(loopback_ports)) {
+        strlcpy(loopback_ports, ports, sizeof(loopback_ports));
+    }
     // Calls from this library aren't interposed: this is the real account.
     struct passwd *account = getpwuid(getuid());
     if (account != NULL && account->pw_dir != NULL) {
@@ -204,6 +227,10 @@ const char *parallex_home_scope(void) {
 
 const char *parallex_home_guarded(void) {
     return parallex_home_active() ? guarded_paths : NULL;
+}
+
+const char *parallex_home_ports(void) {
+    return parallex_home_active() && loopback_ports[0] != '\0' ? loopback_ports : NULL;
 }
 
 static void redirect(struct passwd *entry) {

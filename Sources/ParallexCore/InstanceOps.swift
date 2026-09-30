@@ -875,11 +875,20 @@ public enum InstanceCreator {
                 !sharedItems.contains { item == $0 || item.hasPrefix($0 + "/") || $0.hasPrefix(item + "/") }
             }
             : nil
+        // Items the user kept to the copy and now shares again: the copy's
+        // own version goes to the Trash, so its home links to yours there
+        // again (not while a refresh is only being prepared: it's in use).
+        if !stage, let redirectHome, let previousHome = previous?.redirectedHome, previousHome == redirectHome {
+            let before = Set(previous?.effectiveSettings.extraPrivateItems ?? [])
+            let kept = Set(privateHomeItems ?? [])
+            let released = before.subtracting(settings.extraPrivateItems ?? []).subtracting(kept)
+            releasePrivateItems(released.sorted(), home: URL(fileURLWithPath: redirectHome, isDirectory: true))
+        }
         // Guard: the original's data is off limits to a copy with its own
         // Library (the copy's launcher runs it; see `Guard`).
         let guardedPaths = redirectHome != nil && settings.isClone && settings.guardOriginalData != false
             ? Guard.locations(
-                for: target, privateHomeItems: privateHomeItems,
+                for: target, privateHomeItems: privateHomeItems, sharedItems: homeSymlinks,
                 home: FileManager.default.homeDirectoryForCurrentUser.path
             )
             : nil
@@ -925,7 +934,8 @@ public enum InstanceCreator {
             keychainKeep: redirectHome != nil && keychainSuffix != nil ? KeychainNames.foreignServices(for: target) : [],
             instanceKeychain: instanceKeychain,
             safeStorageInKeychain: safeStorageInKeychain,
-            guardedPaths: guardedPaths
+            guardedPaths: guardedPaths,
+            loopbackPorts: redirectHome != nil ? Presets.singleInstancePorts(for: target.bundleID) : []
         )
 
         var notes = plan.notes
@@ -997,6 +1007,31 @@ public enum InstanceCreator {
             notes: notes,
             warnings: output.warnings
         )
+    }
+
+    /// Undo keeping `items` (relative paths) to a copy: its own versions go
+    /// to the Trash, and folders on the way that hold only links to your
+    /// home are removed, so the launcher links them to yours again.
+    static func releasePrivateItems(_ items: [String], home: URL) {
+        let fm = FileManager.default
+        for item in items {
+            let parts = item.split(separator: "/").map(String.init)
+            guard !parts.isEmpty, parts.allSatisfy(OriginalData.isPlainName) else { continue }
+            let path = parts.reduce(home) { $0.appendingPathComponent($1) }
+            if (try? fm.destinationOfSymbolicLink(atPath: path.path)) == nil, fm.fileExists(atPath: path.path) {
+                try? Trash.move(path)
+            }
+            var parent = path.deletingLastPathComponent()
+            while parent.path.count > home.path.count, parent.path.hasPrefix(home.path + "/") {
+                let entries = (try? fm.contentsOfDirectory(atPath: parent.path)) ?? []
+                let onlyLinks = entries.allSatisfy {
+                    $0 == ".DS_Store" || (try? fm.destinationOfSymbolicLink(atPath: parent.appendingPathComponent($0).path)) != nil
+                }
+                guard (try? fm.destinationOfSymbolicLink(atPath: parent.path)) == nil, onlyLinks else { break }
+                try? fm.removeItem(at: parent)
+                parent = parent.deletingLastPathComponent()
+            }
+        }
     }
 
     /// Clone mode: build a re-signed copy of the target (with the launcher

@@ -55,6 +55,7 @@ public enum Snapshots {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return ((try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? [])
+            .filter { !$0.hasPrefix(".") }
             .compactMap { name in
                 guard let data = try? Data(contentsOf: root.appendingPathComponent(name).appendingPathComponent(recordFile))
                 else { return nil }
@@ -82,10 +83,20 @@ public enum Snapshots {
     public static func take(
         _ manifest: InstanceManifest, label: String? = nil, reason: Snapshot.Reason = .manual, now: Date = Date()
     ) throws -> Snapshot {
+        let lock = try launchLock(manifest)
+        defer { lock.release() }
         if let problem = unavailableReason(manifest) {
             throw ParallexError(problem)
         }
-        return try capture(manifest, label: label, reason: reason, now: now)
+        let snapshot = try capture(manifest, label: label, reason: reason, now: now)
+        prune(manifest)
+        return snapshot
+    }
+
+    /// The lock a copy's launcher holds from "is it running?" until it
+    /// becomes the app: held, the instance can't start meanwhile.
+    private static func launchLock(_ manifest: InstanceManifest) throws -> FileLock {
+        try FileLock(URL(fileURLWithPath: Paths.pidFile(slug: manifest.slug).path + ".lock"))
     }
 
     private static func capture(
@@ -95,6 +106,10 @@ public enum Snapshots {
         let instance = Paths.instanceDir(slug: manifest.slug)
         let root = folder(slug: manifest.slug)
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        // What a snapshot interrupted before (a crash, say) left half made.
+        for name in (try? fm.contentsOfDirectory(atPath: root.path)) ?? [] where name.hasPrefix(".") {
+            try? fm.removeItem(at: root.appendingPathComponent(name))
+        }
         let id = uniqueID(for: now, in: root)
         let snapshot = Snapshot(
             id: id, date: now, label: label.flatMap { $0.isEmpty ? nil : $0 }, reason: reason,
@@ -122,7 +137,6 @@ public enum Snapshots {
             try? fm.removeItem(at: partial)
             throw error
         }
-        prune(manifest)
         return snapshot
     }
 
@@ -142,9 +156,13 @@ public enum Snapshots {
     }
 
     /// Put the instance's data back as it was in `snapshot`. What it had
-    /// until now is kept as a snapshot of its own, which is returned.
+    /// until now is kept as a snapshot of its own, which is returned. The
+    /// instance can't start meanwhile, and if anything fails, it keeps what
+    /// it had.
     @discardableResult
     public static func restore(_ snapshot: Snapshot, of manifest: InstanceManifest, now: Date = Date()) throws -> Snapshot {
+        let lock = try launchLock(manifest)
+        defer { lock.release() }
         if let problem = unavailableReason(manifest) {
             throw ParallexError(problem)
         }
@@ -158,20 +176,53 @@ public enum Snapshots {
         }
         let before = try capture(manifest, label: nil, reason: .beforeRestore, now: now)
         let instance = Paths.instanceDir(slug: manifest.slug)
-        for item in try fm.contentsOfDirectory(atPath: instance.path) where !isBookkeeping(item) {
-            try fm.removeItem(at: instance.appendingPathComponent(item))
+        // The snapshot's data is cloned beside the instance's first; then the
+        // two change places by renames, and back if one fails.
+        let incoming = instance.appendingPathComponent(".restoring-\(snapshot.id)", isDirectory: true)
+        let outgoing = instance.appendingPathComponent(".replaced-\(snapshot.id)", isDirectory: true)
+        try? fm.removeItem(at: incoming)
+        try? fm.removeItem(at: outgoing)
+        defer {
+            try? fm.removeItem(at: incoming)
+            try? fm.removeItem(at: outgoing)
         }
-        for item in items where !isBookkeeping(item) {
-            try Shell.run("/bin/cp", ["-cRp", data.appendingPathComponent(item).path, instance.appendingPathComponent(item).path])
+        try fm.createDirectory(at: incoming, withIntermediateDirectories: false)
+        try fm.createDirectory(at: outgoing, withIntermediateDirectories: false)
+        let restored = items.filter { !isBookkeeping($0) }
+        for item in restored {
+            try Shell.run("/bin/cp", ["-cRp", data.appendingPathComponent(item).path, incoming.appendingPathComponent(item).path])
+        }
+        let current = try fm.contentsOfDirectory(atPath: instance.path).filter { !isBookkeeping($0) }
+        var movedOut: [String] = []
+        var movedIn: [String] = []
+        do {
+            for item in current {
+                try fm.moveItem(at: instance.appendingPathComponent(item), to: outgoing.appendingPathComponent(item))
+                movedOut.append(item)
+            }
+            for item in restored {
+                try fm.moveItem(at: incoming.appendingPathComponent(item), to: instance.appendingPathComponent(item))
+                movedIn.append(item)
+            }
+        } catch {
+            for item in movedIn {
+                try? fm.moveItem(at: instance.appendingPathComponent(item), to: incoming.appendingPathComponent(item))
+            }
+            for item in movedOut {
+                try? fm.moveItem(at: outgoing.appendingPathComponent(item), to: instance.appendingPathComponent(item))
+            }
+            throw error
         }
         if let copyID = manifest.clone?.bundleIdentifier {
+            // Import adds to what's there: start from nothing, so keys set
+            // since the snapshot go too.
+            _ = try? Shell.run("/usr/bin/defaults", ["delete", copyID])
             let preferences = source.appendingPathComponent(preferencesFile)
             if fm.fileExists(atPath: preferences.path) {
                 _ = try? Shell.run("/usr/bin/defaults", ["import", copyID, preferences.path])
-            } else {
-                _ = try? Shell.run("/usr/bin/defaults", ["delete", copyID])
             }
         }
+        prune(manifest, keeping: snapshot.id)
         return before
     }
 
@@ -192,9 +243,10 @@ public enum Snapshots {
         try encoder.encode(renamed).write(to: url, options: .atomic)
     }
 
-    /// Only the newest few taken for you are kept.
-    static func prune(_ manifest: InstanceManifest) {
-        let automatic = list(manifest).filter { $0.reason != .manual }
+    /// Only the newest few taken for you are kept (and never `keeping`,
+    /// the one just restored).
+    static func prune(_ manifest: InstanceManifest, keeping: String? = nil) {
+        let automatic = list(manifest).filter { $0.reason != .manual && $0.id != keeping }
         for snapshot in automatic.dropFirst(keptAutomatic) {
             try? FileManager.default.removeItem(at: folder(slug: manifest.slug).appendingPathComponent(snapshot.id))
         }

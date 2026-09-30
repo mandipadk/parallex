@@ -177,6 +177,32 @@ public enum Presets {
         return folders
     }
 
+    /// Apps that make sure only one of them runs by listening on a fixed
+    /// port on this Mac, so a copy would hand over to the original and quit:
+    /// in a copy, these ports are its own (ports.c in ParallexHome). By
+    /// bundle ID; `plusUserID` ports are offset by your user ID.
+    static let knownSingleInstancePorts: [String: [(base: Int, plusUserID: Bool)]] = [
+        // crates/zed/src/zed/mac_only_instance.rs: 43737 + 100 per channel.
+        "dev.zed.Zed-Dev": [(43737, true)],
+        "dev.zed.Zed-Preview": [(43837, true)],
+        "dev.zed.Zed": [(43937, true)],
+        "dev.zed.Zed-Nightly": [(44037, true)],
+    ]
+
+    /// This Mac's ports for `bundleID` (see `knownSingleInstancePorts`).
+    /// PARALLEX_LOOPBACK_PORTS_FOR ("<bundle id>=<port>,<port>") adds some,
+    /// for an app not listed yet, and tests.
+    static func singleInstancePorts(for bundleID: String) -> [Int] {
+        var ports = (knownSingleInstancePorts[bundleID] ?? []).map { $0.base + ($0.plusUserID ? Int(getuid()) : 0) }
+        if let extra = ProcessInfo.processInfo.environment["PARALLEX_LOOPBACK_PORTS_FOR"] {
+            let parts = extra.split(separator: "=", maxSplits: 1).map(String.init)
+            if parts.count == 2, parts[0] == bundleID {
+                ports += parts[1].split(separator: ",").compactMap { Int($0) }
+            }
+        }
+        return ports.filter { (1..<65536).contains($0) }
+    }
+
     /// Hidden folders in your home that belong to an app (beyond its name),
     /// for apps that don't name them after themselves.
     static let knownHomeFolders: [String: [String]] = [
@@ -219,7 +245,8 @@ public enum Presets {
         }
         for item in extra where !items.contains(item) {
             let parts = item.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-            if !parts.isEmpty, parts.allSatisfy(OriginalData.isPlainName), !parts.contains(".."), parts[0] != "Library" {
+            if !parts.isEmpty, parts.allSatisfy(OriginalData.isPlainName), !parts.contains(".."),
+               parts[0].lowercased() != "library" {
                 items.append(item)
             }
         }

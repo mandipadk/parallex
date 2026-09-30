@@ -86,10 +86,10 @@ final class SignInRoutingTests: XCTestCase {
         let back = try XCTUnwrap(URL(string: "asker://cb?code=c&state=from-work"))
         XCTAssertEqual(SignInRequests.narrow(candidates, for: back, manifests: manifests).map(\.pid), [200])
 
-        // Nobody here asked (the original did, which notes nothing): the
-        // copies that would have noted it are out.
+        // Nobody noted it (the original asked, or a copy opened the page in
+        // a way its library doesn't see): no telling, so as before.
         let other = try XCTUnwrap(URL(string: "asker://cb?code=c&state=elsewhere"))
-        XCTAssertEqual(SignInRequests.narrow(candidates, for: other, manifests: manifests).map(\.pid), [100])
+        XCTAssertEqual(SignInRequests.narrow(candidates, for: other, manifests: manifests).count, 3)
         // No state: nothing to go on.
         let plain = try XCTUnwrap(URL(string: "asker://open/thing"))
         XCTAssertEqual(SignInRequests.narrow(candidates, for: plain, manifests: manifests).count, 3)

@@ -17,18 +17,22 @@
 // Checks are prefix tests on the path given; only a path that leads out of
 // the instance through its home's links is resolved.
 //
-// Guard: the same functions (and unlink, unlinkat, rmdir) refuse the
-// original app's data outright (PARALLEX_GUARD, see Guard in ParallexCore),
-// failing with EPERM as a sandbox would and noting "blocked". It works on
-// the path as given, spelled out in full (the way saved paths and paths
-// built from a home folder are); it's a safety net for an app's own code,
-// not a sandbox against code set on getting around it.
+// Guard: the same functions (and renamex_np, clonefile, link, symlink,
+// truncate, unlink, rmdir and their *at forms) refuse the original app's
+// data outright (PARALLEX_GUARD, see Guard in ParallexCore), failing with
+// EPERM as a sandbox would and noting "blocked". It works on the path as
+// given, spelled out in full (the way saved paths and paths built from a
+// home folder are), not on one relative to an open folder, one that leads
+// there through a link, or what tools the copy starts do. It's a safety net
+// for an app's own code, not a sandbox against code set on getting around it.
 
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <mach-o/dyld.h>
 #include <os/lock.h>
+#include <pthread.h>
+#include <sys/clonefile.h>
 #include <stdatomic.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -116,10 +120,21 @@ static void prepare_guard(void) {
 
 static void prepare_all(void);
 
-// Everything below is set once, under the lock, before `ready` is.
-static void ensure_ready(void) {
+// A child made by fork() (without exec) starts with one thread: the lock
+// must not stay held by a thread that isn't there.
+static void before_fork(void) { os_unfair_lock_lock(&lock); }
+static void after_fork_parent(void) { os_unfair_lock_unlock(&lock); }
+static void after_fork_child(void) { lock = OS_UNFAIR_LOCK_INIT; }
+
+// Everything below is set once, under the lock, before `ready` is. False
+// while the library is still setting up: then nothing is noted or refused
+// for now, and nothing is concluded for later.
+static bool ensure_ready(void) {
     if (atomic_load_explicit(&ready, memory_order_acquire)) {
-        return;
+        return true;
+    }
+    if (!parallex_home_settled()) {
+        return false;
     }
     os_unfair_lock_lock(&lock);
     if (!atomic_load_explicit(&ready, memory_order_relaxed)) {
@@ -127,9 +142,11 @@ static void ensure_ready(void) {
         atomic_store_explicit(&ready, true, memory_order_release);
     }
     os_unfair_lock_unlock(&lock);
+    return true;
 }
 
 static void prepare_all(void) {
+    pthread_atfork(before_fork, after_fork_parent, after_fork_child);
     const char *home = parallex_home_redirect();
     const char *real = parallex_home_real();
     const char *scope = parallex_home_scope();
@@ -174,8 +191,10 @@ static uint64_t hash(const char *text) {
 // True the first time this process notes `path` (for `salt`: a blocked
 // attempt is noted apart from a read of the same path).
 static bool first_time(const char *path, uint64_t salt) {
+    // Full: start over (some paths get noted twice) rather than stop.
     if (seen_count >= SEEN_SLOTS * 3 / 4) {
-        return false;
+        memset(seen, 0, sizeof(seen));
+        seen_count = 0;
     }
     uint64_t value = hash(path) ^ salt;
     value = value == 0 ? 1 : value;
@@ -224,9 +243,8 @@ static void note(const char *operation, const char *path) {
     }
     int saved = errno;
     noting = true;
-    ensure_ready();
-    os_unfair_lock_lock(&lock);
-    if (!off) {
+    if (ensure_ready() && !off) {
+        // Sorted first; only noting it takes the lock.
         const char *noted = NULL;
         char resolved[PATH_MAX];
         if (starts_with(path, instance_dir, instance_length)) {
@@ -242,11 +260,14 @@ static void note(const char *operation, const char *path) {
             // (Not the copy itself, nor anything in it.)
             noted = path;
         }
-        if (noted != NULL && first_time(noted, 0)) {
-            write_line(operation, noted);
+        if (noted != NULL) {
+            os_unfair_lock_lock(&lock);
+            if (!off && first_time(noted, 0)) {
+                write_line(operation, noted);
+            }
+            os_unfair_lock_unlock(&lock);
         }
     }
-    os_unfair_lock_unlock(&lock);
     noting = false;
     errno = saved;
 }
@@ -308,10 +329,15 @@ static bool refused(const char *path) {
     // straight through.
     int saved = errno;
     noting = true;
-    ensure_ready();
+    bool usable = ensure_ready();
     noting = false;
     errno = saved;
-    if (guarded_count == 0 || strncasecmp(path, real_prefix, real_length) != 0) {
+    // The same folder by the data volume's own path.
+    static const char data_volume[] = "/System/Volumes/Data/";
+    if (strncmp(path, data_volume, sizeof(data_volume) - 1) == 0) {
+        path += sizeof(data_volume) - 2;
+    }
+    if (!usable || guarded_count == 0 || strncasecmp(path, real_prefix, real_length) != 0) {
         return false;
     }
     const char *checked = path;
@@ -444,6 +470,66 @@ static int parallex_renameat(int from_fd, const char *from, int to_fd, const cha
     return result;
 }
 
+static int parallex_renamex_np(const char *from, const char *to, unsigned int flags) {
+    if (refused(from) || refused(to)) return -1;
+    int result = renamex_np(from, to, flags);
+    if (result == 0) note("write", to);
+    return result;
+}
+
+static int parallex_renameatx_np(int from_fd, const char *from, int to_fd, const char *to, unsigned int flags) {
+    if (refused(from) || refused(to)) return -1;
+    int result = renameatx_np(from_fd, from, to_fd, to, flags);
+    if (result == 0) note("write", to);
+    return result;
+}
+
+static int parallex_clonefile(const char *from, const char *to, uint32_t flags) {
+    if (refused(from) || refused(to)) return -1;
+    int result = clonefile(from, to, flags);
+    if (result == 0) {
+        note("read", from);
+        note("create", to);
+    }
+    return result;
+}
+
+static int parallex_clonefileat(int from_fd, const char *from, int to_fd, const char *to, uint32_t flags) {
+    if (refused(from) || refused(to)) return -1;
+    int result = clonefileat(from_fd, from, to_fd, to, flags);
+    if (result == 0) {
+        note("read", from);
+        note("create", to);
+    }
+    return result;
+}
+
+static int parallex_link(const char *from, const char *to) {
+    if (refused(from) || refused(to)) return -1;
+    return link(from, to);
+}
+
+static int parallex_linkat(int from_fd, const char *from, int to_fd, const char *to, int flags) {
+    if (refused(from) || refused(to)) return -1;
+    return linkat(from_fd, from, to_fd, to, flags);
+}
+
+// A link made to the original's data would lead there by another name.
+static int parallex_symlink(const char *target, const char *path) {
+    if (refused(target) || refused(path)) return -1;
+    return symlink(target, path);
+}
+
+static int parallex_symlinkat(const char *target, int fd, const char *path) {
+    if (refused(target) || refused(path)) return -1;
+    return symlinkat(target, fd, path);
+}
+
+static int parallex_truncate(const char *path, off_t length) {
+    if (refused(path)) return -1;
+    return truncate(path, length);
+}
+
 static int parallex_unlink(const char *path) {
     if (refused(path)) return -1;
     return unlink(path);
@@ -474,3 +560,12 @@ INTERPOSE(parallex_renameat, renameat);
 INTERPOSE(parallex_unlink, unlink);
 INTERPOSE(parallex_unlinkat, unlinkat);
 INTERPOSE(parallex_rmdir, rmdir);
+INTERPOSE(parallex_renamex_np, renamex_np);
+INTERPOSE(parallex_renameatx_np, renameatx_np);
+INTERPOSE(parallex_clonefile, clonefile);
+INTERPOSE(parallex_clonefileat, clonefileat);
+INTERPOSE(parallex_link, link);
+INTERPOSE(parallex_linkat, linkat);
+INTERPOSE(parallex_symlink, symlink);
+INTERPOSE(parallex_symlinkat, symlinkat);
+INTERPOSE(parallex_truncate, truncate);

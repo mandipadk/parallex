@@ -44,6 +44,8 @@ struct WrapperSpec {
     var safeStorageInKeychain = false
     /// Guard's list (see `Guard`), with its own Library only.
     var guardedPaths: [String]? = nil
+    /// See `Presets.singleInstancePorts`.
+    var loopbackPorts: [Int] = []
 }
 
 /// Assembles, signs, and registers wrapper bundles. The bundle is built in a
@@ -207,6 +209,9 @@ public struct BundleBuilder {
             }
             if let guardedPaths = spec.guardedPaths, !guardedPaths.isEmpty {
                 config[ParallexConfig.Key.guardedPaths] = guardedPaths
+            }
+            if !spec.loopbackPorts.isEmpty {
+                config[ParallexConfig.Key.loopbackPorts] = spec.loopbackPorts
             }
             if let instanceKeychain = spec.instanceKeychain {
                 config[ParallexConfig.Key.instanceKeychain] = instanceKeychain

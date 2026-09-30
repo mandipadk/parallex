@@ -464,6 +464,12 @@ if let redirectHome = config[ParallexConfig.Key.redirectHome] as? String,
     } else {
         unsetenv("PARALLEX_GUARD")
     }
+    // Ports the app finds itself on are the copy's own (ports.c).
+    if let ports = config[ParallexConfig.Key.loopbackPorts] as? [Int], !ports.isEmpty {
+        setenv("PARALLEX_LOOPBACK_PORTS", ports.map(String.init).joined(separator: ","), 1)
+    } else {
+        unsetenv("PARALLEX_LOOPBACK_PORTS")
+    }
     setenv("PARALLEX_HOME_REDIRECT", redirectHome, 1)
     setenv("PARALLEX_HOME_SCOPE", bundle, 1)
     let existing = (ProcessInfo.processInfo.environment["DYLD_INSERT_LIBRARIES"] ?? "")

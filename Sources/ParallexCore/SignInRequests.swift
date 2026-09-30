@@ -60,8 +60,8 @@ public enum SignInRequests {
         }
         guard let handle = try? FileHandle(forWritingTo: url) else { return }
         defer { try? handle.close() }
-        handle.seekToEndOfFile()
-        handle.write(Data("\(Int(date.timeIntervalSince1970))\t\(state)\n".utf8))
+        _ = try? handle.seekToEnd()
+        try? handle.write(contentsOf: Data("\(Int(date.timeIntervalSince1970))\t\(state)\n".utf8))
     }
 
     /// The instance that asked for the sign-in with `state` lately.
@@ -81,18 +81,16 @@ public enum SignInRequests {
     }
 
     /// The copies a link coming back from a sign-in may go to: the one that
-    /// asked, when one did. When none did, not the copies that would have
-    /// noted it (they didn't ask), unless that leaves none.
+    /// asked, when one did. When none noted it, all of them, as before:
+    /// a copy can open a sign-in page in ways its library doesn't see (the
+    /// `open` command, say), so not having noted it proves nothing.
     public static func narrow(
         _ candidates: [LinkRouting.Candidate], for url: URL, manifests: [InstanceManifest], now: Date = Date()
     ) -> [LinkRouting.Candidate] {
-        guard let state = state(in: url) else { return candidates }
-        if let slug = requester(of: state, manifests: manifests, now: now),
-           let asked = candidates.first(where: { $0.slug == slug }) {
-            return [asked]
-        }
-        let noting = Set(manifests.filter { $0.redirectedHome != nil }.map(\.slug))
-        let rest = candidates.filter { candidate in candidate.slug.map { !noting.contains($0) } ?? true }
-        return rest.isEmpty ? candidates : rest
+        guard let state = state(in: url),
+              let slug = requester(of: state, manifests: manifests, now: now),
+              let asked = candidates.first(where: { $0.slug == slug })
+        else { return candidates }
+        return [asked]
     }
 }

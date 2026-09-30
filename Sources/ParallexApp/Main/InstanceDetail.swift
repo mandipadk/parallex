@@ -576,7 +576,7 @@ private struct IsolationSection: View {
                         .transition(.opacity.combined(with: .move(edge: .top)))
                         ExplainedToggle(
                             title: "Guard the original's data",
-                            detail: "Nothing in this instance can open what \(entry.targetName) keeps in your Library, even by its full path. An attempt fails, and shows up under Verify Isolation.",
+                            detail: "This instance can't open what \(entry.targetName) keeps in your Library, even by its full path. An attempt fails and shows up under Verify Isolation. It's a safety net for the app's own code, not a sandbox.",
                             isOn: guardBinding
                         )
                         .transition(.opacity.combined(with: .move(edge: .top)))

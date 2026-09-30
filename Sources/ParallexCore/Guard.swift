@@ -11,7 +11,9 @@ import Foundation
 /// what the user shares on purpose.
 public enum Guard {
     /// Absolute paths; a folder ends in "/".
-    static func locations(for target: AppInfo, privateHomeItems: [String]?, home: String) -> [String] {
+    static func locations(
+        for target: AppInfo, privateHomeItems: [String]?, sharedItems: [String] = [], home: String
+    ) -> [String] {
         let library = home + "/Library"
         var names = [target.url.deletingPathExtension().lastPathComponent]
         if let bundleName = target.infoPlist["CFBundleName"] as? String, !names.contains(bundleName) {
@@ -41,7 +43,17 @@ public enum Guard {
         for item in privateHomeItems ?? [] {
             paths.append("\(home)/\(item)")
         }
+        // Never Parallex's own folder (the instance's data is in it), nor
+        // anything shared into the copy on purpose.
+        let own = [Paths.supportRoot.resolvingSymlinksInPath().path.lowercased() + "/",
+                   Paths.supportRoot.path.lowercased() + "/"]
+        let shared = sharedItems.map { "\(home)/\($0)".lowercased() }
         var seen = Set<String>()
-        return paths.filter { seen.insert($0).inserted }
+        return paths.filter { path in
+            let folder = (path.hasSuffix("/") ? path : path + "/").lowercased()
+            let overlapsOwn = own.contains { $0.hasPrefix(folder) || $0 == folder }
+            let overlapsShared = shared.contains { folder.hasPrefix($0 + "/") || ($0 + "/").hasPrefix(folder) }
+            return !overlapsOwn && !overlapsShared && seen.insert(path).inserted
+        }
     }
 }

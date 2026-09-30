@@ -189,12 +189,15 @@ of yours outside the instance that it opens, creates or renames (`access.log`
 in its instance folder), so its check covers all of that, and works while it
 isn't running.
 
-Such a copy is also kept out of the original app's data by **Guard**: its
-Application Support folder, container, preferences, caches and cookies can't
-be opened, created, renamed or removed from inside the copy, even by their
-full path (one saved in data copied from the original, say). The attempt
-fails as a sandbox would refuse it, and the check lists it under "Kept out by
-Guard". Turn it off with `parallex edit <name> --no-guard`.
+Such a copy is also kept out of the original app's data by **Guard**: the
+copy's own code can't open, create, rename or remove anything in the
+original's Application Support folder, container, preferences, caches or
+cookies by its full path (one saved in data copied from the original, say).
+The attempt fails as a sandbox would refuse it, and the check lists it under
+"Kept out by Guard". It's a safety net for the app's own code, not a sandbox:
+tools the copy starts, a path reached through a link or relative to an open
+folder, and preferences macOS reads for the app aren't covered. Turn it off
+with `parallex edit <name> --no-guard`.
 
 ### Snapshots
 

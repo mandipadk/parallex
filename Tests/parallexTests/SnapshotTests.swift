@@ -88,6 +88,22 @@ final class SnapshotTests: XCTestCase {
         XCTAssertEqual(snapshots.first?.date, Date(timeIntervalSince1970: 1_800_000_000 + Double(Snapshots.keptAutomatic + 1) * 60))
     }
 
+    /// With the most kept for you already, going back to the oldest of
+    /// them keeps it (and the instance's data) rather than pruning it.
+    func testRestoringTheOldestKeptForYouKeepsIt() throws {
+        let (manifest, instance) = try makeInstance()
+        for index in 0..<Snapshots.keptAutomatic {
+            try Snapshots.take(manifest, reason: .beforeRestore, now: Date(timeIntervalSince1970: 1_800_000_000 + Double(index) * 60))
+        }
+        let oldest = try XCTUnwrap(Snapshots.list(manifest).last)
+        try Data("later".utf8).write(to: instance.appendingPathComponent("data/Default/Cookies"))
+        try Snapshots.restore(oldest, of: manifest, now: Date(timeIntervalSince1970: 1_900_000_000))
+        XCTAssertEqual(read(instance.appendingPathComponent("data/Default/Cookies")), "signed in as work")
+        XCTAssertNotNil(Snapshots.find(oldest.id, in: manifest), "the one restored stays")
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: instance.path).filter { $0.hasPrefix(".re") }
+        XCTAssertEqual(leftovers, [], "nothing half done left behind")
+    }
+
     func testRenameDeleteAndDuplicatesLeaveThemOut() throws {
         let (manifest, _) = try makeInstance()
         let taken = try Snapshots.take(manifest)
