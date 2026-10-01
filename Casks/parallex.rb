@@ -5,8 +5,8 @@
 #
 # `make cask` updates the version and checksum after a release.
 cask "parallex" do
-  version "1.8.1"
-  sha256 "068f7a67b798a550d03a34a184c67e879782a433ec55b75e2ebbb737fe4216f6"
+  version "1.9.0"
+  sha256 "72dc9d320e47cc7772701e29ea68f5ebd3b0a3bae6f5e28a948e591b1219b7ee"
 
   url "https://github.com/mandipadk/parallex/releases/download/v#{version}/Parallex-#{version}.zip"
   name "Parallex"
