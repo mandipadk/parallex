@@ -27,6 +27,45 @@ final class PersonaTests: XCTestCase {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
+    func testGitIsToldTheWorkspacesGitHubAccount() throws {
+        let hosts = """
+        github.com:
+            users:
+                user:
+                    oauth_token: x
+                client-a:
+            git_protocol: https
+            user: client-a
+        ghe.example.com:
+            user: someone-else
+        """
+        XCTAssertEqual(Personas.githubUser(in: hosts), "client-a", "github.com's own user, not a name under users")
+        XCTAssertNil(Personas.githubUser(in: "github.com:\n    user: \"bad name; rm\"\n"))
+        XCTAssertNil(Personas.githubUser(in: ""))
+
+        let home = tempDir.appendingPathComponent("persona-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".config/gh"), withIntermediateDirectories: true)
+        let gitconfig = home.appendingPathComponent(".gitconfig")
+        try "[user]\n\tname = Client A\n".write(to: gitconfig, atomically: true, encoding: .utf8)
+        let hostsFile = home.appendingPathComponent(".config/gh/hosts.yml")
+        try hosts.write(to: hostsFile, atomically: true, encoding: .utf8)
+
+        Personas.syncGitHubAccount(home: home)
+        Personas.syncGitHubAccount(home: home)
+        var text = try String(contentsOf: gitconfig, encoding: .utf8)
+        XCTAssertTrue(text.hasPrefix("[user]\n\tname = Client A\n"), "the workspace's own settings stay")
+        XCTAssertEqual(text.components(separatedBy: "username = client-a").count - 1, 1, "once, however often it's brought up to date")
+
+        try hosts.replacingOccurrences(of: "user: client-a", with: "user: client-b").write(to: hostsFile, atomically: true, encoding: .utf8)
+        Personas.syncGitHubAccount(home: home)
+        text = try String(contentsOf: gitconfig, encoding: .utf8)
+        XCTAssertTrue(text.contains("username = client-b") && !text.contains("client-a"), "follows the account gh is signed in to")
+
+        try FileManager.default.removeItem(at: hostsFile)
+        Personas.syncGitHubAccount(home: home)
+        XCTAssertEqual(try String(contentsOf: gitconfig, encoding: .utf8), "[user]\n\tname = Client A\n", "signed out: gone")
+    }
+
     func testAPersonaHomeIsYoursExceptForWhoYouAre() throws {
         var workspace = try WorkspaceStore.create(name: "Client A")
         workspace = try WorkspaceStore.update(id: workspace.id) { $0.persona = true }

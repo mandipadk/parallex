@@ -318,6 +318,7 @@ extension Binding where Value == Bool? {
 private struct DetailHeader: View {
     let entry: InstanceEntry
     @Environment(AppModel.self) private var model
+    @Environment(\.showFeedbackAbout) private var showFeedbackAbout
 
     var body: some View {
         HStack(alignment: .center, spacing: Theme.Space.l) {
@@ -377,6 +378,8 @@ private struct DetailHeader: View {
                     NSPasteboard.general.setString(ParallexLink.url(opening: entry.name).absoluteString, forType: .string)
                 }
                 .help("A parallex:// link that opens this instance from Shortcuts, launchers or scripts")
+                Button("Something's Off…") { showFeedbackAbout(entry.id) }
+                    .help("Tell Parallex's maker what's wrong with this instance; you see the whole note before it's sent.")
                 Button("Report How It Works…") { NSWorkspace.shared.open(CompatibilityReport.url(for: entry.manifest)) }
                     .help("Opens a report on GitHub with the app, its version and how this instance was made filled in. Nothing is sent until you submit it.")
                 Divider()

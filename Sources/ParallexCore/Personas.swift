@@ -73,6 +73,52 @@ public enum Personas {
             }
             fm.createFile(atPath: gitconfig.path, contents: Data((text + "\n").utf8), attributes: [.posixPermissions: 0o600])
         }
+        if items.contains(".gitconfig"), items.contains(".config/gh") || items.contains(".config") {
+            syncGitHubAccount(home: home)
+        }
+    }
+
+    static let githubBlockStart = "# Parallex: this workspace's GitHub account (from its gh sign-in), so git"
+    static let githubBlockEnd = "# Parallex: end"
+
+    /// The keychain is shared by every workspace, and git finds a GitHub
+    /// sign-in there by host, unless it's told a username: then two
+    /// workspaces signed in to two accounts each get their own. So the
+    /// workspace's git is told the account its own gh is signed in to (gh
+    /// keeps its tokens per account already). Kept in a block of its own in
+    /// the workspace's .gitconfig, brought up to date each time.
+    static func syncGitHubAccount(home: URL) {
+        let gitconfig = home.appendingPathComponent(".gitconfig")
+        guard var text = try? String(contentsOf: gitconfig, encoding: .utf8) else { return }
+        if let start = text.range(of: githubBlockStart), let end = text.range(of: githubBlockEnd, range: start.upperBound..<text.endIndex) {
+            let lineEnd = text[end.upperBound...].firstIndex(of: "\n").map { text.index(after: $0) } ?? text.endIndex
+            text.removeSubrange(start.lowerBound..<lineEnd)
+        }
+        let hosts = home.appendingPathComponent(".config/gh/hosts.yml")
+        if let user = githubUser(in: (try? String(contentsOf: hosts, encoding: .utf8)) ?? "") {
+            if !text.hasSuffix("\n") { text += "\n" }
+            text += "\(githubBlockStart)\n# finds its own sign-in in the keychain.\n[credential \"https://github.com\"]\n\tusername = \(user)\n\(githubBlockEnd)\n"
+        }
+        try? Data(text.utf8).write(to: gitconfig, options: .atomic)
+    }
+
+    /// The account gh uses for github.com, from its hosts.yml ("user:" under
+    /// "github.com:"); nil when it isn't signed in, or the name isn't one
+    /// GitHub allows.
+    static func githubUser(in hostsYAML: String) -> String? {
+        var inGitHub = false
+        for line in hostsYAML.components(separatedBy: .newlines) {
+            if !line.hasPrefix(" "), !line.hasPrefix("\t"), !line.isEmpty {
+                inGitHub = line.trimmingCharacters(in: .whitespaces) == "github.com:"
+                continue
+            }
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // Its own "user:" key, not a name under "users:".
+            guard inGitHub, trimmed.hasPrefix("user:"), line.prefix(while: { $0 == " " }).count <= 4 else { continue }
+            let user = trimmed.dropFirst("user:".count).trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+            return user.range(of: "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$", options: .regularExpression) != nil ? user : nil
+        }
+        return nil
     }
 
     /// Settings in your environment that would take a tool straight to your

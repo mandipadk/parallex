@@ -45,6 +45,8 @@ extension EnvironmentValues {
     @Entry var checkForUpdates: () -> Void = {}
     /// Opens Something's Off.
     @Entry var showFeedback: () -> Void = {}
+    /// Opens Something's Off about one instance (by its id).
+    @Entry var showFeedbackAbout: (String) -> Void = { _ in }
 }
 
 @main
@@ -69,6 +71,7 @@ struct ParallexApp: App {
             MainWindow()
                 .environment(delegate.model)
                 .environment(delegate.updater)
+                .environment(\.showFeedbackAbout, { delegate.windows.showFeedback(about: $0) })
                 .capturesWindowOpener()
         }
         // Links are handled by the app delegate; no scene opens for them.

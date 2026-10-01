@@ -19,6 +19,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "1.8.1", highlights: [
+            Highlight(
+                symbol: "exclamationmark.bubble",
+                title: "Something's off with this one",
+                detail: "An instance's ⋯ menu, and its right-click menu in the sidebar, now have Something's Off…, with that instance already picked."
+            ),
+            Highlight(
+                symbol: "person.2.badge.key",
+                title: "The right GitHub account, every push",
+                detail: "In a workspace with its own identity, git now uses the GitHub account the workspace's gh is signed in to, so two workspaces with two accounts each find their own sign-in in the keychain."
+            ),
+        ]),
         Release(version: "1.8.0", highlights: [
             Highlight(
                 symbol: "exclamationmark.bubble",

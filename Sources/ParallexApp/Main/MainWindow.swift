@@ -169,6 +169,7 @@ struct InstancesView: View {
 
 struct Sidebar: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.showFeedbackAbout) private var showFeedbackAbout
 
     var body: some View {
         @Bindable var model = model
@@ -252,6 +253,8 @@ struct Sidebar: View {
         Divider()
         Button("Show in Finder") { model.reveal(entry.manifest.wrapperPath) }
         Button("Show Data Folder") { model.revealData(entry) }
+        Divider()
+        Button("Something's Off…") { showFeedbackAbout(entry.id) }
     }
 }
 
