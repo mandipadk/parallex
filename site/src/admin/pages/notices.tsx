@@ -69,7 +69,7 @@ export function NoticesPage({ days }: PageProps) {
       />
 
       {form && (
-        <Card title={form.id ? "Edit notice" : "New notice"} note={form.source.startsWith("feedback:") ? `From note #${form.source.slice(9)}` : form.source === "apps" ? "From a flagged app version" : undefined}>
+        <Card title={form.id ? "Edit notice" : "New notice"} note={form.source.startsWith("feedback:") ? `From note #${form.source.slice(9)}` : form.source === "apps" ? "From a flagged app version" : form.source === "lab" ? "Drafted when the nightly lab saw it break" : undefined}>
           <div className="grid gap-3">
             <div className="grid gap-3 md:grid-cols-3">
               <label className="grid gap-1 text-[12.5px] text-muted">App name

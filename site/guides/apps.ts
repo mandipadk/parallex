@@ -138,6 +138,7 @@ export const guides: Guide[] = [
   {
     slug: "chatgpt",
     app: "ChatGPT",
+    appRef: "ChatGPT",
     labName: "ChatGPT",
     title: "Two ChatGPT accounts open on one Mac",
     description: "Run two ChatGPT apps on your Mac, each signed in to a different account, side by side. Free and open source.",
@@ -323,6 +324,7 @@ export const guides: Guide[] = [
   {
     slug: "teams",
     app: "Microsoft Teams",
+    appRef: null,
     title: "Two Microsoft Teams accounts on one Mac",
     description: "Keep a second Teams account open on your Mac: Teams on the web in its own window, with its own sign-in, notifications and Dock badge. Free and open source.",
     why: "Keep a client's or a second organisation's Teams open beside your own: Teams on the web as an app of its own, with its own sign-in, notifications and Dock badge. Parallex is free and open source.",

@@ -7,6 +7,7 @@ import type { Env } from "./env"
 import { latestRelease, loadRollout, publishedReleases, versionOf, type Rollout } from "./feed"
 import { apps, community, crashes, exportCSV, growth, logAction, overview, releases, windowOf } from "./mission"
 import { checkAlerts, weeklySummary } from "./alerts"
+import { labHistory, watchLab } from "./labwatch"
 import { feedbackAction, feedbackIntake, inbox, noticeAction, notices } from "./inbox"
 import { consider, runGuardrails, setGuardrails } from "./guard"
 import { summarize } from "./summary"
@@ -259,6 +260,7 @@ export default {
     if (path === "/api/v1/usage" && request.method === "POST") return usage(request, env, ctx)
     if (path === "/api/v2/report" && request.method === "POST") return report(request, env, ctx)
     if (path === "/api/v1/feedback" && request.method === "POST") return feedbackIntake(request, env, ctx)
+    if (path === "/api/v1/lab/history" && request.method === "GET") return labHistory(env)
     if (path === "/api/v1/compatibility" && request.method === "GET") {
       // Worked out at most every ten minutes per data center.
       const key = "https://parallex.mandip.dev/__cache/compatibility"
@@ -286,6 +288,7 @@ export default {
     ctx.waitUntil(Promise.allSettled([
       runGuardrails(env, ctx),
       checkAlerts(env, ctx),
+      watchLab(env),
       hour === 9 ? weeklySummary(env, ctx, new Date(controller.scheduledTime)) : Promise.resolve(),
       hour % 12 === 0 ? collect(env) : Promise.resolve(),
       hour === 0 ? retain(env) : Promise.resolve(),

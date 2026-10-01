@@ -136,7 +136,7 @@ export async function noticeAction(env: Env, form: FormData | null): Promise<str
   const draft = readDraft(fields)
   if (typeof draft === "string") return draft
   const status = fields.action === "ready" ? "ready" : "draft"
-  const source = /^(apps|feedback:\d+)$/.test(fields.source ?? "") ? fields.source : ""
+  const source = /^(apps|lab|feedback:\d+)$/.test(fields.source ?? "") ? fields.source : ""
   if (Number.isInteger(id) && id > 0) {
     await db.prepare(`UPDATE notice_drafts SET bundle_id = ?2, name = ?3, versions = ?4, level = ?5, message = ?6, website = ?7, status = ?8
       WHERE id = ?1 AND status IN ('draft', 'ready')`)

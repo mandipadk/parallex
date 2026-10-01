@@ -6,6 +6,24 @@
 
 export type LabResult = { app: string; version?: string; result: string; leaks?: number; blocked?: number }
 export type LabRun = { date: string; macos: string; apps: LabResult[] }
+/** Each app's nights in the lab, newest first. */
+export type LabHistory = Record<string, { day: string; version: string; result: string }[]>
+
+const longDay = (day: string) =>
+  new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })
+
+/** What an app's nights add up to, in a sentence (or nothing to say yet). */
+export function historyLine(nights: { day: string; version: string; result: string }[] | undefined): string {
+  const tried = (nights ?? []).filter((n) => ["ran", "quit", "crashed", "leaked"].includes(n.result))
+  if (tried.length < 2) return ""
+  let streak = 0
+  while (streak < tried.length && tried[streak].result === "ran") streak++
+  if (streak === tried.length) return `Its copies have run clean on all ${tried.length} nights since ${longDay(tried[tried.length - 1].day)}.`
+  if (streak === 0) return ""
+  const trouble = tried[streak]
+  const what = trouble.result === "quit" ? "quit at launch" : trouble.result
+  return `Its copies last had trouble on ${longDay(trouble.day)} (${trouble.version ? `${trouble.version}, ` : ""}${what}), and have run clean on the ${streak} ${streak === 1 ? "night" : "nights"} since.`
+}
 
 export type Guide = {
   slug: string
@@ -30,6 +48,9 @@ export type Guide = {
   /** An instance of it has its own Dock icon (copies and website
    *  instances do; a browser's instance is a launcher, outlined instead). */
   ownDock?: boolean
+  /** The app's name in Applications, for the "make this copy" link
+   *  (parallex://new?app=…); none when the page is about a website. */
+  appRef?: string | null
 }
 
 const SITE = "https://parallex.mandip.dev"
@@ -114,6 +135,17 @@ ${o.body}
 `
 }
 
+/** For visitors who have Parallex: New Instance with the app picked. */
+const makeLink = (guide: Guide) => {
+  const ref = guide.appRef === undefined ? guide.app : guide.appRef
+  if (!ref) return ""
+  return `  <section class="install">
+    <h2>Already have Parallex?</h2>
+    <p>This opens New Instance with ${escape(guide.app)} picked; you name it and choose its color.</p>
+    <a class="cta" href="parallex://new?app=${encodeURIComponent(ref)}">Make a second ${escape(guide.app)}</a>
+  </section>`
+}
+
 const installBlock = (app: string) => `  <section class="install">
     <h2>Get Parallex</h2>
     <p>Free and open source, for macOS 14 and later. In Terminal:</p>
@@ -121,7 +153,7 @@ const installBlock = (app: string) => `  <section class="install">
     <p>Or <a href="${RELEASES}">download it from GitHub</a>, or with Homebrew: <code>brew tap mandipadk/parallex https://github.com/mandipadk/parallex</code> then <code>brew install --cask parallex</code>. Then choose New Instance, pick ${escape(app)}, and give it a name.</p>
   </section>`
 
-function labLine(guide: Guide, lab: LabRun | null): string {
+function labLine(guide: Guide, lab: LabRun | null, history: LabHistory | null): string {
   if (!lab || !guide.labName) return ""
   const result = lab.apps.find((a) => a.app === guide.labName)
   if (!result) return ""
@@ -129,9 +161,10 @@ function labLine(guide: Guide, lab: LabRun | null): string {
   const version = result.version ? ` ${result.version}` : ""
   if (result.result === "ran") {
     const reached = result.leaks ? `, though it reached ${result.leaks} of the original's files` : ", and nothing reached the original's data"
+    const past = historyLine(history?.[guide.labName])
     return `  <section class="lab">
     <h2>Tested every night</h2>
-    <p>Parallex's compatibility lab makes a fresh copy of ${escape(guide.app)}${escape(version)} every night on a clean Mac and opens it. On ${day}, on macOS ${escape(lab.macos)}, the copy ran${reached}. <a href="/compatibility">See every app's latest result</a>.</p>
+    <p>Parallex's compatibility lab makes a fresh copy of ${escape(guide.app)}${escape(version)} every night on a clean Mac and opens it. On ${day}, on macOS ${escape(lab.macos)}, the copy ran${reached}.${past ? ` ${escape(past)}` : ""} <a href="/compatibility">See every app's latest result</a>.</p>
   </section>`
   }
   return `  <section class="lab not">
@@ -140,7 +173,7 @@ function labLine(guide: Guide, lab: LabRun | null): string {
   </section>`
 }
 
-export function guidePage(guide: Guide, all: Guide[], lab: LabRun | null): string {
+export function guidePage(guide: Guide, all: Guide[], lab: LabRun | null, history: LabHistory | null = null): string {
   const path = `/apps/${guide.slug}`
   const related = guide.related.map((slug) => all.find((g) => g.slug === slug)).filter((g): g is Guide => Boolean(g))
   const body = `  <a class="back" href="/apps">← Every app</a>
@@ -171,7 +204,7 @@ ${guide.specifics.map((s) => `      <li>${inline(s)}</li>`).join("\n")}
     </ul>
   </section>
 
-${labLine(guide, lab)}
+${labLine(guide, lab, history)}
 
 ${guide.limits.length ? `  <section>
     <h2>Good to know</h2>
@@ -186,6 +219,8 @@ ${guide.questions.map((qa) => `    <div><h3>${escape(qa.q)}</h3><p>${inline(qa.a
   </section>
 
 ${installBlock(guide.app)}
+
+${makeLink(guide)}
 
 ${related.length ? `  <section>
     <h2>Also</h2>

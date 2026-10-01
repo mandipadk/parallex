@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { guides } from "./apps.ts"
-import { guidePage, indexPage, robots, sitemap, type LabRun } from "./page.ts"
+import { guidePage, indexPage, robots, sitemap, type LabHistory, type LabRun } from "./page.ts"
 
 const dist = join(dirname(fileURLToPath(import.meta.url)), "..", "dist")
 const LAB = "https://raw.githubusercontent.com/mandipadk/parallex/lab-results/compat-lab.json"
@@ -19,9 +19,17 @@ try {
   lab = null
 }
 
+let history: LabHistory | null = null
+try {
+  const response = await fetch("https://parallex.mandip.dev/api/v1/lab/history", { signal: AbortSignal.timeout(10_000) })
+  if (response.ok) history = ((await response.json()) as { apps: LabHistory }).apps
+} catch {
+  history = null
+}
+
 mkdirSync(join(dist, "apps"), { recursive: true })
 for (const guide of guides) {
-  writeFileSync(join(dist, "apps", `${guide.slug}.html`), guidePage(guide, guides, lab))
+  writeFileSync(join(dist, "apps", `${guide.slug}.html`), guidePage(guide, guides, lab, history))
 }
 writeFileSync(join(dist, "apps.html"), indexPage(guides))
 writeFileSync(join(dist, "sitemap.xml"), sitemap(guides, ["/", "/how-it-works", "/compatibility", "/privacy"]))
