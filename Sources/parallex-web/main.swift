@@ -4,6 +4,7 @@
 // site to show from its launch environment:
 //
 //   PARALLEX_WEB_URL  the site (http or https)
+//   PARALLEX_WEB_QUIT_ON_CLOSE  "1" for a throwaway: closing the window quits
 //   PARALLEX_WEB_LOG  development only: a file it notes what it did in
 //   PARALLEX_WEB_QUIET  development only: "1" keeps the window hidden and
 //                     never takes focus (tests)
@@ -20,6 +21,9 @@ import UserNotifications
 import WebKit
 
 let quiet = ProcessInfo.processInfo.environment["PARALLEX_WEB_QUIET"] == "1"
+/// A throwaway (a clean window): closing its window quits it, so Parallex
+/// can trash it.
+let quitOnClose = ProcessInfo.processInfo.environment["PARALLEX_WEB_QUIT_ON_CLOSE"] == "1"
 
 let log: (String) -> Void = {
     guard let path = ProcessInfo.processInfo.environment["PARALLEX_WEB_LOG"] else { return { _ in } }
@@ -161,9 +165,13 @@ final class WebApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
     }
 
     // Closing the window keeps the site running (for its notifications);
-    // clicking the Dock icon brings it back.
+    // clicking the Dock icon brings it back. A throwaway quits instead.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard sender === window else { return true }
+        if quitOnClose {
+            NSApp.terminate(nil)
+            return false
+        }
         window.orderOut(nil)
         return false
     }

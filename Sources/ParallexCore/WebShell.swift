@@ -10,6 +10,8 @@ import ParallexKit
 public enum WebShell {
     public static let bundleID = "com.parallex.web"
     public static let urlVariable = "PARALLEX_WEB_URL"
+    /// "1" for a throwaway: closing its window quits it.
+    public static let quitOnCloseVariable = "PARALLEX_WEB_QUIT_ON_CLOSE"
 
     static var templateURL: URL {
         Paths.supportRoot.appendingPathComponent("web/Parallex Web.app", isDirectory: true)

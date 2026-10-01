@@ -384,7 +384,7 @@ private struct PromisesPage: View {
             )
             LazyVGrid(columns: columns, spacing: 14) {
                 PromiseTile(symbol: "person.2.fill", title: "Its own sign-in and data",
-                            detail: "Two accounts of the same app, open at once, never sharing a thing.")
+                            detail: "Two accounts of the same app, open at once, each signed in on its own.")
                 PromiseTile(symbol: "app.badge.fill", title: "Its own identity",
                             detail: "Optionally its own Dock icon, name, notifications, and permissions.")
                 PromiseTile(symbol: "checkmark.shield.fill", title: "Verified, not assumed",
@@ -437,7 +437,7 @@ private struct PickAppPage: View {
         VStack(spacing: Theme.Space.xxl) {
             PageHeading(
                 title: "Start with one app",
-                subtitle: "These work especially well. You can add any app later."
+                subtitle: "Good ones to start with. You can add any app later."
             )
             Group {
                 if model.catalogState != .loaded {
@@ -465,14 +465,26 @@ private struct PickAppPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Apps with a tuned recipe first, then other great fits — they give
-    /// the best first result.
+    /// The apps people most often want two of first (when this Mac has
+    /// them and they copy well), then other great fits.
     private var suggestions: [CatalogApp] {
-        let great = model.catalog.filter { $0.fit == .great }
-        let tuned = great.filter { Presets.recipe(for: $0.bundleID) != nil }
-        let rest = great.filter { Presets.recipe(for: $0.bundleID) == nil }
-        return Array((tuned + rest).prefix(12))
+        let usable = model.catalog.filter { $0.fit == .great || $0.fit == .ownIdentity }
+        let popular = usable
+            .compactMap { app in Self.runTwice.firstIndex(of: app.bundleID).map { (rank: $0, app: app) } }
+            .sorted { $0.rank < $1.rank }
+            .map(\.app)
+        let rest = usable.filter { $0.fit == .great && !Self.runTwice.contains($0.bundleID) }
+        return Array((popular + rest).prefix(12))
     }
+
+    /// What people run twice most: chat, AI, browsers and editors.
+    static let runTwice = [
+        "com.anthropic.claudefordesktop", "com.openai.chat", "com.openai.codex", "com.tinyspeck.slackmacgap", "net.whatsapp.WhatsApp",
+        "desktop.WhatsApp", "ru.keepcoder.Telegram", "com.hnc.Discord", "org.whispersystems.signal-desktop",
+        "com.google.Chrome", "com.todesktop.230313mzl4w4u92", "com.microsoft.VSCode", "notion.id", "com.figma.Desktop",
+        "com.linear", "company.thebrowser.Browser", "com.brave.Browser", "com.microsoft.edgemac", "com.spotify.client",
+        "md.obsidian", "dev.zed.Zed", "com.postmanlabs.mac",
+    ]
 }
 
 private struct AppTile: View {

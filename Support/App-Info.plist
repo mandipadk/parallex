@@ -35,6 +35,31 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>0.15.2</string>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Open in a Clean Window</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>openInCleanWindow</string>
+			<key>NSPortName</key>
+			<string>Parallex</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.utf8-plain-text</string>
+			</array>
+			<key>NSRequiredContext</key>
+			<dict>
+				<key>NSTextContent</key>
+				<array>
+					<string>URL</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

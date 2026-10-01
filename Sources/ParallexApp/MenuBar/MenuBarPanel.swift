@@ -59,6 +59,12 @@ struct MenuBarPanel: View {
                     model.creating = .init()
                     showMainWindow()
                 }
+                if let last = model.lastApp {
+                    PanelAction(title: "Another \(last.name)…", symbol: "plus.square.on.square", shortcut: nil) {
+                        model.creating = last.intent
+                        showMainWindow()
+                    }
+                }
                 PanelAction(title: "Switch To…", symbol: "arrow.left.arrow.right", shortcut: "⌃⌥Space") {
                     closePanel()
                     showSwitcher()

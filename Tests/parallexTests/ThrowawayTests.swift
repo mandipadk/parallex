@@ -42,6 +42,50 @@ final class ThrowawayTests: XCTestCase {
         return manifest
     }
 
+    /// The next throwaway with the same name doesn't inherit the last one's
+    /// bundle ID (and with it what macOS remembered for that ID).
+    func testAThrowawaysIdentityIsItsOwn() throws {
+        let kept = try make("Steady", throwaway: false)
+        let throwaway = try make("Passing", throwaway: true)
+        XCTAssertEqual(kept.slug, Slug.forInstance(named: "Steady Instance"))
+        XCTAssertNotEqual(throwaway.slug, Slug.forInstance(named: "Passing Instance"))
+        XCTAssertTrue(throwaway.slug.hasPrefix(Slug.forInstance(named: "Passing Instance") + "-"))
+        XCTAssertEqual(throwaway.bundleIdentifier, "com.parallex.instance.\(throwaway.slug)")
+    }
+
+    /// Its slug isn't its name's, but it's still the instance by that name:
+    /// "already exists", and a forced rebuild rebuilds it.
+    func testAThrowawayIsFoundByItsName() throws {
+        let app = try Fixtures.makeApp(named: "Again", bundleID: "com.fake.again", in: tempDir)
+        var request = CreateRequest(appReference: app.path, name: "Again Instance", outputDirectory: tempDir)
+        request.throwaway = true
+        let first = try InstanceCreator.create(request, builderOptions: options).manifest
+        XCTAssertThrowsError(try InstanceCreator.create(request, builderOptions: options))
+        request.force = true
+        let rebuilt = try InstanceCreator.create(request, builderOptions: options).manifest
+        XCTAssertEqual(rebuilt.slug, first.slug)
+        XCTAssertEqual(InstanceStore.loadAll().map(\.slug), [first.slug])
+    }
+
+    /// A website instance's wrapper says whether closing it quits it, so
+    /// turning Throwaway on or off rebuilds that one, and only that one.
+    func testThrowawayRebuildsOnlyAWebsite() {
+        var site = InstanceSettings()
+        site.webURL = "https://example.com"
+        var passing = site
+        passing.throwaway = true
+        XCTAssertTrue(site.requiresRebuild(toReach: passing))
+        XCTAssertTrue(passing.requiresRebuild(toReach: site))
+        var app = InstanceSettings()
+        app.throwaway = false
+        var passingApp = app
+        passingApp.throwaway = true
+        XCTAssertFalse(app.requiresRebuild(toReach: passingApp))
+        var off = site
+        off.throwaway = false
+        XCTAssertFalse(site.requiresRebuild(toReach: off), "off and unset are the same")
+    }
+
     func testOnlyFinishedThrowawaysGo() throws {
         let fresh = try armed(make("Fresh", throwaway: true), ago: 120)
         let used = try armed(make("Used", throwaway: true), ago: 120)

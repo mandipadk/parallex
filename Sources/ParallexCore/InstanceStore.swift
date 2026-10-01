@@ -140,8 +140,15 @@ public struct InstanceSettings: Codable, Sendable, Equatable {
         rhs.shortcut = nil
         lhs.menuBarIcon = nil
         rhs.menuBarIcon = nil
-        lhs.throwaway = nil
-        rhs.throwaway = nil
+        // A website instance's wrapper carries whether it quits with its
+        // window (a throwaway does); no other wrapper depends on it.
+        if lhs.webURL != nil || rhs.webURL != nil {
+            lhs.throwaway = lhs.throwaway == true ? true : nil
+            rhs.throwaway = rhs.throwaway == true ? true : nil
+        } else {
+            lhs.throwaway = nil
+            rhs.throwaway = nil
+        }
         lhs.throwawaySince = nil
         rhs.throwawaySince = nil
         lhs.quitWhenUnused = nil

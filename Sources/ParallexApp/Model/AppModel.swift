@@ -65,6 +65,10 @@ final class AppModel {
     private(set) var workspaces: [Workspace] = []
     /// The instance whose app is frontmost — shown in the menu bar.
     private(set) var frontmost: InstanceEntry?
+    /// The app you were last in, other than Parallex (an instance counts as
+    /// its app, a website instance as its site): what "Another …" in the
+    /// menu bar offers to make one more of.
+    private(set) var lastApp: LastApp?
     var selection: String?
     var errorMessage: String?
     /// Presents the New Instance flow (optionally preselecting an app).
@@ -104,6 +108,13 @@ final class AppModel {
     }
 
     enum LoadState { case idle, loading, loaded }
+
+    struct LastApp: Equatable {
+        let name: String
+        var app: URL?
+        var website: String?
+        var intent: CreateIntent { CreateIntent(app: app, website: website) }
+    }
 
     struct CreateIntent: Identifiable {
         let id = UUID()
@@ -463,6 +474,48 @@ final class AppModel {
         if front?.id != frontmost?.id {
             frontmost = front
         }
+        noteLastApp(front: front)
+    }
+
+    private func noteLastApp(front: InstanceEntry?) {
+        guard let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != getpid() else { return }
+        let next: LastApp?
+        if let front {
+            next = lastApp(for: front)
+        } else if let url = app.bundleURL?.resolvingSymlinksInPath(), let id = app.bundleIdentifier {
+            // An instance the pids haven't caught up with yet (between
+            // refreshes, or it relaunched itself) still counts as its app.
+            if let entry = entries.first(where: { entry in
+                [entry.manifest.bundleIdentifier, entry.manifest.clone?.bundleIdentifier].contains(id)
+                    || URL(fileURLWithPath: entry.manifest.wrapperPath).resolvingSymlinksInPath() == url
+            }) {
+                next = lastApp(for: entry)
+            } else if !id.hasPrefix("com.apple."), !id.hasPrefix("com.parallex."), url.pathExtension == "app",
+                      ["/Applications/", FileManager.default.homeDirectoryForCurrentUser.path + "/Applications/"]
+                        .contains(where: { url.path.hasPrefix($0) }) {
+                // Apple's own apps can't be copied; nor can things that
+                // aren't apps in an Applications folder.
+                next = LastApp(name: app.localizedName ?? url.deletingPathExtension().lastPathComponent, app: url)
+            } else {
+                return
+            }
+        } else {
+            return
+        }
+        // Only a change redraws the menu bar.
+        if let next, next != lastApp {
+            lastApp = next
+        }
+    }
+
+    /// What one more of an instance means: its original app, or its site.
+    /// A throwaway isn't something to make again.
+    private func lastApp(for entry: InstanceEntry) -> LastApp? {
+        guard entry.manifest.effectiveSettings.throwaway != true else { return nil }
+        if let site = entry.manifest.webURL {
+            return LastApp(name: entry.targetName, website: site.absoluteString)
+        }
+        return LastApp(name: entry.targetName, app: URL(fileURLWithPath: entry.manifest.targetApp))
     }
 
     private func observeWorkspace() {

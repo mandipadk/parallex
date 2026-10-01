@@ -137,6 +137,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
     let updater = Updater()
     lazy var windows = AppWindows(model: model, updater: updater)
+    /// Services › Open in a Clean Window.
+    lazy var cleanWindow = CleanWindowService(model: model, windows: windows)
     lazy var switcher = SwitcherController(model: model)
     private lazy var shortcuts = InstanceShortcuts(model: model)
     private lazy var menuBarIcons = InstanceMenuBarIcons(model: model) { [weak self] slug in
@@ -172,6 +174,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defaults.set(true, forKey: PreferenceKey.onboardingSeen)
         }
         CrashReports.shared.start()
+        NSApp.servicesProvider = cleanWindow
+        NSUpdateDynamicServices()
         applyPreferences()
         trackTagTargets()
         _ = shortcuts

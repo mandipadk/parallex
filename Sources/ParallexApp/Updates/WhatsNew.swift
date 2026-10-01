@@ -19,6 +19,18 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "1.9.0", highlights: [
+            Highlight(
+                symbol: "plus.square.on.square",
+                title: "Another one of that",
+                detail: "The menu bar now offers Another <app>… for the app or website you were last in, and opens New Instance with it already picked."
+            ),
+            Highlight(
+                symbol: "sparkles.rectangle.stack",
+                title: "Open in a Clean Window",
+                detail: "Select a web address in any app, then Services › Open in a Clean Window: it opens in a window with none of your cookies or sign-ins, and everything it kept goes to the Trash when you close it."
+            ),
+        ]),
         Release(version: "1.8.1", highlights: [
             Highlight(
                 symbol: "exclamationmark.bubble",

@@ -584,13 +584,21 @@ public enum InstanceCreator {
             }
         }
 
-        let existing = InstanceStore.load(slug: slug)
+        let wrapperURL = outDir.appendingPathComponent("\(instanceName).app")
+        // The same instance, whatever its slug: a throwaway's isn't derived
+        // from its name.
+        let existing = InstanceStore.load(slug: slug) ?? InstanceStore.loadAll().first {
+            $0.name.localizedCaseInsensitiveCompare(instanceName) == .orderedSame
+                || URL(fileURLWithPath: $0.wrapperPath).standardizedFileURL == wrapperURL.standardizedFileURL
+        }
+        if let existing {
+            slug = existing.slug
+        }
         if existing != nil && !request.force {
             throw ParallexError(
                 "An instance named '\(instanceName)' already exists. Rebuild it with force, or pick another name."
             )
         }
-        let wrapperURL = outDir.appendingPathComponent("\(instanceName).app")
         if let owner = registryOwning(wrapperURL),
            owner.standardizedFileURL.resolvingSymlinksInPath().path
             != Paths.instancesRoot.standardizedFileURL.resolvingSymlinksInPath().path {
@@ -603,6 +611,12 @@ public enum InstanceCreator {
                 "\(wrapperURL.path) already exists. Rebuild with force (only Parallex wrappers are replaced), "
                 + "or pick another name."
             )
+        }
+        // A throwaway's identity is never handed on: macOS keeps notification
+        // and privacy choices by bundle ID, so the next one with the same
+        // name gets a slug (and bundle ID) of its own.
+        if request.throwaway && existing == nil {
+            slug += "-" + UUID().uuidString.prefix(6).lowercased()
         }
 
         var settings = InstanceSettings(
@@ -1003,6 +1017,10 @@ public enum InstanceCreator {
                 throw ParallexError("“\(web)” isn't a web address.")
             }
             environment[WebShell.urlVariable] = url.absoluteString
+            // A throwaway site quits with its window, so it can be trashed.
+            if settings.throwaway == true {
+                environment[WebShell.quitOnCloseVariable] = "1"
+            }
         }
         let arguments = plan.arguments + settings.extraArguments
 
