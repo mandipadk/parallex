@@ -89,7 +89,7 @@ enum Fixtures {
             "-dynamiclib", "-O2", "-fobjc-arc", "-I", source.appendingPathComponent("include").path,
             source.appendingPathComponent("home.c").path, source.appendingPathComponent("updates.m").path,
             source.appendingPathComponent("recorder.c").path, source.appendingPathComponent("signin.m").path,
-            source.appendingPathComponent("ports.c").path,
+            source.appendingPathComponent("ports.c").path, source.appendingPathComponent("fork.c").path,
             "-o", output.path,
             "-framework", "Security", "-framework", "CoreFoundation", "-framework", "Foundation",
         ]

@@ -131,10 +131,16 @@ static void prepare_guard(void) {
 static void prepare_all(void);
 
 // A child made by fork() (without exec) starts with one thread: the lock
-// must not stay held by a thread that isn't there.
+// must not stay held by a thread that isn't there. Registered as the library
+// loads, not while holding the lock: fork() holds its own lock while it
+// takes this one, so taking them the other way round could hang both.
 static void before_fork(void) { os_unfair_lock_lock(&lock); }
 static void after_fork_parent(void) { os_unfair_lock_unlock(&lock); }
 static void after_fork_child(void) { lock = OS_UNFAIR_LOCK_INIT; }
+
+__attribute__((constructor)) static void parallex_recorder_init(void) {
+    pthread_atfork(before_fork, after_fork_parent, after_fork_child);
+}
 
 // Everything below is set once, under the lock, before `ready` is. False
 // while the library is still setting up: then nothing is noted or refused
@@ -156,7 +162,6 @@ static bool ensure_ready(void) {
 }
 
 static void prepare_all(void) {
-    pthread_atfork(before_fork, after_fork_parent, after_fork_child);
     const char *home = parallex_home_redirect();
     const char *real = parallex_home_real();
     const char *scope = parallex_home_scope();
