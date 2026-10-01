@@ -5,6 +5,7 @@ import { Footer } from "@/components/site/footer"
 import { Hero } from "@/components/site/hero"
 import { HowItWorks } from "@/components/site/how-it-works"
 import { Nav } from "@/components/site/nav"
+import { Proof } from "@/components/site/proof"
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
       <main>
         <Hero />
         <Features />
+        <Proof />
         <HowItWorks />
         <FinalCta />
       </main>

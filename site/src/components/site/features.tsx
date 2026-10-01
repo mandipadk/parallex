@@ -11,7 +11,7 @@ const beats: { title: string; serif: string; line: ReactNode; visual: ReactNode 
   {
     title: "Separate",
     serif: "by default.",
-    line: "Every copy has its own sign-in and data, App Store apps included. Nothing leaks across.",
+    line: "Every copy has its own sign-in and data, App Store apps included, and Parallex checks what each one opens.",
     visual: <SplitVisual />,
   },
   {

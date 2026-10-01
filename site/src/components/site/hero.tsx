@@ -39,8 +39,11 @@ export function Hero() {
           className="mt-9 flex flex-col items-center gap-4"
         >
           <DownloadButton />
-          <p className="text-[13px] text-foreground/45">Free · Open source · macOS 14+</p>
+          <p className="text-[13px] text-foreground/45">Free and open source, for macOS 14 and later</p>
           <InstallCommand className="mt-2" />
+          <p className="max-w-sm text-[12.5px] leading-relaxed text-pretty text-foreground/40">
+            Not notarized by Apple yet, so the download asks for “Open Anyway” once. The Terminal command checks the download and skips that.
+          </p>
         </motion.div>
       </div>
 
