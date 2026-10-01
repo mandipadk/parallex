@@ -1,5 +1,22 @@
 {
-  "issued": "2026-09-24T20:00:00Z",
-  "apps": [],
+  "issued": "2026-10-01T21:00:00Z",
+  "apps": [
+    {
+      "bundleID": "com.microsoft.teams2",
+      "level": "unsupported",
+      "message": "Copies of Teams close right after opening (seen in the nightly lab). Use Teams on the web as a website instance instead.",
+      "website": "https://teams.microsoft.com"
+    },
+    {
+      "bundleID": "company.thebrowser.Browser",
+      "level": "warning",
+      "message": "With Own identity on, Arc closes at launch: it needs iCloud, which only the original has. Leave Own identity off."
+    },
+    {
+      "bundleID": "com.microsoft.edgemac",
+      "level": "warning",
+      "message": "With Own identity on, Edge closes right after opening (seen in the nightly lab). Leave Own identity off."
+    }
+  ],
   "messages": []
 }

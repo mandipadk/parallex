@@ -53,7 +53,7 @@ export function Proof() {
         <p className="mx-auto mt-6 max-w-xl text-[17px] leading-relaxed text-pretty text-muted-foreground">{summary(lab)}</p>
       </Reveal>
 
-      <RevealGroup className="mt-14 grid grid-cols-2 gap-3 sm:mt-16 sm:grid-cols-3 lg:grid-cols-6" stagger={0.03}>
+      <RevealGroup className="mt-14 grid grid-cols-2 gap-3 sm:mt-16 sm:grid-cols-3 lg:grid-cols-5" stagger={0.03}>
         {guides.map((guide) => {
           const result = guide.labName ? lab?.apps.find((a) => a.app === guide.labName) : undefined
           const clean = result?.result === "ran" && !result.leaks
