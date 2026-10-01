@@ -1,6 +1,7 @@
 import { MotionConfig } from "motion/react"
 import { Features } from "@/components/site/features"
 import { FinalCta } from "@/components/site/final-cta"
+import { Film } from "@/components/site/film"
 import { Footer } from "@/components/site/footer"
 import { Hero } from "@/components/site/hero"
 import { HowItWorks } from "@/components/site/how-it-works"
@@ -14,6 +15,7 @@ export default function App() {
       <main>
         <Hero />
         <Features />
+        <Film />
         <Proof />
         <HowItWorks />
         <FinalCta />
