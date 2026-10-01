@@ -6,7 +6,7 @@ import { latestLab } from "./lab"
 import type { Env } from "./env"
 import { latestRelease, loadRollout, publishedReleases, versionOf, type Rollout } from "./feed"
 import { apps, community, crashes, exportCSV, growth, logAction, overview, releases, windowOf } from "./mission"
-import { checkAlerts } from "./alerts"
+import { checkAlerts, weeklySummary } from "./alerts"
 import { feedbackAction, feedbackIntake, inbox, noticeAction, notices } from "./inbox"
 import { consider, runGuardrails, setGuardrails } from "./guard"
 import { summarize } from "./summary"
@@ -286,6 +286,7 @@ export default {
     ctx.waitUntil(Promise.allSettled([
       runGuardrails(env, ctx),
       checkAlerts(env, ctx),
+      hour === 9 ? weeklySummary(env, ctx, new Date(controller.scheduledTime)) : Promise.resolve(),
       hour % 12 === 0 ? collect(env) : Promise.resolve(),
       hour === 0 ? retain(env) : Promise.resolve(),
     ]).then(() => undefined))

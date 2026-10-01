@@ -1,6 +1,6 @@
 import type { Env } from "./env"
 import { alert } from "./guard"
-import { apps, crashes, logAction, releases } from "./mission"
+import { apps, crashes, logAction, overview, releases } from "./mission"
 
 /**
  * Hourly, when ALERT_WEBHOOK is set: what's newly gone wrong, each told
@@ -43,4 +43,34 @@ export async function checkAlerts(env: Env, ctx: ExecutionContext, now = new Dat
     await alert(env, `Parallex: ${text}. https://parallex.mandip.dev/admin`)
     await logAction(env, "alert", text)
   }
+}
+
+/**
+ * Mondays: the week in a few lines, to the webhook (once a week; kept in
+ * alerts_sent like the rest).
+ */
+export async function weeklySummary(env: Env, ctx: ExecutionContext, now = new Date()): Promise<void> {
+  if (!env.ALERT_WEBHOOK || now.getUTCDay() !== 1) return
+  const monday = now.toISOString().slice(0, 10)
+  const fresh = await env.DB.prepare(`INSERT OR IGNORE INTO alerts_sent (key, at) VALUES (?1, ?2)`).bind(`weekly:${monday}`, now.toISOString()).run()
+  if (!fresh.meta.changes) return
+  const [summary, appData, open] = await Promise.all([
+    overview(env, ctx, 7, now),
+    apps(env, 7, now),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM feedback WHERE status <> 'done'`).first<{ n: number }>(),
+  ])
+  const macs = summary.macs.month + summary.macs.olderThisMonth
+  const lines = [
+    `Parallex, the week to ${monday}:`,
+    `${macs} Macs in the last 30 days (${summary.macs.week} in the last 7), ${summary.newThisWeek} new this week, ${summary.sharing.week} sharing usage.`,
+  ]
+  if (summary.latest) {
+    const crashFree = summary.latest.health.crashFree === null ? "" : `, crash-free ${(summary.latest.health.crashFree * 100).toFixed(1)}%`
+    lines.push(`${summary.latest.version}: ${summary.latest.health.verdict}${crashFree}, on ${Math.round(summary.latest.adoption * 100)}% of Macs checking.`)
+  }
+  const flagged = appData.apps.filter((a) => a.flagged).map((a) => `${a.name ?? a.app} ${a.flaggedVersions.join(", ")}`.trim())
+  if (flagged.length) lines.push(`Copies quitting at launch: ${flagged.join("; ")}.`)
+  if (open?.n) lines.push(`${open.n} open ${open.n === 1 ? "note" : "notes"} in the inbox.`)
+  lines.push("https://parallex.mandip.dev/admin")
+  await alert(env, lines.join("\n"))
 }

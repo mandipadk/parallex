@@ -1,0 +1,341 @@
+import type { Guide } from "./page.ts"
+
+/**
+ * One page per app people want to run twice. What each says Parallex does
+ * comes from Parallex's own code (presets, catalog, copy limits); results
+ * come from the nightly compatibility lab at build time.
+ */
+
+// What every own-identity copy gets (AppCloner, libparallexhome, Guard).
+const copy = (app: string) => [
+  `**Its own copy of ${app}**, with its own Dock icon, name and color, its own notifications, and its own macOS permissions.`,
+  `**Its own Library and keychain**, so its sign-in, settings and caches are separate from your other ${app}, and it has its own encryption key in the keychain.`,
+  "**Guard** keeps the copy out of the original's data, and the isolation check shows what the copy has opened of yours.",
+  `**Kept up to date by Parallex**: ${app}'s own updater is turned off in the copy, and Parallex refreshes the copy when your ${app} updates.`,
+]
+
+// What an own-identity copy can't do (CopyLimits), said once where it matters.
+const appleServices = "A copy can't use iCloud sync, push notifications or Sign in with Apple, which belong to the original's signature. Apps that don't use them aren't affected."
+
+const why = (app: string, what: string) =>
+  `Keep ${what} in a second ${app} on the same Mac: both open at once, each signed in to its own account, with its own notifications and Dock icon. Parallex is free and open source.`
+
+export const guides: Guide[] = [
+  {
+    slug: "slack",
+    app: "Slack",
+    labName: "Slack",
+    title: "Two Slack accounts on one Mac",
+    description: "Run two Slack apps side by side on your Mac, each signed in to a different account, with separate notifications and data. Free and open source.",
+    why: why("Slack", "a client's or a second company's Slack"),
+    specifics: [
+      ...copy("Slack"),
+      "Bringing the copy forward opens its window again if you'd closed it.",
+      "Or, instead of a copy, a **website instance** of Slack (app.slack.com) in its own window, with its own sign-in and Dock badge.",
+    ],
+    limits: [appleServices],
+    questions: [
+      { q: "Doesn't Slack already handle several workspaces?", a: "It does, when they're all yours under one sign-in. A second Slack is for an account that has to stay apart: a client's Enterprise Grid, a second company, or one you want silent while you work in the other." },
+      { q: "Does it change my Slack?", a: "No. Your Slack isn't touched; the copy lives beside it, and removing the instance moves it and its data to the Trash." },
+      { q: "Can both be open at once?", a: "Yes, side by side, each in its own window with its own Dock icon and notifications." },
+    ],
+    related: ["discord", "teams", "chrome"],
+  },
+  {
+    slug: "discord",
+    app: "Discord",
+    labName: "Discord",
+    title: "Two Discord accounts open at once on a Mac",
+    description: "Run two Discord apps at once on your Mac, each signed in to a different account, with separate notifications. Free and open source.",
+    why: why("Discord", "a second Discord account"),
+    specifics: [
+      ...copy("Discord"),
+      "Parallex knows where Discord keeps its data, so Guard and the isolation check watch that folder in particular.",
+      "Or a **website instance** of Discord (discord.com/app) in a window of its own.",
+    ],
+    limits: [appleServices],
+    questions: [
+      { q: "Discord can switch accounts. Why another one?", a: "Switching shows one account at a time. Two Discords are both online at once, each in its own window, each with its own notifications." },
+      { q: "Does voice work in both?", a: "Each copy has its own macOS permissions, so give the microphone to each one the first time it asks." },
+    ],
+    related: ["slack", "telegram", "signal"],
+  },
+  {
+    slug: "whatsapp",
+    app: "WhatsApp",
+    labName: "WhatsApp",
+    title: "Two WhatsApp accounts on one Mac",
+    description: "Use two WhatsApp accounts on your Mac at the same time: a copy of the WhatsApp app with its own sign-in, or WhatsApp Web in its own window. Free and open source.",
+    why: why("WhatsApp", "your work number"),
+    specifics: [
+      "**Its own copy of WhatsApp**, with its own Dock icon, name and notifications.",
+      "WhatsApp keeps its sign-in and messages in containers shared across its developer's apps. The copy gets **its own renamed containers**, so it starts signed out and never opens the original's.",
+      "Or a **website instance** of WhatsApp Web in its own window, named “WhatsApp Web” beside your WhatsApp, with its own Dock badge and notifications.",
+    ],
+    limits: [
+      appleServices,
+      "App Store apps sometimes check their receipt and won't run as a copy. If that happens, the website instance is the way.",
+    ],
+    questions: [
+      { q: "Does the copy see my other WhatsApp's chats?", a: "No. It starts signed out, with its database in its own containers; link it to the other phone number with its QR code." },
+      { q: "App or WhatsApp Web?", a: "The copy behaves like the app; the website instance needs nothing copied and works the same everywhere. Both keep their sign-in separate from yours." },
+    ],
+    related: ["telegram", "signal", "slack"],
+  },
+  {
+    slug: "telegram",
+    app: "Telegram",
+    labName: "Telegram",
+    title: "Two Telegram windows, two accounts, on one Mac",
+    description: "Run two Telegram apps on your Mac, each with its own account, notifications and Dock icon. Free and open source.",
+    why: why("Telegram", "a second Telegram account"),
+    specifics: [
+      ...copy("Telegram"),
+      "Telegram reads its update address itself, so the copy gets one that never has an update (Parallex refreshes it instead), and it runs normally.",
+      "Or a **website instance** of Telegram Web (web.telegram.org) in its own window.",
+    ],
+    limits: [appleServices],
+    questions: [
+      { q: "Telegram can add accounts. Why a second app?", a: "Accounts inside one Telegram share a window and its notifications. A second Telegram keeps one out of sight, or both in view at once, each with its own Dock icon." },
+    ],
+    related: ["whatsapp", "signal", "discord"],
+  },
+  {
+    slug: "signal",
+    app: "Signal",
+    labName: "Signal",
+    title: "Two Signal accounts on one Mac",
+    description: "Link two Signal accounts to your Mac at once, each in its own Signal app with its own data. Free and open source.",
+    why: why("Signal", "a second Signal account"),
+    specifics: copy("Signal"),
+    limits: [appleServices],
+    questions: [
+      { q: "How do I link the second one?", a: "Open the new instance: it starts as a fresh Signal Desktop, so link it to the other phone from that phone's Signal settings." },
+    ],
+    related: ["whatsapp", "telegram"],
+  },
+  {
+    slug: "claude",
+    app: "Claude",
+    labName: "Claude",
+    title: "Two Claude accounts on one Mac: work and personal",
+    description: "Run two Claude desktop apps side by side, signed in to different accounts, with separate chats, settings and, if you like, Claude Code settings. Free and open source.",
+    why: why("Claude", "your work Claude, or a client's"),
+    specifics: [
+      "**A Claude of its own**: Parallex has a recipe for Claude that gives the instance its own data folder, so its sign-in, chats and settings are its own.",
+      "**Separate Claude Code settings** (an option): its own `~/.claude` (skills, CLAUDE.md, memory and history). Off, Claude Code shares them with your other Claude.",
+      "**Share MCP servers** (an option): uses the MCP servers set up in your other Claude, brought up to date each time it opens, while sign-ins and chats stay separate.",
+      "**Sign-in links go to the right Claude**: a `claude://` link from the browser goes to the copy you signed in from.",
+      "Its own Dock icon, name and color, so you always know which Claude you're typing into.",
+    ],
+    limits: ["Claude's log files stay in `~/Library/Logs/Claude`, shared, because Claude opens them before it reads any setting."],
+    questions: [
+      { q: "Can I sign in to two Claude accounts in the app?", a: "One Claude is signed in to one account at a time. A second Claude is signed in to the other, and both run at once." },
+      { q: "Does Claude Code get mixed up between them?", a: "Turn on Separate Claude Code settings for the instance and it uses its own `~/.claude`, separate from your other Claude's." },
+    ],
+    related: ["chatgpt", "cursor", "vscode"],
+  },
+  {
+    slug: "chatgpt",
+    app: "ChatGPT",
+    labName: "ChatGPT",
+    title: "Two ChatGPT accounts open on one Mac",
+    description: "Run two ChatGPT apps on your Mac, each signed in to a different account, side by side. Free and open source.",
+    why: why("ChatGPT", "a work or team ChatGPT account"),
+    specifics: [
+      ...copy("ChatGPT"),
+      "For Codex (the same app under its new name), Parallex gives the instance its own data folder and its own `~/.codex`, so it signs in afresh and runs beside the original.",
+    ],
+    limits: [appleServices],
+    questions: [
+      { q: "Why not switch accounts?", a: "Switching signs one out. Two ChatGPTs stay signed in to both, each in its own window." },
+    ],
+    related: ["claude", "cursor", "chrome"],
+  },
+  {
+    slug: "cursor",
+    app: "Cursor",
+    labName: "Cursor",
+    title: "Two Cursor accounts or setups on one Mac",
+    description: "Run two Cursor editors side by side, signed in to different accounts, optionally sharing your settings and extensions. Free and open source.",
+    why: why("Cursor", "a second Cursor account"),
+    specifics: [
+      ...copy("Cursor"),
+      "**Share settings** (an option): the copy uses your Cursor's settings, keybindings, snippets and extensions, kept in step, while its sign-in and projects stay its own.",
+      "Its `~/.cursor` is its own, so extensions and state don't cross over unless you share them.",
+      "**Sign-in links go to the right Cursor**: `cursor://` links reach the copy you signed in from.",
+      "In a **workspace with its own identity**, the copy's terminal commits and pushes as that workspace (its git name, gh, cloud sign-ins).",
+    ],
+    limits: ["With Share settings on, keep Cursor's own Settings Sync off in the copy."],
+    questions: [
+      { q: "Do I have to set it up again?", a: "No: turn on Share settings and it starts with yours. Only the sign-in and projects are separate." },
+    ],
+    related: ["vscode", "zed", "claude"],
+  },
+  {
+    slug: "vscode",
+    app: "Visual Studio Code",
+    labName: "Visual Studio Code",
+    title: "Two VS Code instances with separate accounts and extensions",
+    description: "Run two VS Code apps side by side with separate sign-ins, extensions and state, or sharing your settings. Free and open source.",
+    why: why("VS Code", "a client's setup"),
+    specifics: [
+      ...copy("VS Code"),
+      "**Share settings** (an option): your settings, keybindings, snippets and extensions, kept in step, while the copy's sign-ins and open projects are its own.",
+      "`~/.vscode` stays with the copy, so its extensions and shared state don't touch yours.",
+      "Works for VS Code Insiders too.",
+    ],
+    limits: ["With Share settings on, keep Settings Sync off in the copy."],
+    questions: [
+      { q: "Aren't VS Code profiles enough?", a: "Profiles change settings and extensions inside one VS Code. An instance is a second VS Code, running beside the first, with its own sign-ins, state and window." },
+    ],
+    related: ["cursor", "zed", "claude"],
+  },
+  {
+    slug: "zed",
+    app: "Zed",
+    labName: "Zed",
+    title: "Two Zed editors at once on a Mac",
+    description: "Open a second Zed with its own settings and sign-in, running beside the first. Free and open source.",
+    why: why("Zed", "a second setup"),
+    specifics: [
+      ...copy("Zed"),
+      "Zed opens a fixed local port to keep itself to one window per Mac; in a copy, that port is moved to one of its own, so the copy opens instead of handing over to your Zed.",
+      "**Share settings** (an option): your settings, keymap, snippets, themes and extensions, kept in step.",
+    ],
+    limits: [],
+    questions: [
+      { q: "Why does a plain second Zed just switch to the first?", a: "Zed finds a running Zed through a fixed port and hands over to it. A Parallex copy has a port of its own, so both stay open." },
+    ],
+    related: ["vscode", "cursor"],
+  },
+  {
+    slug: "notion",
+    app: "Notion",
+    labName: "Notion",
+    title: "Two Notion accounts side by side on a Mac",
+    description: "Run two Notion apps on your Mac, each signed in to a different account, open at once. Free and open source.",
+    why: why("Notion", "a client's workspace on another account"),
+    specifics: copy("Notion"),
+    limits: [appleServices],
+    questions: [
+      { q: "Notion can switch workspaces. Why two?", a: "When the workspaces belong to different accounts, two Notions keep both signed in and open at once, each in its own window." },
+    ],
+    related: ["linear", "figma", "slack"],
+  },
+  {
+    slug: "figma",
+    app: "Figma",
+    labName: "Figma",
+    title: "Two Figma accounts on one Mac",
+    description: "Run two Figma desktop apps, each signed in to a different account, at the same time. Free and open source.",
+    why: why("Figma", "a client's Figma account"),
+    specifics: copy("Figma"),
+    limits: [appleServices],
+    questions: [
+      { q: "Do fonts work in both?", a: "Your fonts are the Mac's; both copies see them." },
+    ],
+    related: ["notion", "linear"],
+  },
+  {
+    slug: "linear",
+    app: "Linear",
+    labName: "Linear",
+    title: "Two Linear accounts open on one Mac",
+    description: "Run two Linear apps side by side, each signed in to a different account. Free and open source.",
+    why: why("Linear", "a client's Linear"),
+    specifics: copy("Linear"),
+    limits: [appleServices],
+    questions: [
+      { q: "Can both send notifications?", a: "Yes: each copy has its own notification settings, so you can keep one quiet." },
+    ],
+    related: ["notion", "slack", "figma"],
+  },
+  {
+    slug: "postman",
+    app: "Postman",
+    labName: "Postman",
+    title: "Two Postman accounts or workspaces on one Mac",
+    description: "Run two Postman apps side by side with separate accounts and data. Free and open source.",
+    why: why("Postman", "a client's account"),
+    specifics: copy("Postman"),
+    limits: [appleServices],
+    questions: [
+      { q: "Are collections shared between them?", a: "Not on the Mac: each copy keeps its own data. Anything synced to a Postman account follows that account." },
+    ],
+    related: ["vscode", "chrome"],
+  },
+  {
+    slug: "spotify",
+    app: "Spotify",
+    labName: "Spotify",
+    title: "Two Spotify accounts on one Mac",
+    description: "Run a second Spotify app signed in to another account, beside your own. Free and open source.",
+    why: why("Spotify", "a family or second account"),
+    specifics: [
+      ...copy("Spotify"),
+      "A copy playing music isn't counted as idle, so Quit When Unused leaves it alone.",
+    ],
+    limits: [appleServices, "Spotify decides whether one account can play on two devices at once; two accounts each play their own."],
+    questions: [
+      { q: "Can both play at once?", a: "Two accounts can, each from its own copy; your Mac mixes the sound." },
+    ],
+    related: ["discord", "slack"],
+  },
+  {
+    slug: "obsidian",
+    app: "Obsidian",
+    labName: "Obsidian",
+    title: "Two separate Obsidian setups on one Mac",
+    description: "Run a second Obsidian with its own settings, plugins and vaults list, beside your own. Free and open source.",
+    why: why("Obsidian", "a separate set of vaults and plugins"),
+    specifics: [
+      ...copy("Obsidian"),
+      "Parallex knows where Obsidian keeps its app data, so Guard and the isolation check watch that folder in particular.",
+    ],
+    limits: [appleServices],
+    questions: [
+      { q: "Doesn't Obsidian open several vaults already?", a: "It does. A second Obsidian keeps its own list of vaults and app settings, and runs beside the first with its own Dock icon." },
+    ],
+    related: ["notion", "vscode"],
+  },
+  {
+    slug: "chrome",
+    app: "Google Chrome",
+    title: "Two separate Chromes on one Mac, beyond profiles",
+    description: "Run a second Chrome with its own data folder, sign-ins and extensions, and send links to the right one. Works with Brave, Edge, Arc, Vivaldi too. Free and open source.",
+    ownDock: false,
+    why: "Run work Chrome beside your own as a separate instance: its own sign-ins, cookies, history and extensions, opened from Parallex, the menu bar or the ⌃⌥Space switcher, its windows outlined in its color. The same goes for Brave, Edge, Arc, Vivaldi and other Chromium browsers. Parallex is free and open source.",
+    specifics: [
+      "**Its own data folder**: Parallex starts the browser with a profile folder of its own, so its sign-ins, cookies and extensions are separate.",
+      "**Window outlines in its color**, and its name in the menu bar, so you can tell the two apart at a glance.",
+      "**Links to the right browser**: send links from other apps to a browser instance, or to a Chrome profile like “Chrome/Work”, with rules per site.",
+      "A copy that imports from your other browsers can still read their keys; its own key has a name of its own.",
+      "In a workspace with a proxy, the browser instance goes through it.",
+    ],
+    limits: [],
+    questions: [
+      { q: "Chrome already has profiles. Why this?", a: "Profiles live inside one Chrome, and links from other apps land in whichever was used last. An instance is a separate Chrome with its own data folder, opened on its own, and links you choose go straight to it." },
+      { q: "Which browsers work?", a: "Chrome (and Beta, Dev, Canary), Chromium, Brave, Edge, Vivaldi, Opera, Arc, Helium, Yandex and Whale are recognised as Chromium browsers. Firefox works too, with its own profile." },
+    ],
+    related: ["chatgpt", "slack", "teams"],
+  },
+  {
+    slug: "teams",
+    app: "Microsoft Teams",
+    title: "Two Microsoft Teams accounts on one Mac",
+    description: "Keep a second Teams account open on your Mac: Teams on the web in its own window, with its own sign-in, notifications and Dock badge. Free and open source.",
+    why: "Keep a client's or a second organisation's Teams open beside your own: Teams on the web as an app of its own, with its own sign-in, notifications and Dock badge. Parallex is free and open source.",
+    specifics: [
+      "**A website instance of Teams** (teams.microsoft.com) in its own window, with its own Dock icon, notifications and unread badge.",
+      "**Its own sign-in**: it keeps its own cookies and data, so it stays signed in to the other account.",
+      "Signing in stays in the app: Microsoft's sign-in pages open inside it, not in your browser.",
+      "Teams meeting links (`msteams:`) from it go to the Teams app, as you'd expect.",
+    ],
+    limits: ["This is Teams on the web, which most work in Teams works with; for something only the Teams app does, use the app itself for one of the accounts."],
+    questions: [
+      { q: "Why the web version and not a copy of the app?", a: "Teams on the web runs as an app of its own here, with its own sign-in, and needs nothing copied." },
+    ],
+    related: ["slack", "chrome"],
+  },
+]

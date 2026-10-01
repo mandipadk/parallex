@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node --experimental-strip-types guides/build.ts",
     "lint": "oxlint",
     "preview": "vite preview --port 4173",
     "test:worker": "node --test --experimental-strip-types worker/*.test.ts"
