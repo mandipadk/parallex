@@ -81,6 +81,13 @@ public enum AppCatalog {
         }
     }
 
+    /// Apps the compatibility lab found no way to keep apart yet. Arc ignores
+    /// the profile folder it's started with (its instance opened the
+    /// original's cookies), and a copy of it closes at launch without iCloud.
+    static let cantKeepApart: [String: String] = [
+        "company.thebrowser.Browser": "Arc keeps using its own profile, and a copy of it needs iCloud, so a second Arc can't be kept apart yet.",
+    ]
+
     /// Whether a new instance of this app starts out as an own-identity copy:
     /// what New Instance picks for it from the catalog (the catalog's
     /// recommendation, when a copy is possible), and `create --recommended`.
@@ -113,6 +120,9 @@ public enum AppCatalog {
 
         if info.bundleID.hasPrefix("com.apple.") {
             return make(.unsupported, "Part of macOS — Apple's apps can't be duplicated.", clone: false)
+        }
+        if let reason = cantKeepApart[info.bundleID] {
+            return make(.unsupported, reason, clone: false)
         }
         // Learned on this Mac: its copy quit right after opening.
         if Compatibility.refusesCopies(bundleID: info.bundleID, version: fullVersion, records: compatibility) {

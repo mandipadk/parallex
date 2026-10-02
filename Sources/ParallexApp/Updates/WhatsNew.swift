@@ -19,6 +19,13 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "1.9.2", highlights: [
+            Highlight(
+                symbol: "exclamationmark.shield",
+                title: "No second Arc, for now",
+                detail: "Arc keeps using its own profile in an instance, so New Instance no longer offers it until a second Arc can be kept apart."
+            ),
+        ]),
         Release(version: "1.9.1", highlights: [
             Highlight(
                 symbol: "person.2.wave.2",

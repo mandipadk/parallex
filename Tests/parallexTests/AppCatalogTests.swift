@@ -40,6 +40,18 @@ final class AppCatalogTests: XCTestCase {
         XCTAssertTrue(catalog[2].recommendsClone)
     }
 
+    /// An app the lab found no way to keep apart isn't offered: Arc ignores
+    /// its profile folder, and its copy needs iCloud.
+    func testAppsThatCantBeKeptApartArentOffered() throws {
+        let apps = tempDir.appendingPathComponent("arc-apps", isDirectory: true)
+        try FileManager.default.createDirectory(at: apps, withIntermediateDirectories: true)
+        let arc = try Fixtures.makeApp(named: "Arc", bundleID: "company.thebrowser.Browser", in: apps)
+        let entry = AppCatalog.entry(for: try AppInspector.inspect(arc))
+        XCTAssertEqual(entry.fit, .unsupported)
+        XCTAssertFalse(entry.recommendsClone)
+        XCTAssertTrue(entry.summary.contains("own profile"), entry.summary)
+    }
+
     /// `create --recommended` makes what New Instance makes from the catalog:
     /// browsers keep their profile folders, other apps become copies.
     func testRecommendedModeIsTheCatalogs() throws {

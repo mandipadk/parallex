@@ -143,11 +143,13 @@ export const guides: Guide[] = [
     title: "Two ChatGPT accounts open on one Mac",
     description: "Run two ChatGPT apps on your Mac, each signed in to a different account, side by side. Free and open source.",
     why: why("ChatGPT", "a work or team ChatGPT account"),
+    ownDock: false,
     specifics: [
-      ...copy("ChatGPT"),
-      "For Codex (the same app under its new name), Parallex gives the instance its own data folder and its own `~/.codex`, so it signs in afresh and runs beside the original.",
+      "**Its own data folder and its own `~/.codex`**: Parallex starts ChatGPT (Codex, as the app is now called) with folders of its own, so it signs in afresh and runs beside your other ChatGPT.",
+      "**Window outlines in its color**, and its name in the menu bar, so you can tell the two apart at a glance.",
+      "**Own identity**, when you want it: a copy of ChatGPT with its own Dock icon, notifications and macOS permissions, which Parallex keeps up to date.",
     ],
-    limits: [appleServices],
+    limits: [`With Own identity on: ${appleServices}`],
     questions: [
       { q: "Why not switch accounts?", a: "Switching signs one out. Two ChatGPTs stay signed in to both, each in its own window." },
     ],
