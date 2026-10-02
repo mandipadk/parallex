@@ -23,7 +23,7 @@ enum ReleaseHighlights {
             Highlight(
                 symbol: "exclamationmark.shield",
                 title: "No second Arc, for now",
-                detail: "Arc keeps using its own profile in an instance, so New Instance no longer offers it until a second Arc can be kept apart."
+                detail: "Arc keeps using its own profile in an instance, so Parallex no longer makes new Arc instances until a second Arc can be kept apart."
             ),
         ]),
         Release(version: "1.9.1", highlights: [

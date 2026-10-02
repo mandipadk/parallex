@@ -84,7 +84,7 @@ public enum AppCatalog {
     /// Apps the compatibility lab found no way to keep apart yet. Arc ignores
     /// the profile folder it's started with (its instance opened the
     /// original's cookies), and a copy of it closes at launch without iCloud.
-    static let cantKeepApart: [String: String] = [
+    public static let cantKeepApart: [String: String] = [
         "company.thebrowser.Browser": "Arc keeps using its own profile, and a copy of it needs iCloud, so a second Arc can't be kept apart yet.",
     ]
 

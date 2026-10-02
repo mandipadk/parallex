@@ -50,6 +50,17 @@ final class AppCatalogTests: XCTestCase {
         XCTAssertEqual(entry.fit, .unsupported)
         XCTAssertFalse(entry.recommendsClone)
         XCTAssertTrue(entry.summary.contains("own profile"), entry.summary)
+
+        // Nor is one made however it's asked for: links, Duplicate and the
+        // CLI all end in create.
+        for clone in [false, true] {
+            var request = CreateRequest(appReference: arc.path, name: "Arc Work", outputDirectory: apps)
+            request.cloneApp = clone
+            XCTAssertThrowsError(try InstanceCreator.create(request, builderOptions: BundleBuilder.Options(registerWithLaunchServices: false))) {
+                XCTAssertTrue("\($0)".contains("own profile"), "\($0)")
+            }
+        }
+        XCTAssertTrue(InstanceStore.loadAll().isEmpty)
     }
 
     /// `create --recommended` makes what New Instance makes from the catalog:

@@ -218,11 +218,12 @@ PARALLEX_INTERPOSE(parallex_CFMessagePortCreateRemote, CFMessagePortCreateRemote
 
 // MARK: Processes the copy starts
 //
-// Tools it starts from outside the copy (/usr/bin/profiles, a shell) aren't
-// the copy: they start without this library and its maps. Most of macOS's
-// own ignore inserted libraries anyway, but one that doesn't fails to load
-// this one (built for arm64; theirs are arm64e) and aborts. The copy's own
-// helpers, inside its bundle, keep it.
+// Tools it starts from outside the copy (/usr/bin/profiles, a shell) start
+// without this library: most of macOS's own ignore inserted libraries
+// anyway, but one that doesn't fails to load it (built for arm64; theirs
+// are arm64e) and aborts. The maps stay, so the copy's own binary started
+// again through such a tool still finds them. The copy's own helpers,
+// inside its bundle, keep everything.
 
 // "<copy>.app/", from where this library was loaded; empty when that isn't
 // a copy's Frameworks folder, and then nothing is changed.
@@ -245,16 +246,38 @@ static void findBundle(void) {
     strlcpy(bundlePrefix, resolved, sizeof(bundlePrefix));
 }
 
-static bool insideCopy(const char *path) {
+// Whether `file` (a path, relative ones too, or with `search` a bare name
+// looked up in PATH as posix_spawnp does) is inside the copy.
+static bool insideCopy(const char *file, bool search) {
     if (bundlePrefix[0] == '\0') {
         return true;
     }
-    if (path == NULL || path[0] != '/') {
+    if (file == NULL || file[0] == '\0') {
         return false;
     }
     char resolved[PATH_MAX];
-    const char *checked = realpath(path, resolved) != NULL ? resolved : path;
-    return strncmp(checked, bundlePrefix, strlen(bundlePrefix)) == 0;
+    bool found = false;
+    if (strchr(file, '/') != NULL || !search) {
+        found = realpath(file, resolved) != NULL;
+    } else {
+        const char *path = getenv("PATH") ?: "/usr/bin:/bin";
+        char candidate[PATH_MAX];
+        while (!found && *path != '\0') {
+            const char *end = strchr(path, ':');
+            size_t length = end ? (size_t)(end - path) : strlen(path);
+            if (length > 0 && length + 1 + strlen(file) < sizeof(candidate)) {
+                memcpy(candidate, path, length);
+                candidate[length] = '/';
+                strlcpy(candidate + length + 1, file, sizeof(candidate) - length - 1);
+                found = access(candidate, X_OK) == 0 && realpath(candidate, resolved) != NULL;
+            }
+            if (end == NULL) {
+                break;
+            }
+            path = end + 1;
+        }
+    }
+    return found && strncmp(resolved, bundlePrefix, strlen(bundlePrefix)) == 0;
 }
 
 static bool isThisLibrary(const char *entry, size_t length) {
@@ -263,8 +286,8 @@ static bool isThisLibrary(const char *entry, size_t length) {
     return length >= nameLength && memcmp(entry + length - nameLength, name, nameLength) == 0;
 }
 
-// A copy of `envp` without this library and its maps, or NULL when there's
-// nothing to take out. `inserted` gets the rebuilt DYLD_INSERT_LIBRARIES
+// A copy of `envp` without this library in DYLD_INSERT_LIBRARIES, or NULL
+// when it isn't there. `inserted` gets the rebuilt DYLD_INSERT_LIBRARIES
 // (if any); the caller frees both.
 static char **withoutLibrary(char *const envp[], char **inserted) {
     *inserted = NULL;
@@ -274,8 +297,7 @@ static char **withoutLibrary(char *const envp[], char **inserted) {
     size_t count = 0;
     bool found = false;
     for (; envp[count] != NULL; count++) {
-        if (strncmp(envp[count], "PARALLEX_GROUP_MAP=", 19) == 0 || strncmp(envp[count], "PARALLEX_SERVICE_MAP=", 21) == 0
-            || (strncmp(envp[count], "DYLD_INSERT_LIBRARIES=", 22) == 0 && strstr(envp[count], "/libparallexgroups.dylib") != NULL)) {
+        if (strncmp(envp[count], "DYLD_INSERT_LIBRARIES=", 22) == 0 && strstr(envp[count], "/libparallexgroups.dylib") != NULL) {
             found = true;
         }
     }
@@ -289,9 +311,6 @@ static char **withoutLibrary(char *const envp[], char **inserted) {
     size_t kept = 0;
     for (size_t index = 0; index < count; index++) {
         const char *entry = envp[index];
-        if (strncmp(entry, "PARALLEX_GROUP_MAP=", 19) == 0 || strncmp(entry, "PARALLEX_SERVICE_MAP=", 21) == 0) {
-            continue;
-        }
         if (strncmp(entry, "DYLD_INSERT_LIBRARIES=", 22) == 0 && *inserted == NULL) {
             const char *list = entry + 22;
             size_t size = strlen(entry) + 1;
@@ -333,7 +352,7 @@ static char **withoutLibrary(char *const envp[], char **inserted) {
 
 static int parallex_execve(const char *path, char *const argv[], char *const envp[]) {
     char *inserted = NULL;
-    char **fixed = insideCopy(path) ? NULL : withoutLibrary(envp, &inserted);
+    char **fixed = insideCopy(path, false) ? NULL : withoutLibrary(envp, &inserted);
     int result = execve(path, argv, fixed != NULL ? fixed : envp);
     free(fixed);
     free(inserted);
@@ -344,7 +363,7 @@ PARALLEX_INTERPOSE(parallex_execve, execve);
 static int parallex_posix_spawn(pid_t *pid, const char *path, const posix_spawn_file_actions_t *actions,
                                 const posix_spawnattr_t *attributes, char *const argv[], char *const envp[]) {
     char *inserted = NULL;
-    char **fixed = insideCopy(path) ? NULL : withoutLibrary(envp, &inserted);
+    char **fixed = insideCopy(path, false) ? NULL : withoutLibrary(envp, &inserted);
     int result = posix_spawn(pid, path, actions, attributes, argv, fixed != NULL ? fixed : envp);
     free(fixed);
     free(inserted);
@@ -355,7 +374,7 @@ PARALLEX_INTERPOSE(parallex_posix_spawn, posix_spawn);
 static int parallex_posix_spawnp(pid_t *pid, const char *file, const posix_spawn_file_actions_t *actions,
                                  const posix_spawnattr_t *attributes, char *const argv[], char *const envp[]) {
     char *inserted = NULL;
-    char **fixed = insideCopy(file) ? NULL : withoutLibrary(envp, &inserted);
+    char **fixed = insideCopy(file, true) ? NULL : withoutLibrary(envp, &inserted);
     int result = posix_spawnp(pid, file, actions, attributes, argv, fixed != NULL ? fixed : envp);
     free(fixed);
     free(inserted);

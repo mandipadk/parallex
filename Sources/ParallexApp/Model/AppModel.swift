@@ -502,6 +502,10 @@ final class AppModel {
         } else {
             return
         }
+        // Nothing to offer for an app that can't be kept apart yet (Arc).
+        if let app = next?.app, let id = Bundle(url: app)?.bundleIdentifier, AppCatalog.cantKeepApart[id] != nil {
+            return
+        }
         // Only a change redraws the menu bar.
         if let next, next != lastApp {
             lastApp = next

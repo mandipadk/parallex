@@ -175,8 +175,9 @@ final class SharedGroupsTests: XCTestCase {
     }
 
     /// Tools the copy starts from outside it (as Teams starts
-    /// /usr/bin/profiles) start without the library and its maps; the copy's
-    /// own helpers keep them.
+    /// /usr/bin/profiles) start without the library, keeping its maps for the
+    /// copy's own binary started again through them; the copy's own helpers
+    /// keep everything.
     func testOnlyTheCopysOwnProcessesGetTheLibrary() throws {
         let fm = FileManager.default
         let bundle = tempDir.appendingPathComponent("Probe.app/Contents")
@@ -236,6 +237,6 @@ final class SharedGroupsTests: XCTestCase {
         let printed = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         process.waitUntilExit()
         XCTAssertEqual(process.terminationStatus, 0)
-        XCTAssertEqual(printed.split(separator: "\n").map(String.init), ["none none", "library map"])
+        XCTAssertEqual(printed.split(separator: "\n").map(String.init), ["none map", "library map"])
     }
 }

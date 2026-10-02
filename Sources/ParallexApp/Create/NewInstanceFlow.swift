@@ -92,6 +92,10 @@ struct NewInstanceFlow: View {
                 model.errorMessage = "“\(probe.name)” is itself a Parallex instance — choose the original app."
                 return
             }
+            if let reason = AppCatalog.cantKeepApart[probe.bundleIdentifier] {
+                model.errorMessage = reason
+                return
+            }
             let usedColors = Set(model.entries
                 .filter { $0.manifest.targetApp == probe.appPath }
                 .map { $0.manifest.colorHex.uppercased() })

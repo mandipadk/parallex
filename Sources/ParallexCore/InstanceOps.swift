@@ -594,6 +594,12 @@ public enum InstanceCreator {
         if let existing {
             slug = existing.slug
         }
+        // However it's asked for (New Instance, a link, Duplicate, the CLI):
+        // a new instance of an app nothing keeps apart yet isn't made. One
+        // made before can still be rebuilt.
+        if existing == nil, request.webURL == nil, let reason = AppCatalog.cantKeepApart[target.bundleID] {
+            throw ParallexError(reason)
+        }
         if existing != nil && !request.force {
             throw ParallexError(
                 "An instance named '\(instanceName)' already exists. Rebuild it with force, or pick another name."

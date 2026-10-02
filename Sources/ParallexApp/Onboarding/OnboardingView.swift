@@ -318,7 +318,7 @@ private struct IconStage: View {
     static let showcaseApp: (path: String, name: String) = {
         let candidates = [
             "Claude", "ChatGPT", "Slack", "Discord", "Cursor", "Visual Studio Code",
-            "Google Chrome", "Arc", "Notion", "WhatsApp", "Telegram", "Safari",
+            "Google Chrome", "Notion", "WhatsApp", "Telegram", "Safari",
         ]
         let bases = ["/Applications", "\(NSHomeDirectory())/Applications", "/System/Applications",
                      "/System/Cryptexes/App/System/Applications"]
@@ -482,7 +482,7 @@ private struct PickAppPage: View {
         "com.anthropic.claudefordesktop", "com.openai.chat", "com.openai.codex", "com.tinyspeck.slackmacgap", "net.whatsapp.WhatsApp",
         "desktop.WhatsApp", "ru.keepcoder.Telegram", "com.hnc.Discord", "org.whispersystems.signal-desktop",
         "com.google.Chrome", "com.todesktop.230313mzl4w4u92", "com.microsoft.VSCode", "notion.id", "com.figma.Desktop",
-        "com.linear", "company.thebrowser.Browser", "com.brave.Browser", "com.microsoft.edgemac", "com.spotify.client",
+        "com.linear", "com.brave.Browser", "com.microsoft.edgemac", "com.spotify.client",
         "md.obsidian", "dev.zed.Zed", "com.postmanlabs.mac",
     ]
 }

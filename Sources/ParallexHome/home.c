@@ -27,10 +27,12 @@
 //   PARALLEX_LOOPBACK_PORTS ","-separated ports the app finds itself on,
 //                           which are the copy's own (ports.c)
 // Only processes whose executable lives inside the scope are redirected
-// (the app, its helpers and services). Any other process that inherits this
-// library — a shell or tool the app started — takes it and the variables
-// out of its environment, so its own children never see them. Without both
-// variables the library does nothing.
+// (the app, its helpers and services). A program the copy starts from
+// outside the scope (a shell, a tool) starts without this library, with the
+// variables kept, so the copy's own binary started again through it is
+// redirected as before; one that loads the library anyway takes it and the
+// variables out of its environment. Without both variables the library
+// does nothing.
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <dispatch/dispatch.h>
@@ -289,16 +291,50 @@ static char *parallex_getenv(const char *name) {
     return getenv(name);
 }
 
-static bool is_in_scope(const char *path) {
-    if (path == NULL || strchr(path, '/') == NULL) {
+// The program `file` names, resolved: a path (relative ones too), or with
+// `search`, a bare name looked up in PATH the way posix_spawnp does.
+static bool resolve_program(const char *file, bool search, char resolved[PATH_MAX]) {
+    if (file == NULL || file[0] == '\0') {
         return false;
     }
+    if (strchr(file, '/') != NULL || !search) {
+        return realpath(file, resolved) != NULL;
+    }
+    const char *path = getenv("PATH");
+    if (path == NULL) {
+        path = "/usr/bin:/bin";
+    }
+    char candidate[PATH_MAX];
+    while (*path != '\0') {
+        const char *end = strchr(path, ':');
+        size_t length = end ? (size_t)(end - path) : strlen(path);
+        if (length > 0 && length + 1 + strlen(file) < sizeof(candidate)) {
+            memcpy(candidate, path, length);
+            candidate[length] = '/';
+            strlcpy(candidate + length + 1, file, sizeof(candidate) - length - 1);
+            if (access(candidate, X_OK) == 0 && realpath(candidate, resolved) != NULL) {
+                return true;
+            }
+        }
+        if (end == NULL) {
+            break;
+        }
+        path = end + 1;
+    }
+    return false;
+}
+
+static bool is_in_scope_searching(const char *path, bool search) {
     char resolved[PATH_MAX];
-    if (realpath(path, resolved) == NULL) {
+    if (!resolve_program(path, search, resolved)) {
         return false;
     }
     size_t length = strlen(scope_path);
     return strncmp(resolved, scope_path, length) == 0 && resolved[length] == '/';
+}
+
+static bool is_in_scope(const char *path) {
+    return is_in_scope_searching(path, false);
 }
 
 // A copy of `envp` with HOME=<instance home> replaced by your real one (or
@@ -331,28 +367,14 @@ static char **with_real_home(char *const envp[]) {
     return copy;
 }
 
-// This library's own variables, which programs outside the copy don't get.
-static const char *const own_variables[] = {
-    "PARALLEX_HOME_REDIRECT=", "PARALLEX_HOME_SCOPE=", "PARALLEX_HOME_ENV=", "PARALLEX_KEYCHAIN_SUFFIX=",
-    "PARALLEX_KEYCHAIN_KEEP=", "PARALLEX_INSTANCE_KEYCHAIN=", "PARALLEX_SAFE_STORAGE_OWN=", "PARALLEX_GUARD=",
-    "PARALLEX_LOOPBACK_PORTS=", "PARALLEX_CHILD_HOME=", NULL,
-};
-
-static bool is_own_variable(const char *entry) {
-    for (size_t index = 0; own_variables[index] != NULL; index++) {
-        if (strncmp(entry, own_variables[index], strlen(own_variables[index])) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
 // The environment for a program outside the copy: your real HOME (see
-// with_real_home), without this library or its variables. Such a program
-// would drop them as it loaded the library anyway (leave_environment); one
-// that can't load it (macOS's own tools are arm64e, it's arm64) would abort
-// instead, where they're honoured. NULL when nothing changes; `inserted`
-// gets the rebuilt DYLD_INSERT_LIBRARIES entry, if any. The caller frees both.
+// with_real_home) and DYLD_INSERT_LIBRARIES without this library. macOS's
+// own tools can't load it (they're arm64e, it's arm64) and abort where
+// inserted libraries are honoured; a program that could load it would only
+// have taken itself out (leave_environment). The variables stay, so the
+// copy's own binary started again through such a program is still
+// redirected. NULL when nothing changes; `inserted` gets the rebuilt
+// DYLD_INSERT_LIBRARIES entry, if any. The caller frees both.
 static char **for_outside(char *const envp[], char **inserted) {
     *inserted = NULL;
     char **homed = with_real_home(envp);
@@ -361,69 +383,62 @@ static char **for_outside(char *const envp[], char **inserted) {
         return NULL;
     }
     size_t count = 0;
-    bool found = false;
+    ssize_t found = -1;
     for (; source[count] != NULL; count++) {
-        if (is_own_variable(source[count])
-            || (strncmp(source[count], "DYLD_INSERT_LIBRARIES=", 22) == 0 && strstr(source[count], library_name) != NULL)) {
-            found = true;
+        if (found < 0 && strncmp(source[count], "DYLD_INSERT_LIBRARIES=", 22) == 0 && strstr(source[count], library_name) != NULL) {
+            found = (ssize_t)count;
         }
     }
-    if (!found) {
+    if (found < 0) {
         return homed;
     }
     char **copy = malloc((count + 1) * sizeof(char *));
-    if (copy == NULL) {
+    size_t size = strlen(source[found]) + 1;
+    char *rebuilt = malloc(size);
+    if (copy == NULL || rebuilt == NULL) {
+        free(copy);
+        free(rebuilt);
         return homed;
+    }
+    strlcpy(rebuilt, "DYLD_INSERT_LIBRARIES=", size);
+    bool any = false;
+    const char *list = source[found] + 22;
+    while (*list != '\0') {
+        const char *end = strchr(list, ':');
+        size_t length = end ? (size_t)(end - list) : strlen(list);
+        if (length > 0 && !has_suffix(list, length, library_name)) {
+            if (any) {
+                strlcat(rebuilt, ":", size);
+            }
+            strncat(rebuilt, list, length);
+            any = true;
+        }
+        if (end == NULL) {
+            break;
+        }
+        list = end + 1;
     }
     size_t kept = 0;
     for (size_t index = 0; index < count; index++) {
-        const char *entry = source[index];
-        if (is_own_variable(entry)) {
-            continue;
-        }
-        if (strncmp(entry, "DYLD_INSERT_LIBRARIES=", 22) == 0 && *inserted == NULL && strstr(entry, library_name) != NULL) {
-            size_t size = strlen(entry) + 1;
-            char *rebuilt = malloc(size);
-            if (rebuilt == NULL) {
-                copy[kept++] = (char *)entry;
-                continue;
-            }
-            strlcpy(rebuilt, "DYLD_INSERT_LIBRARIES=", size);
-            bool any = false;
-            const char *list = entry + 22;
-            while (*list != '\0') {
-                const char *end = strchr(list, ':');
-                size_t length = end ? (size_t)(end - list) : strlen(list);
-                if (length > 0 && !has_suffix(list, length, library_name)) {
-                    if (any) {
-                        strlcat(rebuilt, ":", size);
-                    }
-                    strncat(rebuilt, list, length);
-                    any = true;
-                }
-                if (end == NULL) {
-                    break;
-                }
-                list = end + 1;
-            }
-            if (!any) {
-                free(rebuilt);
-                continue;
-            }
-            *inserted = rebuilt;
+        if ((ssize_t)index != found) {
+            copy[kept++] = source[index];
+        } else if (any) {
             copy[kept++] = rebuilt;
-            continue;
         }
-        copy[kept++] = (char *)entry;
     }
     copy[kept] = NULL;
+    if (any) {
+        *inserted = rebuilt;
+    } else {
+        free(rebuilt);
+    }
     free(homed);
     return copy;
 }
 
 static int parallex_execve(const char *path, char *const argv[], char *const envp[]) {
     char *inserted = NULL;
-    char **fixed = is_in_scope(path) || !active ? NULL : for_outside(envp, &inserted);
+    char **fixed = !active || is_in_scope(path) ? NULL : for_outside(envp, &inserted);
     int result = execve(path, argv, fixed != NULL ? fixed : envp);
     free(fixed);
     free(inserted);
@@ -433,7 +448,7 @@ static int parallex_execve(const char *path, char *const argv[], char *const env
 static int parallex_posix_spawn(pid_t *pid, const char *path, const posix_spawn_file_actions_t *actions,
                                 const posix_spawnattr_t *attributes, char *const argv[], char *const envp[]) {
     char *inserted = NULL;
-    char **fixed = is_in_scope(path) || !active ? NULL : for_outside(envp, &inserted);
+    char **fixed = !active || is_in_scope(path) ? NULL : for_outside(envp, &inserted);
     int result = posix_spawn(pid, path, actions, attributes, argv, fixed != NULL ? fixed : envp);
     free(fixed);
     free(inserted);
@@ -443,7 +458,7 @@ static int parallex_posix_spawn(pid_t *pid, const char *path, const posix_spawn_
 static int parallex_posix_spawnp(pid_t *pid, const char *file, const posix_spawn_file_actions_t *actions,
                                  const posix_spawnattr_t *attributes, char *const argv[], char *const envp[]) {
     char *inserted = NULL;
-    char **fixed = is_in_scope(file) || !active ? NULL : for_outside(envp, &inserted);
+    char **fixed = !active || is_in_scope_searching(file, true) ? NULL : for_outside(envp, &inserted);
     int result = posix_spawnp(pid, file, actions, attributes, argv, fixed != NULL ? fixed : envp);
     free(fixed);
     free(inserted);
