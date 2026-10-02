@@ -25,6 +25,11 @@ enum ReleaseHighlights {
                 title: "Two Microsoft Teams",
                 detail: "Copies of Teams now open and sign in to another account. Its web view used to refuse the copy's own signature and close right away."
             ),
+            Highlight(
+                symbol: "rectangle.dashed",
+                title: "Outlines keep up",
+                detail: "A window's colored outline now follows it as you drag or resize it, and is never left broken after a resize."
+            ),
         ]),
         Release(version: "1.9.0", highlights: [
             Highlight(
