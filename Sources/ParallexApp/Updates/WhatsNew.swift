@@ -19,6 +19,13 @@ enum ReleaseHighlights {
     }
 
     static let releases: [Release] = [
+        Release(version: "1.9.1", highlights: [
+            Highlight(
+                symbol: "person.2.wave.2",
+                title: "Two Microsoft Teams",
+                detail: "Copies of Teams now open and sign in to another account. Its web view used to refuse the copy's own signature and close right away."
+            ),
+        ]),
         Release(version: "1.9.0", highlights: [
             Highlight(
                 symbol: "plus.square.on.square",

@@ -49,6 +49,7 @@ for app in object["apps"] as? [[String: Any]] ?? [] {
         fail("each app notice needs bundleID, message and a level of warning or unsupported")
     }
     if let range = app["versions"] as? String, !isValidRange(range) { fail("bad versions range: \(range)") }
+    if let range = app["parallex"] as? String, !isValidRange(range) { fail("bad parallex range: \(range)") }
 }
 for message in object["messages"] as? [[String: Any]] ?? [] {
     guard message["id"] is String, message["title"] is String, message["body"] is String else { fail("each message needs id, title and body") }

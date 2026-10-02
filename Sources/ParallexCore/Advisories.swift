@@ -18,6 +18,9 @@ public struct Advisories: Codable, Equatable, Sendable {
         public var message: String
         /// A website that stands in for the app ("https://teams.microsoft.com").
         public var website: String?
+        /// Which Parallex versions it's about (a problem a later Parallex
+        /// fixed); all when missing. Ignored before 1.9.1, which then see it.
+        public var parallex: String?
     }
 
     public struct Message: Codable, Equatable, Sendable, Identifiable {
@@ -117,10 +120,13 @@ public struct Advisories: Codable, Equatable, Sendable {
     }
 
     /// What's said about this version of an app, most serious first.
-    public func notices(bundleID: String?, version: String?) -> [AppNotice] {
+    public func notices(bundleID: String?, version: String?, parallex: String = ParallexConfig.version) -> [AppNotice] {
         guard let bundleID else { return [] }
         return apps
-            .filter { $0.bundleID == bundleID && VersionRange.contains($0.versions, version) }
+            .filter {
+                $0.bundleID == bundleID && VersionRange.contains($0.versions, version)
+                    && VersionRange.contains($0.parallex, parallex)
+            }
             .sorted { ($0.level == "unsupported" ? 0 : 1) < ($1.level == "unsupported" ? 0 : 1) }
     }
 

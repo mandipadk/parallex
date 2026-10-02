@@ -44,6 +44,19 @@ final class AdvisoriesTests: XCTestCase {
         XCTAssertEqual(advisories.messages(forParallex: "0.17.1").count, 0)
     }
 
+    /// A problem a later Parallex fixed is only shown to the Parallexes
+    /// that still have it.
+    func testNoticesForTheParallexesThatNeedThem() throws {
+        let fixed = Data("""
+        {"issued": "2026-10-02T12:00:00Z",
+         "apps": [{"bundleID": "com.microsoft.teams2", "parallex": "<1.9.1", "level": "unsupported", "message": "Update Parallex."}],
+         "messages": []}
+        """.utf8)
+        let advisories = try XCTUnwrap(Advisories.verify(fixed, signature: try sign(Advisories.signingContext + fixed), publicKey: publicKey))
+        XCTAssertEqual(advisories.notices(bundleID: "com.microsoft.teams2", version: "26032.605", parallex: "1.9.0").count, 1)
+        XCTAssertEqual(advisories.notices(bundleID: "com.microsoft.teams2", version: "26032.605", parallex: "1.9.1").count, 0)
+    }
+
     /// The file the site serves verifies with the key in the app: edited
     /// without `make advisories`, this fails before anyone gets it.
     func testThePublishedNoticesAreSigned() throws {

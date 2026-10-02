@@ -113,6 +113,33 @@ final class CloneTests: XCTestCase {
                       "the original is left as it was")
     }
 
+    /// Signing flags an app asks for in its Info.plist (Teams' web view
+    /// helper: library validation, restrict) would make the copy's pieces
+    /// refuse its re-signed libraries; the copy signs without them.
+    func testCopiesSignWithoutTheFlagsAnAppAsksFor() throws {
+        let flags = "runtime,restrict,library-validation,kill"
+        let target = try makeSignableElectronApp(named: "Teamsy", bundleID: "com.fake.teamsy", extraInfoKeys: ["CSFlags": flags])
+        let helpers = target.appendingPathComponent("Contents/Helpers")
+        try FileManager.default.createDirectory(at: helpers, withIntermediateDirectories: true)
+        _ = try Fixtures.makeApp(named: "Teamsy WebView", bundleID: "com.fake.teamsy.helper", in: helpers,
+                                 machOExecutable: true, extraInfoKeys: ["CSFlags": flags])
+        var request = CreateRequest(appReference: target.path, name: "Teamsy Work", outputDirectory: outDir)
+        request.cloneApp = true
+        let result = try InstanceCreator.create(request, builderOptions: options)
+        let copy = result.wrapperURL.path
+        for piece in [copy, copy + "/Contents/Helpers/Teamsy WebView.app"] {
+            // codesign -dv writes to stderr.
+            let details = try Shell.run("/bin/sh", ["-c", "/usr/bin/codesign -dv \"$1\" 2>&1", "sh", piece])
+            XCTAssertTrue(details.contains("flags="), details)
+            let line = details.split(separator: "\n").first { $0.contains("flags=") } ?? ""
+            XCTAssertFalse(line.contains("library-validation") || line.contains("restrict") || line.contains("runtime"),
+                           "\(piece): \(line)")
+        }
+        let helperInfo = helpers.appendingPathComponent("Teamsy WebView.app/Contents/Info.plist")
+        let original = try XCTUnwrap(NSDictionary(contentsOf: helperInfo))
+        XCTAssertEqual(original["CSFlags"] as? String, flags, "the original is left as it was")
+    }
+
     func testOriginalUpdateMarksCloneOutdated() throws {
         let target = try Fixtures.makeApp(
             named: "Versioned", bundleID: "com.fake.versioned", in: tempDir,

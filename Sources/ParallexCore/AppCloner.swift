@@ -504,6 +504,7 @@ public enum AppCloner {
         defer { try? fm.removeItem(at: workDir) }
 
         func sign(_ url: URL, entitlementsFrom original: URL?) throws {
+            try clearSigningFlags(of: url)
             var arguments = ["--force", "--sign", identity?.hash ?? "-", "--timestamp=none"]
             if let identity {
                 arguments += ["--keychain", identity.keychain.path]
@@ -579,6 +580,25 @@ public enum AppCloner {
         }
         // The main bundle last, with the app's (filtered) entitlements.
         try sign(app, entitlementsFrom: source.url)
+    }
+
+    /// A bundle can ask codesign for its signing flags in its Info.plist
+    /// (`CSFlags`: Teams' web view helper asks for "runtime,restrict,
+    /// library-validation,kill", Word and PowerPoint for the runtime), and
+    /// codesign applies them on every re-sign. In a copy they'd make the
+    /// piece refuse the copy's own re-signed libraries (library validation
+    /// wants one team, and the copy's signature has none) and ignore the
+    /// home library (a restricted process skips DYLD_ environment), so the
+    /// copy signs without them, as it does everything else.
+    static func clearSigningFlags(of bundle: URL) throws {
+        for place in ["Contents/Info.plist", "Resources/Info.plist"] {
+            let url = bundle.appendingPathComponent(place)
+            guard let data = try? Data(contentsOf: url),
+                  var plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any],
+                  plist.removeValue(forKey: "CSFlags") != nil
+            else { continue }
+            try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: url)
+        }
     }
 
     private static func isInsideBundleMacOS(_ url: URL, of app: URL) -> Bool {
