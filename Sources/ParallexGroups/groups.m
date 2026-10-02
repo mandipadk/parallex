@@ -19,7 +19,9 @@
 // Without them the library does nothing.
 
 #import <Foundation/Foundation.h>
+#import <dlfcn.h>
 #import <objc/runtime.h>
+#import <spawn.h>
 #import <os/lock.h>
 #import <servers/bootstrap.h>
 #import <semaphore.h>
@@ -214,7 +216,155 @@ static CFMessagePortRef parallex_CFMessagePortCreateRemote(CFAllocatorRef alloca
 }
 PARALLEX_INTERPOSE(parallex_CFMessagePortCreateRemote, CFMessagePortCreateRemote);
 
+// MARK: Processes the copy starts
+//
+// Tools it starts from outside the copy (/usr/bin/profiles, a shell) aren't
+// the copy: they start without this library and its maps. Most of macOS's
+// own ignore inserted libraries anyway, but one that doesn't fails to load
+// this one (built for arm64; theirs are arm64e) and aborts. The copy's own
+// helpers, inside its bundle, keep it.
+
+// "<copy>.app/", from where this library was loaded; empty when that isn't
+// a copy's Frameworks folder, and then nothing is changed.
+static char bundlePrefix[PATH_MAX];
+
+static void findBundle(void) {
+    Dl_info info;
+    char resolved[PATH_MAX];
+    if (dladdr((const void *)&findBundle, &info) == 0 || info.dli_fname == NULL
+        || realpath(info.dli_fname, resolved) == NULL) {
+        return;
+    }
+    const char *suffix = "Contents/Frameworks/libparallexgroups.dylib";
+    size_t length = strlen(resolved), suffixLength = strlen(suffix);
+    if (length <= suffixLength || strcmp(resolved + length - suffixLength, suffix) != 0
+        || resolved[length - suffixLength - 1] != '/') {
+        return;
+    }
+    resolved[length - suffixLength] = '\0';
+    strlcpy(bundlePrefix, resolved, sizeof(bundlePrefix));
+}
+
+static bool insideCopy(const char *path) {
+    if (bundlePrefix[0] == '\0') {
+        return true;
+    }
+    if (path == NULL || path[0] != '/') {
+        return false;
+    }
+    char resolved[PATH_MAX];
+    const char *checked = realpath(path, resolved) != NULL ? resolved : path;
+    return strncmp(checked, bundlePrefix, strlen(bundlePrefix)) == 0;
+}
+
+static bool isThisLibrary(const char *entry, size_t length) {
+    const char *name = "/libparallexgroups.dylib";
+    size_t nameLength = strlen(name);
+    return length >= nameLength && memcmp(entry + length - nameLength, name, nameLength) == 0;
+}
+
+// A copy of `envp` without this library and its maps, or NULL when there's
+// nothing to take out. `inserted` gets the rebuilt DYLD_INSERT_LIBRARIES
+// (if any); the caller frees both.
+static char **withoutLibrary(char *const envp[], char **inserted) {
+    *inserted = NULL;
+    if (envp == NULL) {
+        return NULL;
+    }
+    size_t count = 0;
+    bool found = false;
+    for (; envp[count] != NULL; count++) {
+        if (strncmp(envp[count], "PARALLEX_GROUP_MAP=", 19) == 0 || strncmp(envp[count], "PARALLEX_SERVICE_MAP=", 21) == 0
+            || (strncmp(envp[count], "DYLD_INSERT_LIBRARIES=", 22) == 0 && strstr(envp[count], "/libparallexgroups.dylib") != NULL)) {
+            found = true;
+        }
+    }
+    if (!found) {
+        return NULL;
+    }
+    char **copy = malloc((count + 1) * sizeof(char *));
+    if (copy == NULL) {
+        return NULL;
+    }
+    size_t kept = 0;
+    for (size_t index = 0; index < count; index++) {
+        const char *entry = envp[index];
+        if (strncmp(entry, "PARALLEX_GROUP_MAP=", 19) == 0 || strncmp(entry, "PARALLEX_SERVICE_MAP=", 21) == 0) {
+            continue;
+        }
+        if (strncmp(entry, "DYLD_INSERT_LIBRARIES=", 22) == 0 && *inserted == NULL) {
+            const char *list = entry + 22;
+            size_t size = strlen(entry) + 1;
+            char *rebuilt = malloc(size);
+            if (rebuilt == NULL) {
+                free(copy);
+                return NULL;
+            }
+            strlcpy(rebuilt, "DYLD_INSERT_LIBRARIES=", size);
+            bool any = false;
+            while (*list != '\0') {
+                const char *end = strchr(list, ':');
+                size_t length = end ? (size_t)(end - list) : strlen(list);
+                if (length > 0 && !isThisLibrary(list, length)) {
+                    if (any) {
+                        strlcat(rebuilt, ":", size);
+                    }
+                    strncat(rebuilt, list, length);
+                    any = true;
+                }
+                if (end == NULL) {
+                    break;
+                }
+                list = end + 1;
+            }
+            if (!any) {
+                free(rebuilt);
+                continue;
+            }
+            *inserted = rebuilt;
+            copy[kept++] = rebuilt;
+            continue;
+        }
+        copy[kept++] = (char *)entry;
+    }
+    copy[kept] = NULL;
+    return copy;
+}
+
+static int parallex_execve(const char *path, char *const argv[], char *const envp[]) {
+    char *inserted = NULL;
+    char **fixed = insideCopy(path) ? NULL : withoutLibrary(envp, &inserted);
+    int result = execve(path, argv, fixed != NULL ? fixed : envp);
+    free(fixed);
+    free(inserted);
+    return result;
+}
+PARALLEX_INTERPOSE(parallex_execve, execve);
+
+static int parallex_posix_spawn(pid_t *pid, const char *path, const posix_spawn_file_actions_t *actions,
+                                const posix_spawnattr_t *attributes, char *const argv[], char *const envp[]) {
+    char *inserted = NULL;
+    char **fixed = insideCopy(path) ? NULL : withoutLibrary(envp, &inserted);
+    int result = posix_spawn(pid, path, actions, attributes, argv, fixed != NULL ? fixed : envp);
+    free(fixed);
+    free(inserted);
+    return result;
+}
+PARALLEX_INTERPOSE(parallex_posix_spawn, posix_spawn);
+
+static int parallex_posix_spawnp(pid_t *pid, const char *file, const posix_spawn_file_actions_t *actions,
+                                 const posix_spawnattr_t *attributes, char *const argv[], char *const envp[]) {
+    char *inserted = NULL;
+    char **fixed = insideCopy(file) ? NULL : withoutLibrary(envp, &inserted);
+    int result = posix_spawnp(pid, file, actions, attributes, argv, fixed != NULL ? fixed : envp);
+    free(fixed);
+    free(inserted);
+    return result;
+}
+PARALLEX_INTERPOSE(parallex_posix_spawnp, posix_spawnp);
+
 __attribute__((constructor)) static void parallex_groups_init(void) {
+    findBundle();
     serviceMap = parseMap(getenv("PARALLEX_SERVICE_MAP"));
     cache = [NSMutableDictionary dictionary];
     groupMap = parseMap(getenv("PARALLEX_GROUP_MAP"));

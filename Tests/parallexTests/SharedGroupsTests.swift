@@ -173,4 +173,69 @@ final class SharedGroupsTests: XCTestCase {
         XCTAssertEqual(printed.split(separator: "\n").map(String.init),
                        ["group.parallex.test.com.fake.chatty.shared", "ok"])
     }
+
+    /// Tools the copy starts from outside it (as Teams starts
+    /// /usr/bin/profiles) start without the library and its maps; the copy's
+    /// own helpers keep them.
+    func testOnlyTheCopysOwnProcessesGetTheLibrary() throws {
+        let fm = FileManager.default
+        let bundle = tempDir.appendingPathComponent("Probe.app/Contents")
+        try fm.createDirectory(at: bundle.appendingPathComponent("MacOS"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: bundle.appendingPathComponent("Frameworks"), withIntermediateDirectories: true)
+        let library = bundle.appendingPathComponent("Frameworks/libparallexgroups.dylib")
+        try fm.copyItem(at: Fixtures.groupsLibrary, to: library)
+
+        let toolSource = tempDir.appendingPathComponent("tool.c")
+        try Data("""
+        #include <stdio.h>
+        #include <stdlib.h>
+        int main(void) {
+            const char *inserted = getenv("DYLD_INSERT_LIBRARIES"), *map = getenv("PARALLEX_GROUP_MAP");
+            printf("%s %s\\n", inserted ? "library" : "none", map ? "map" : "none");
+            return 0;
+        }
+        """.utf8).write(to: toolSource)
+        let outside = tempDir.appendingPathComponent("outside-tool")
+        let inside = bundle.appendingPathComponent("MacOS/inside-tool")
+        _ = try Shell.run("/usr/bin/clang", [toolSource.path, "-o", outside.path])
+        try fm.copyItem(at: outside, to: inside)
+
+        let probeSource = tempDir.appendingPathComponent("spawner.c")
+        try Data("""
+        #include <spawn.h>
+        #include <sys/wait.h>
+        extern char **environ;
+        int main(int argc, char **argv) {
+            for (int i = 1; i < argc; i++) {
+                pid_t pid;
+                char *args[] = {argv[i], NULL};
+                if (posix_spawn(&pid, argv[i], NULL, NULL, args, environ) != 0) return 1;
+                int status;
+                waitpid(pid, &status, 0);
+            }
+            return 0;
+        }
+        """.utf8).write(to: probeSource)
+        let spawner = bundle.appendingPathComponent("MacOS/spawner")
+        _ = try Shell.run("/usr/bin/clang", [probeSource.path, "-o", spawner.path])
+
+        let process = Process()
+        process.executableURL = spawner
+        process.arguments = [outside.path, inside.path]
+        var environment = ProcessInfo.processInfo.environment
+        environment["DYLD_INSERT_LIBRARIES"] = library.path
+        environment["PARALLEX_GROUP_MAP"] = "group.com.fake.chatty.shared=group.parallex.test.com.fake.chatty.shared"
+        // swift test's own library path would load the library from .build,
+        // not from the copy (and then it changes nothing).
+        environment["DYLD_LIBRARY_PATH"] = nil
+        environment["DYLD_FRAMEWORK_PATH"] = nil
+        process.environment = environment
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        let printed = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(printed.split(separator: "\n").map(String.init), ["none none", "library map"])
+    }
 }
