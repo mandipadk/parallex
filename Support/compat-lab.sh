@@ -15,11 +15,14 @@
 #
 # Writes one JSON object per app to FILE (default: compat-lab.json): the
 # default instance's result, its "mode" ("copy" or "wrapper"), and for a
-# wrapper an "ownIdentity" object with the copy's. A table goes to stdout
-# (and to $GITHUB_STEP_SUMMARY in GitHub Actions). With --diagnose, an
-# instance that quits or crashes leaves DIR/<App>.txt (or "<App> (own
-# identity).txt"): the system log around its launch, its crash reports, and
-# the original's and the instance's entitlements.
+# wrapper an "ownIdentity" object with the copy's. "toolCrashes" counts
+# programs from elsewhere it started (macOS's sw_vers, say) that crashed;
+# they don't make the app's result. A table goes to stdout (and to
+# $GITHUB_STEP_SUMMARY in GitHub Actions). With --diagnose, an instance that
+# quits, crashes or leaks, or whose programs crash, leaves DIR/<App>.txt (or
+# "<App> (own identity).txt"): the system log around its launch, what it
+# reached of the original's, its crash reports, and the original's and the
+# instance's entitlements.
 set -u
 
 here=${0:A:h}
@@ -102,31 +105,37 @@ stop() {
 
 # Crash reports written since STAMP by an instance: ones naming its app, or
 # from one of its processes or their children (a wrapper's carry the
-# original app's name, so only their process IDs tell them apart).
-#   crash_reports STAMP LABEL PID ...
+# original app's name, so only their process IDs tell them apart). KIND
+# "app" is the app's own (run from the instance or the original app);
+# "tools" is the programs it started from elsewhere (macOS's sw_vers, say).
+#   crash_reports STAMP LABEL KIND PID ...
 crash_reports() {
-  local stamp=$1 label=$2
-  shift 2
+  local stamp=$1 label=$2 kind=$3
+  shift 3
   find "$HOME/Library/Logs/DiagnosticReports" -newer "$stamp" -type f 2>/dev/null | python3 -c '
 import json, re, sys
-label, pids = sys.argv[1], {int(p) for p in sys.argv[2:] if p.isdigit()}
+label, kind, original = sys.argv[1], sys.argv[2], sys.argv[3]
+pids = {int(p) for p in sys.argv[4:] if p.isdigit()}
 for path in sys.stdin.read().splitlines():
     try:
         text = open(path, errors="replace").read()
     except Exception:
         continue
-    if label + ".app" in text:
-        print(path)
-        continue
     _, _, body = text.partition("\n")
     try:
         report = json.loads(body)
         ids = {report.get("pid"), report.get("parentPid")}
+        program = report.get("procPath", "")
     except Exception:
         ids = {int(m) for m in re.findall(r"^(?:Process|Parent Process):.*\[(\d+)\]", text, re.M)}
-    if ids & pids:
+        found = re.search(r"^Path:\s+(.*)$", text, re.M)
+        program = found.group(1).strip() if found else ""
+    if label + ".app" not in text and not ids & pids:
+        continue
+    own = not program or label + ".app/" in program or program.startswith(original + "/")
+    if own == (kind == "app"):
         print(path)
-' "$label" "$@"
+' "$label" "$kind" "$original" "$@"
 }
 
 # Launch Services records a copy (and each helper app it starts) made:
@@ -180,13 +189,14 @@ entry = {}
 for pair in sys.argv[1:]:
     key, _, value = pair.partition("=")
     group, _, field = key.rpartition(".")
-    value = int(value) if field in ("processes", "leaks", "blocked", "crashes") else value
+    value = int(value) if field in ("processes", "leaks", "blocked", "crashes", "toolCrashes") else value
     (entry.setdefault(group, {}) if group else entry)[field] = value
 print(json.dumps(entry))
 PY
 }
 
-# Write what's known about an instance that quit or crashed to $1.
+# Write what's known about an instance that quit, crashed or leaked (or
+# started a program that crashed) to $1.
 diagnose_instance() {
   local file=$1 label=$2 app=$3 launched=$4 stamp=$5
   shift 5
@@ -207,14 +217,25 @@ diagnose_instance() {
     /usr/bin/log show --start "$launched" --style compact --predicate \
       "eventMessage CONTAINS[c] \"$label\" OR eventMessage CONTAINS[c] \"${executable:-$name}\" OR process == \"amfid\" OR subsystem == \"com.apple.MobileFileIntegrity\" OR (process == \"kernel\" AND (eventMessage CONTAINS[c] \"AMFI\" OR eventMessage CONTAINS[c] \"sandbox\" OR eventMessage CONTAINS[c] \"code signature\")) OR process == \"taskgated\" OR process == \"syspolicyd\"" \
       2>&1 | tail -400
+    print "\n## What reached the original's data"
+    print -r -- "$check" | python3 -c '
+import json, sys
+try:
+    report = json.load(sys.stdin)
+except Exception:
+    sys.exit()
+for finding in report.get("findings", []):
+    if finding.get("category") == "leak":
+        print(" ", finding.get("path"), "-", finding.get("reason"))
+'
     print "\n## Crash reports"
     # macOS writes a report some seconds after the crash.
     for _ in {1..30}; do
-      [[ -n $(crash_reports "$stamp" "$label" "$@") ]] && break
+      [[ -n $(crash_reports "$stamp" "$label" app "$@") ]] && break
       [[ $result == quit ]] || break
       sleep 2
     done
-    crash_reports "$stamp" "$label" "$@" | while read -r report; do
+    { crash_reports "$stamp" "$label" app "$@"; crash_reports "$stamp" "$label" tools "$@" } | while read -r report; do
       print "### $report"
       # What the app said as it stopped, and the stack that stopped it.
       python3 - "$report" <<'PY'
@@ -241,12 +262,13 @@ PY
 
 # Make an instance of $original named LABEL with create's FLAG (--recommended
 # or --clone), open it in the background, and see how it does. Sets mode,
-# result, processes, leaks, blocked, crashes and detail.
+# result, processes, leaks, blocked, crashes, tools (crashes of programs it
+# started from elsewhere, which don't make the app's result) and detail.
 #   try_instance LABEL FLAG DIAGNOSIS_FILE
 try_instance() {
   local label=$1 flag=$2 diagnosis=$3
   local app="$lab/apps/$label.app"
-  mode="" result="" processes=0 leaks=0 blocked=0 crashes=0 detail=""
+  mode="" result="" processes=0 leaks=0 blocked=0 crashes=0 tools=0 detail=""
   local created=$($parallex create "$original" $flag --name "$label" --out "$lab/apps" 2>&1)
   if [[ ! -d $app ]]; then
     result="not copied"
@@ -286,14 +308,15 @@ print(("clean" if report.get("clean") else "leak") + "\t" + str(len(leaks)) + "\
   blocked=${rest#*$'\t'}
   # Its processes now, and the first one, which may have gone already.
   local seen=($pids $(head -1 "$folder/instance.pid" 2>/dev/null))
-  crashes=$(crash_reports "$stamp" "$label" $seen | wc -l | tr -d ' ')
+  crashes=$(crash_reports "$stamp" "$label" app $seen | wc -l | tr -d ' ')
+  tools=$(crash_reports "$stamp" "$label" tools $seen | wc -l | tr -d ' ')
   if (( crashes > 0 )); then result="crashed"
   elif (( processes == 0 )); then result="quit"
   elif [[ $leak_state == leak ]]; then result="leaked"
   elif [[ $leak_state == clean ]]; then result="ran"
   else result="not checked"
   fi
-  if [[ -n $diagnose && ( $result == quit || $result == crashed ) ]]; then
+  if [[ -n $diagnose && ( $result == quit || $result == crashed || $result == leaked || $tools != 0 ) ]]; then
     diagnose_instance "$diagnosis" "$label" "$app" "$launched" "$stamp" $seen
   fi
   # A copy is asked to quit by its own bundle ID. A wrapper's app runs as
@@ -309,6 +332,10 @@ print(("clean" if report.get("clean") else "leak") + "\t" + str(len(leaks)) + "\
 
 # A name no real instance has (its preferences domain is named after it).
 tag=$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 6)
+
+# The runner's Homebrew can be days old, and a cask's old download may be
+# gone from its server.
+(( install )) && brew update --quiet >/dev/null 2>&1
 
 rows=()
 for spec in "${apps[@]}"; do
@@ -338,8 +365,8 @@ for spec in "${apps[@]}"; do
     rows+=("| $name | $version | | not copied | | | $detail |")
     continue
   fi
-  fields=("app=$name" "version=$version" "mode=$mode" "result=$result" "processes=$processes" "leaks=$leaks" "blocked=$blocked" "crashes=$crashes")
-  row="| $name | $version | $mode | $result | $processes | ${leaks} leaks, ${blocked} kept out by Guard |"
+  fields=("app=$name" "version=$version" "mode=$mode" "result=$result" "processes=$processes" "leaks=$leaks" "blocked=$blocked" "crashes=$crashes" "toolCrashes=$tools")
+  row="| $name | $version | $mode | $result | $processes | ${leaks} leaks, ${blocked} kept out by Guard$( (( tools )) && print -n ", $tools programs it started crashed") |"
   # Own identity is the other choice New Instance offers for it.
   if [[ $mode == wrapper ]]; then
     try_instance "$name Lab $tag Own" --clone "$diagnose/$name (own identity).txt"
@@ -348,8 +375,8 @@ for spec in "${apps[@]}"; do
       fields+=("ownIdentity.detail=$detail")
       row+=" not copied |"
     else
-      fields+=("ownIdentity.processes=$processes" "ownIdentity.leaks=$leaks" "ownIdentity.blocked=$blocked" "ownIdentity.crashes=$crashes")
-      row+=" $result ($processes processes, $leaks leaks) |"
+      fields+=("ownIdentity.processes=$processes" "ownIdentity.leaks=$leaks" "ownIdentity.blocked=$blocked" "ownIdentity.crashes=$crashes" "ownIdentity.toolCrashes=$tools")
+      row+=" $result ($processes processes, $leaks leaks$( (( tools )) && print -n ", $tools programs it started crashed")) |"
     fi
   else
     row+=" |"
