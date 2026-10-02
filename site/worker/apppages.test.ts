@@ -33,7 +33,8 @@ test("only app pages with lab results are filled in", () => {
   assert.equal(guideFor("/apps/slack.html"), undefined)
   assert.equal(guideFor("/apps/slack/"), undefined)
   assert.equal(guideFor("/apps/nothing"), undefined)
-  assert.equal(guideFor("/apps/teams"), undefined)
+  // Every page has a lab entry now (Teams since 1.9.1's copies).
+  assert.equal(guideFor("/apps/teams")?.slug, "teams")
   assert.equal(guideFor("/apps"), undefined)
 })
 

@@ -306,9 +306,9 @@ export const guides: Guide[] = [
     labName: "Google Chrome",
     labMode: "wrapper",
     title: "Two separate Chromes on one Mac, beyond profiles",
-    description: "Run a second Chrome with its own data folder, sign-ins and extensions, and send links to the right one. Works with Brave, Edge, Arc, Vivaldi too. Free and open source.",
+    description: "Run a second Chrome with its own data folder, sign-ins and extensions, and send links to the right one. Works with Brave, Edge and Vivaldi too. Free and open source.",
     ownDock: false,
-    why: "Run work Chrome beside your own as a separate instance: its own sign-ins, cookies, history and extensions, opened from Parallex, the menu bar or the ⌃⌥Space switcher, its windows outlined in its color. The same goes for Brave, Edge, Arc, Vivaldi and other Chromium browsers. Parallex is free and open source.",
+    why: "Run work Chrome beside your own as a separate instance: its own sign-ins, cookies, history and extensions, opened from Parallex, the menu bar or the ⌃⌥Space switcher, its windows outlined in its color. The same goes for Brave, Edge, Vivaldi and other Chromium browsers. Parallex is free and open source.",
     specifics: [
       "**Its own data folder**: Parallex starts the browser with a profile folder of its own, so its sign-ins, cookies and extensions are separate.",
       "**Window outlines in its color**, and its name in the menu bar, so you can tell the two apart at a glance.",
@@ -319,7 +319,7 @@ export const guides: Guide[] = [
     limits: [],
     questions: [
       { q: "Chrome already has profiles. Why this?", a: "Profiles live inside one Chrome, and links from other apps land in whichever was used last. An instance is a separate Chrome with its own data folder, opened on its own, and links you choose go straight to it." },
-      { q: "Which browsers work?", a: "Chrome (and Beta, Dev, Canary), Chromium, Brave, Edge, Vivaldi, Opera, Arc, Helium, Yandex and Whale are recognised as Chromium browsers. Firefox works too, with its own profile." },
+      { q: "Which browsers work?", a: "Chrome (and Beta, Dev, Canary), Chromium, Brave, Edge, Vivaldi, Opera, Helium, Yandex and Whale are recognised as Chromium browsers. Firefox works too, with its own profile. Arc doesn't yet: it keeps using its own profile." },
     ],
     related: ["chatgpt", "slack", "teams"],
   },
