@@ -1,5 +1,5 @@
 {
-  "issued": "2026-10-02T22:00:00Z",
+  "issued": "2026-10-02T23:30:00Z",
   "apps": [
     {
       "bundleID": "com.microsoft.teams2",
@@ -10,13 +10,14 @@
     },
     {
       "bundleID": "company.thebrowser.Browser",
-      "level": "warning",
-      "message": "With Own identity on, Arc closes at launch: it needs iCloud, which only the original has. Leave Own identity off."
+      "level": "unsupported",
+      "message": "Arc keeps using its own profile in an instance, so the instance shares your Arc's sign-ins and cookies; with Own identity on, Arc closes at launch (it needs iCloud). Don't use Arc for a second account yet."
     },
     {
       "bundleID": "com.microsoft.edgemac",
       "level": "warning",
-      "message": "With Own identity on, Edge closes right after opening (seen in the nightly lab). Leave Own identity off."
+      "message": "With Own identity on, Edge closes right after opening in this Parallex. Update to 1.9.1 or later, or leave Own identity off.",
+      "parallex": "<1.9.1"
     }
   ],
   "messages": []
