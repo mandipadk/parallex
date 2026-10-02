@@ -1,11 +1,12 @@
 {
-  "issued": "2026-10-01T21:00:00Z",
+  "issued": "2026-10-02T22:00:00Z",
   "apps": [
     {
       "bundleID": "com.microsoft.teams2",
       "level": "unsupported",
-      "message": "Copies of Teams close right after opening (seen in the nightly lab). Use Teams on the web as a website instance instead.",
-      "website": "https://teams.microsoft.com"
+      "message": "Copies of Teams close right after opening in this Parallex. Update to 1.9.1 or later, or use Teams on the web meanwhile.",
+      "website": "https://teams.microsoft.com",
+      "parallex": "<1.9.1"
     },
     {
       "bundleID": "company.thebrowser.Browser",
