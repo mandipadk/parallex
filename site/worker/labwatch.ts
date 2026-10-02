@@ -1,3 +1,4 @@
+import { readLabHistory } from "./apppages"
 import type { Env } from "./env"
 import { alert } from "./guard"
 import { latestLab } from "./lab"
@@ -56,9 +57,5 @@ export async function watchLab(env: Env): Promise<void> {
 
 /** GET /api/v1/lab/history: each app's nights, newest first (at most 120). */
 export async function labHistory(env: Env): Promise<Response> {
-  const { results } = await env.DB.prepare(`SELECT day, app, version, result FROM lab_history
-    WHERE day >= date('now', '-120 days') ORDER BY app, day DESC`).all<{ day: string; app: string; version: string; result: string }>()
-  const apps: Record<string, { day: string; version: string; result: string }[]> = {}
-  for (const row of results) (apps[row.app] ??= []).push({ day: row.day, version: row.version, result: row.result })
-  return Response.json({ apps }, { headers: { "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" } })
+  return Response.json({ apps: await readLabHistory(env.DB) }, { headers: { "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" } })
 }

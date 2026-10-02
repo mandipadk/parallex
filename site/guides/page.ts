@@ -89,6 +89,7 @@ code { font-family: "Geist Mono", ui-monospace, monospace; font-size: 0.86em; ba
 .cta { display: inline-flex; align-items: center; height: 40px; padding: 0 18px; border-radius: 999px; background: var(--accent); color: #fff; font-weight: 600; text-decoration: none; justify-self: start; }
 .lab { border-left: 2px solid var(--good); padding-left: 16px; }
 .lab.not { border-left-color: var(--accent); }
+.lab-slot { display: contents; }
 .qa { display: grid; gap: 18px; }
 .qa div { display: grid; gap: 4px; }
 figure { margin: 0; }
@@ -153,15 +154,31 @@ const installBlock = (app: string) => `  <section class="install">
     <p>Or <a href="${RELEASES}">download it from GitHub</a>, or with Homebrew: <code>brew tap mandipadk/parallex https://github.com/mandipadk/parallex</code> then <code>brew install --cask parallex</code>. Then choose New Instance, pick ${escape(app)}, and give it a name.</p>
   </section>`
 
-function labLine(guide: Guide, lab: LabRun | null, history: LabHistory | null): string {
+/** An app's history with the latest night in it: the history is kept
+ *  hourly, so for a while after a run it doesn't have that night yet. */
+function withLatest(nights: LabHistory[string] | undefined, day: string, result: LabResult): LabHistory[string] {
+  const kept = nights ?? []
+  if (kept.some((n) => n.day === day)) return kept
+  return [{ day, version: result.version ?? "", result: result.result }, ...kept].sort((a, b) => b.day.localeCompare(a.day))
+}
+
+/**
+ * What the lab says about the app, from its latest run and history, or
+ * nothing. The page is built with it, and the site's worker renders it
+ * again with the newest results each time the page is served (see
+ * worker/apppages.ts), so the two always read the same.
+ */
+export function labBlock(guide: Guide, lab: LabRun | null, history: LabHistory | null): string {
   if (!lab || !guide.labName) return ""
   const result = lab.apps.find((a) => a.app === guide.labName)
   if (!result) return ""
-  const day = new Date(lab.date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })
+  const date = new Date(lab.date)
+  if (Number.isNaN(date.getTime())) return ""
+  const day = date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })
   const version = result.version ? ` ${result.version}` : ""
   if (result.result === "ran") {
     const reached = result.leaks ? `, though it reached ${result.leaks} of the original's files` : ", and nothing reached the original's data"
-    const past = historyLine(history?.[guide.labName])
+    const past = history ? historyLine(withLatest(history[guide.labName], lab.date.slice(0, 10), result)) : ""
     return `  <section class="lab">
     <h2>Tested every night</h2>
     <p>Parallex's compatibility lab makes a fresh copy of ${escape(guide.app)}${escape(version)} every night on a clean Mac and opens it. On ${day}, on macOS ${escape(lab.macos)}, the copy ran${reached}.${past ? ` ${escape(past)}` : ""} <a href="/compatibility">See every app's latest result</a>.</p>
@@ -172,6 +189,13 @@ function labLine(guide: Guide, lab: LabRun | null, history: LabHistory | null): 
     <p>Parallex's compatibility lab makes a fresh copy of ${escape(guide.app)}${escape(version)} every night on a clean Mac. On ${day} it didn't run cleanly (${escape(result.result)}); <a href="/compatibility">see the latest</a> before relying on it.</p>
   </section>`
 }
+
+/** Where the lab's block goes on an app's page: an element of its own that
+ *  takes no space, there whether or not the build had results to put in it. */
+export const LAB_SLOT_ID = "lab"
+/** What goes inside the slot, for a block from labBlock. */
+export const labSlotContent = (block: string) => `\n${block}\n  `
+const labSlot = (block: string) => `  <div id="${LAB_SLOT_ID}" class="lab-slot">${labSlotContent(block)}</div>`
 
 export function guidePage(guide: Guide, all: Guide[], lab: LabRun | null, history: LabHistory | null = null): string {
   const path = `/apps/${guide.slug}`
@@ -204,7 +228,7 @@ ${guide.specifics.map((s) => `      <li>${inline(s)}</li>`).join("\n")}
     </ul>
   </section>
 
-${labLine(guide, lab, history)}
+${labSlot(labBlock(guide, lab, history))}
 
 ${guide.limits.length ? `  <section>
     <h2>Good to know</h2>

@@ -1,4 +1,5 @@
 import { dashboardPage, signInPage } from "./admin"
+import { appPage } from "./apppages"
 import { isSignedIn, signIn, signOutEverywhere } from "./auth"
 import { collect, kofi } from "./collect"
 import { compatibilityList, type IssueReport } from "./compatibility"
@@ -277,6 +278,7 @@ export default {
     }
     if (path === "/admin" || path.startsWith("/admin/")) return admin(request, env, ctx, path)
     if (path.startsWith("/api/")) return new Response("Not found", { status: 404 })
+    if (path.startsWith("/apps/")) return appPage(request, env)
     return env.ASSETS.fetch(request)
   },
 
