@@ -596,8 +596,10 @@ public enum InstanceCreator {
         }
         // However it's asked for (New Instance, a link, Duplicate, the CLI):
         // a new instance of an app nothing keeps apart yet isn't made. One
-        // made before can still be rebuilt.
-        if existing == nil, request.webURL == nil, let reason = AppCatalog.cantKeepApart[target.bundleID] {
+        // made before can still be rebuilt, as itself: rebuilding another
+        // app's instance with this app's name is a new one.
+        let rebuildsItself = existing.map { ($0.knownTargetBundleID ?? target.bundleID) == target.bundleID } ?? false
+        if !rebuildsItself, request.webURL == nil, let reason = AppCatalog.cantKeepApart[target.bundleID] {
             throw ParallexError(reason)
         }
         if existing != nil && !request.force {

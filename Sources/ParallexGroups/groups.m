@@ -221,9 +221,9 @@ PARALLEX_INTERPOSE(parallex_CFMessagePortCreateRemote, CFMessagePortCreateRemote
 // Tools it starts from outside the copy (/usr/bin/profiles, a shell) start
 // without this library: most of macOS's own ignore inserted libraries
 // anyway, but one that doesn't fails to load it (built for arm64; theirs
-// are arm64e) and aborts. The maps stay, so the copy's own binary started
-// again through such a tool still finds them. The copy's own helpers,
-// inside its bundle, keep everything.
+// are arm64e) and aborts. Its maps are left as they are (without the
+// library they do nothing). The copy's own helpers, inside its bundle, keep
+// everything.
 
 // "<copy>.app/", from where this library was loaded; empty when that isn't
 // a copy's Frameworks folder, and then nothing is changed.
