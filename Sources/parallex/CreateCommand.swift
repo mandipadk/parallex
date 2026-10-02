@@ -25,6 +25,9 @@ struct Create: ParsableCommand {
         if (app == nil) == (web == nil) {
             throw ValidationError("Name an app, or a website with --web.")
         }
+        if recommended && (clone || web != nil) {
+            throw ValidationError("--recommended picks whether it's a copy itself; leave out --clone and --web.")
+        }
     }
 
     @Option(name: .shortAndLong, help: "Display name for the instance (default: \"<App> 2\", \"<App> 3\", …).")
@@ -88,6 +91,9 @@ struct Create: ParsableCommand {
     """)
     var clone = false
 
+    @Flag(help: "Make it the way New Instance would: an own-identity copy (as --clone) or not, as `apps` recommends for this app.")
+    var recommended = false
+
     @Flag(help: "Rebuild an existing instance with the same name (its data is kept).")
     var force = false
 
@@ -128,6 +134,9 @@ struct Create: ParsableCommand {
             cloneApp: clone,
             force: force
         )
+        if recommended {
+            request.cloneApp = AppCatalog.recommendsCopy(try AppInspector.inspect(try AppResolver.resolve(app ?? "")))
+        }
         request.webURL = web
         request.throwaway = throwaway
         // A web instance looks like its site: its own icon, or a letter tile.

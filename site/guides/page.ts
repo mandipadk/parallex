@@ -4,25 +4,54 @@
  * site is built (see build.ts). Static HTML: readable without JavaScript.
  */
 
-export type LabResult = { app: string; version?: string; result: string; leaks?: number; blocked?: number }
+import { defaultMode, historyKey, type Mode } from "../worker/labdiff.ts"
+
+/** An app's night: its default instance (a copy, or for browsers a wrapper
+ *  with a profile folder of its own) and, for a wrapper, a copy's too. */
+export type LabResult = {
+  app: string
+  version?: string
+  mode?: string
+  result: string
+  leaks?: number
+  blocked?: number
+  ownIdentity?: { result: string; leaks?: number }
+}
 export type LabRun = { date: string; macos: string; apps: LabResult[] }
-/** Each app's nights in the lab, newest first. */
+/** Each app's nights in the lab, newest first (see historyKey). */
 export type LabHistory = Record<string, { day: string; version: string; result: string }[]>
 
 const longDay = (day: string) =>
   new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })
 
-/** What an app's nights add up to, in a sentence (or nothing to say yet). */
-export function historyLine(nights: { day: string; version: string; result: string }[] | undefined): string {
+/** What an app's nights of one kind of instance add up to, in a sentence
+ *  (or nothing to say yet). */
+export function historyLine(nights: { day: string; version: string; result: string }[] | undefined, mode: Mode = "copy"): string {
   const tried = (nights ?? []).filter((n) => ["ran", "quit", "crashed", "leaked"].includes(n.result))
   if (tried.length < 2) return ""
+  const its = mode === "copy" ? "Its copies" : "Its instances"
   let streak = 0
   while (streak < tried.length && tried[streak].result === "ran") streak++
-  if (streak === tried.length) return `Its copies have run clean on all ${tried.length} nights since ${longDay(tried[tried.length - 1].day)}.`
+  if (streak === tried.length) return `${its} have run clean on all ${tried.length} nights since ${longDay(tried[tried.length - 1].day)}.`
   if (streak === 0) return ""
   const trouble = tried[streak]
   const what = trouble.result === "quit" ? "quit at launch" : trouble.result
-  return `Its copies last had trouble on ${longDay(trouble.day)} (${trouble.version ? `${trouble.version}, ` : ""}${what}), and have run clean on the ${streak} ${streak === 1 ? "night" : "nights"} since.`
+  return `${its} last had trouble on ${longDay(trouble.day)} (${trouble.version ? `${trouble.version}, ` : ""}${what}), and have run clean on the ${streak} ${streak === 1 ? "night" : "nights"} since.`
+}
+
+/** For an app whose instances aren't copies by default: how its copy did
+ *  (as HTML). */
+function ownIdentityLine(own: LabResult["ownIdentity"]): string {
+  if (!own) return ""
+  if (own.result === "ran") {
+    return own.leaks
+      ? ` Made as its own copy instead (Own identity), it ran, though it reached ${own.leaks} of the original's files.`
+      : " Made as its own copy instead (Own identity), it ran clean too."
+  }
+  if (["quit", "crashed", "leaked"].includes(own.result)) {
+    return ` Made as its own copy instead (Own identity), it didn't run cleanly (${own.result === "quit" ? "quit at launch" : escape(own.result)}).`
+  }
+  return ""
 }
 
 export type Guide = {
@@ -31,6 +60,9 @@ export type Guide = {
   app: string
   /** Its name in the nightly lab, when it's there. */
   labName?: string
+  /** The kind of instance the page is about, when it isn't a copy: the
+   *  lab's result shows only when it's for that kind. */
+  labMode?: Mode
   /** What people search for: "Two Slack accounts on one Mac". */
   title: string
   /** One sentence for search results. */
@@ -176,17 +208,24 @@ export function labBlock(guide: Guide, lab: LabRun | null, history: LabHistory |
   if (Number.isNaN(date.getTime())) return ""
   const day = date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })
   const version = result.version ? ` ${result.version}` : ""
+  const mode = defaultMode(result)
+  if (guide.labMode && guide.labMode !== mode) return ""
+  // What the lab makes: what New Instance makes for the app by default.
+  const made = mode === "copy"
+    ? `a fresh copy of ${escape(guide.app)}${escape(version)}`
+    : `a fresh instance of ${escape(guide.app)}${escape(version)} (the app itself, opened with a profile folder of its own, as New Instance makes it)`
+  const own = ownIdentityLine(result.ownIdentity)
   if (result.result === "ran") {
     const reached = result.leaks ? `, though it reached ${result.leaks} of the original's files` : ", and nothing reached the original's data"
-    const past = history ? historyLine(withLatest(history[guide.labName], lab.date.slice(0, 10), result)) : ""
+    const past = history ? historyLine(withLatest(history[historyKey(guide.labName, mode)], lab.date.slice(0, 10), result), mode) : ""
     return `  <section class="lab">
     <h2>Tested every night</h2>
-    <p>Parallex's compatibility lab makes a fresh copy of ${escape(guide.app)}${escape(version)} every night on a clean Mac and opens it. On ${day}, on macOS ${escape(lab.macos)}, the copy ran${reached}.${past ? ` ${escape(past)}` : ""} <a href="/compatibility">See every app's latest result</a>.</p>
+    <p>Parallex's compatibility lab makes ${made} every night on a clean Mac and opens it. On ${day}, on macOS ${escape(lab.macos)}, ${mode === "copy" ? "the copy" : "it"} ran${reached}.${past ? ` ${escape(past)}` : ""}${own} <a href="/compatibility">See every app's latest result</a>.</p>
   </section>`
   }
   return `  <section class="lab not">
     <h2>Tested every night</h2>
-    <p>Parallex's compatibility lab makes a fresh copy of ${escape(guide.app)}${escape(version)} every night on a clean Mac. On ${day} it didn't run cleanly (${escape(result.result)}); <a href="/compatibility">see the latest</a> before relying on it.</p>
+    <p>Parallex's compatibility lab makes ${made} every night on a clean Mac. On ${day} it didn't run cleanly (${escape(result.result)}).${own} <a href="/compatibility">See the latest</a> before relying on it.</p>
   </section>`
 }
 

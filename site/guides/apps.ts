@@ -303,6 +303,8 @@ export const guides: Guide[] = [
   {
     slug: "chrome",
     app: "Google Chrome",
+    labName: "Google Chrome",
+    labMode: "wrapper",
     title: "Two separate Chromes on one Mac, beyond profiles",
     description: "Run a second Chrome with its own data folder, sign-ins and extensions, and send links to the right one. Works with Brave, Edge, Arc, Vivaldi too. Free and open source.",
     ownDock: false,

@@ -4,7 +4,7 @@ import { guides } from "../../../guides/apps.ts"
 import { Heading } from "./heading"
 import { Reveal, RevealGroup, RevealItem } from "./reveal"
 
-type LabApp = { app: string; version?: string; result: string; leaks?: number }
+type LabApp = { app: string; version?: string; mode?: string; result: string; leaks?: number }
 type Lab = { date: string; macos: string; apps: LabApp[] }
 
 /** Last night's lab run, from the site's own API (which reads the published results). */
@@ -32,10 +32,10 @@ const when = (iso: string) => {
 }
 
 function summary(lab: Lab | null): string {
-  if (!lab) return "Every night, a clean Mac makes a fresh copy of each of these apps, opens it, and checks that it runs without reaching the original's data."
+  if (!lab) return "Every night, a clean Mac makes a fresh instance of each of these apps, the way New Instance makes one, opens it, and checks that it runs without reaching the original's data."
   const tried = lab.apps.filter((a) => ["ran", "quit", "crashed", "leaked"].includes(a.result))
   const clean = tried.filter((a) => a.result === "ran" && !a.leaks)
-  return `${when(lab.date)}, on macOS ${lab.macos}, ${clean.length} of ${tried.length} copies ran on a clean Mac without reaching the original's data. It happens every night, and the results are public.`
+  return `${when(lab.date)}, on macOS ${lab.macos}, ${clean.length} of ${tried.length} instances ran on a clean Mac without reaching the original's data. It happens every night, and the results are public.`
 }
 
 const links = [
@@ -55,8 +55,11 @@ export function Proof() {
 
       <RevealGroup className="mt-14 grid grid-cols-2 gap-3 sm:mt-16 sm:grid-cols-3 lg:grid-cols-5" stagger={0.03}>
         {guides.map((guide) => {
-          const result = guide.labName ? lab?.apps.find((a) => a.app === guide.labName) : undefined
+          const found = guide.labName ? lab?.apps.find((a) => a.app === guide.labName) : undefined
+          // A page about a browser's profile instance shows only that kind's result.
+          const result = found && (!guide.labMode || guide.labMode === (found.mode ?? "copy")) ? found : undefined
           const clean = result?.result === "ran" && !result.leaks
+          const ran = result?.mode === "wrapper" ? "Ran clean as a separate profile" : "Ran clean"
           return (
             <RevealItem key={guide.slug}>
               <a
@@ -65,7 +68,7 @@ export function Proof() {
               >
                 <span className="text-[15px] font-medium tracking-tight">{guide.app}</span>
                 <span className={`text-[12.5px] ${clean ? "text-foreground/70" : "text-subtle"}`}>
-                  {result ? (clean ? `Ran clean${result.version ? `, ${result.version}` : ""}` : `Last run: ${result.result}`) : guide.labName ? "Tested nightly" : "How it goes"}
+                  {result ? (clean ? `${ran}${result.version ? `, ${result.version}` : ""}` : `Last run: ${result.result}`) : guide.labName ? "Tested nightly" : "How it goes"}
                 </span>
               </a>
             </RevealItem>

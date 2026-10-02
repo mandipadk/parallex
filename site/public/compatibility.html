@@ -116,17 +116,29 @@ const labResults = { ran: "Ran", quit: "Quit on opening", crashed: "Crashed", le
 function renderLab(lab) {
   if (!lab || !lab.apps || !lab.apps.length) return
   const when = new Date(lab.date)
-  document.getElementById("lab-about").textContent =
-    `A fresh copy of each app, made by the current Parallex and opened on macOS ${lab.macos}, ${isNaN(when) ? lab.date : when.toLocaleDateString(undefined, { month: "long", day: "numeric" })}. Every copy has its own Library, keychain and Guard.`
+  const day = isNaN(when) ? lab.date : when.toLocaleDateString(undefined, { month: "long", day: "numeric" })
+  // Runs before the lab recorded how each instance was made only made copies.
+  const wrappers = lab.apps.some((app) => app.mode === "wrapper")
+  document.getElementById("lab-about").textContent = wrappers
+    ? `A fresh instance of each app, made the way New Instance makes it by the current Parallex and opened on macOS ${lab.macos}, ${day}. Most are copies, each with its own Library, keychain and Guard. Browsers get a profile folder of their own instead, and are tried as their own copy too.`
+    : `A fresh copy of each app, made by the current Parallex and opened on macOS ${lab.macos}, ${day}. Every copy has its own Library, keychain and Guard.`
+  const chip = (run) => {
+    const good = run.result === "ran" && !run.leaks && !run.crashes
+    const untried = run.result === "not installed" || run.result === "not checked"
+    return el("span", `chip ${good ? "works" : untried ? "untried" : "broken"}`, Object.hasOwn(labResults, run.result) ? labResults[run.result] : run.result)
+  }
   const grid = document.getElementById("lab-apps")
   grid.replaceChildren()
   for (const app of lab.apps) {
     const item = el("div", "lab-app")
     item.append(el("span", "name", app.app))
     if (app.version) item.append(el("span", "evidence", app.version))
-    const good = app.result === "ran" && !app.leaks && !app.crashes
-    const untried = app.result === "not installed" || app.result === "not checked"
-    item.append(el("span", `chip ${good ? "works" : untried ? "untried" : "broken"}`, Object.hasOwn(labResults, app.result) ? labResults[app.result] : app.result))
+    if (app.mode === "wrapper") item.append(el("span", "evidence", "With a profile folder of its own"))
+    item.append(chip(app))
+    if (app.ownIdentity && app.ownIdentity.result) {
+      item.append(el("span", "evidence", "As its own copy"))
+      item.append(chip(app.ownIdentity))
+    }
     grid.append(item)
   }
   document.getElementById("lab").hidden = false

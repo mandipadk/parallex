@@ -81,6 +81,13 @@ public enum AppCatalog {
         }
     }
 
+    /// Whether a new instance of this app starts out as an own-identity copy:
+    /// what New Instance picks for it from the catalog (the catalog's
+    /// recommendation, when a copy is possible), and `create --recommended`.
+    public static func recommendsCopy(_ info: AppInfo, compatibility: [String: Compatibility.Record] = Compatibility.load()) -> Bool {
+        entry(for: info, compatibility: compatibility).recommendsClone && AppCloner.assess(info).possible
+    }
+
     /// Classify one app.
     public static func entry(
         for info: AppInfo,

@@ -33,7 +33,7 @@ test("only app pages with lab results are filled in", () => {
   assert.equal(guideFor("/apps/slack.html"), undefined)
   assert.equal(guideFor("/apps/slack/"), undefined)
   assert.equal(guideFor("/apps/nothing"), undefined)
-  assert.equal(guideFor("/apps/chrome"), undefined)
+  assert.equal(guideFor("/apps/teams"), undefined)
   assert.equal(guideFor("/apps"), undefined)
 })
 
@@ -72,6 +72,29 @@ test("fields the lab adds later don't get in the way", () => {
   })
   assert.ok(lab)
   assert.match(liveBlock(slack, lab, {})!, /Slack 4\.52\.155 every night/)
+})
+
+test("a browser's page shows its profile instance's result, with its own nights", () => {
+  const chrome = guides.find((g) => g.slug === "chrome")!
+  assert.equal(guideFor("/apps/chrome"), chrome)
+  const nights: LabHistory = {
+    "Google Chrome": [{ day: "2026-10-01", version: "152", result: "quit" }, { day: "2026-09-30", version: "152", result: "quit" }],
+    "Google Chrome (wrapper)": [{ day: "2026-10-01", version: "152", result: "ran" }],
+  }
+  const lab = (own: string): LabRun => ({
+    date: "2026-10-02T14:57:18Z", macos: "26.6.2",
+    apps: [{ app: "Google Chrome", version: "153", mode: "wrapper", result: "ran", leaks: 0, ownIdentity: { result: own } }],
+  })
+  const block = liveBlock(chrome, lab("ran"), nights)!
+  assert.match(block, /makes a fresh instance of Google Chrome 153 \(the app itself, opened with a profile folder of its own/)
+  assert.match(block, /on macOS 26\.6\.2, it ran, and nothing reached the original's data\./)
+  assert.match(block, /Its instances have run clean on all 2 nights since October 1\./)
+  assert.match(block, /Made as its own copy instead \(Own identity\), it ran clean too\./)
+  assert.doesNotMatch(block, /fresh copy|the copy ran/)
+  assert.match(liveBlock(chrome, lab("quit"), nights)!, /Made as its own copy instead \(Own identity\), it didn't run cleanly \(quit at launch\)\./)
+  // A night from before the lab made wrappers was a copy's: not this page's.
+  const old: LabRun = { date: "2026-10-01T14:57:18Z", macos: "26.6.2", apps: [{ app: "Google Chrome", version: "152", result: "ran" }] }
+  assert.equal(liveBlock(chrome, old, nights), null)
 })
 
 test("the page's structured data stays valid", () => {

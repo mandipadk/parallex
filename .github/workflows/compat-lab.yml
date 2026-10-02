@@ -1,9 +1,11 @@
 name: Compatibility lab
 
 # Every night, the current Parallex against the current versions of popular
-# apps: each installed fresh, copied (its own Library, keychain, Guard and
-# recorder), opened, and checked for running, crashing and reaching the
-# original's data. Results in the run's summary and as compat-lab.json.
+# apps: each installed fresh, made into an instance the way New Instance
+# makes one by default (a copy with its own Library, keychain, Guard and
+# recorder, or for browsers a wrapper with a profile folder of its own, and
+# then a copy too), opened, and checked for running, crashing and reaching
+# the original's data. Results in the run's summary and as compat-lab.json.
 on:
   schedule:
     - cron: "37 7 * * *"
@@ -95,10 +97,21 @@ jobs:
                   raise SystemExit(f"unexpected entry: {entry!r}")
               if not isinstance(entry.get("version", ""), str) or len(entry.get("version", "")) > 40:
                   raise SystemExit(f"unexpected version: {entry!r}")
-              for key in ("processes", "leaks", "blocked", "crashes"):
-                  if key in entry and (type(entry[key]) is not int or not 0 <= entry[key] < 10000):
-                      raise SystemExit(f"unexpected {key}: {entry!r}")
-              apps.append({k: entry[k] for k in ("app", "version", "result", "processes", "leaks", "blocked", "crashes") if k in entry})
+              if entry.get("mode", "copy") not in ("copy", "wrapper"):
+                  raise SystemExit(f"unexpected mode: {entry!r}")
+              own = entry.get("ownIdentity")
+              if own is not None and (not isinstance(own, dict) or own.get("result") not in allowed):
+                  raise SystemExit(f"unexpected ownIdentity: {entry!r}")
+              for counts in (entry, own or {}):
+                  for key in ("processes", "leaks", "blocked", "crashes"):
+                      if key in counts and (type(counts[key]) is not int or not 0 <= counts[key] < 10000):
+                          raise SystemExit(f"unexpected {key}: {entry!r}")
+              # The default instance's result, as a copy or a wrapper; for
+              # a wrapper, an own-identity copy's too.
+              app = {k: entry[k] for k in ("app", "version", "mode", "result", "processes", "leaks", "blocked", "crashes") if k in entry}
+              if own is not None:
+                  app["ownIdentity"] = {k: own[k] for k in ("result", "processes", "leaks", "blocked", "crashes") if k in own}
+              apps.append(app)
           # A night where nothing could be tried (an outage) isn't a result.
           if not any(a["result"] in ("ran", "quit", "crashed", "leaked") for a in apps):
               raise SystemExit("nothing was tried; not publishing")

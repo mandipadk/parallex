@@ -40,6 +40,34 @@ final class AppCatalogTests: XCTestCase {
         XCTAssertTrue(catalog[2].recommendsClone)
     }
 
+    /// `create --recommended` makes what New Instance makes from the catalog:
+    /// browsers keep their profile folders, other apps become copies.
+    func testRecommendedModeIsTheCatalogs() throws {
+        let apps = tempDir.appendingPathComponent("Applications")
+        try FileManager.default.createDirectory(at: apps, withIntermediateDirectories: true)
+        let chrome = try Fixtures.makeApp(named: "Google Chrome", bundleID: "com.google.Chrome", in: apps)
+        let firefox = try Fixtures.makeApp(named: "Firefox", bundleID: "org.mozilla.firefox", in: apps, applicationIni: true)
+        let electron = try Fixtures.makeApp(named: "Chat", bundleID: "com.fake.chat", in: apps, electron: true)
+        let native = try Fixtures.makeApp(named: "Native", bundleID: "com.fake.native", in: apps)
+        let notes = try Fixtures.makeApp(named: "Notes", bundleID: "com.apple.Notes", in: apps)
+
+        var expected: [String: Bool] = [:]
+        for app in [chrome, firefox, electron, native, notes] {
+            let info = try AppInspector.inspect(app)
+            let entry = AppCatalog.entry(for: info)
+            XCTAssertEqual(AppCatalog.recommendsCopy(info, compatibility: [:]),
+                           entry.recommendsClone && AppCloner.assess(info).possible, info.name)
+            expected[info.name] = AppCatalog.recommendsCopy(info, compatibility: [:])
+        }
+        XCTAssertEqual(expected, ["Google Chrome": false, "Firefox": false, "Chat": true, "Native": true, "Notes": false])
+
+        // An app whose copies quit here (as this Mac learned) isn't made a copy again.
+        let nativeInfo = try AppInspector.inspect(native)
+        XCTAssertTrue(AppCatalog.recommendsCopy(nativeInfo))
+        Compatibility.recordQuickExit(bundleID: "com.fake.native", version: AppCloner.version(of: native))
+        XCTAssertFalse(AppCatalog.recommendsCopy(nativeInfo))
+    }
+
     /// Sign a fixture app ad hoc with these entitlements (signing works with
     /// any entitlements; only launching would fail).
     private func sign(_ app: URL, entitlements: [String: Any]) throws {
